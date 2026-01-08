@@ -25,15 +25,15 @@ sinks:
     type: clickhouse
     inputs:
       - parse_logs
-    endpoint: "http://clickhouse:8123"
-    database: default
+    endpoint: "${CLICKHOUSE_ENDPOINT}"
+    database: "${CLICKHOUSE_DB}"
     table: access_logs
     format: json_each_row
     compression: gzip
     auth:
       strategy: basic
-      user: default
-      password: "my_secure_password"
+      user: "${CLICKHOUSE_USER}"
+      password: "${CLICKHOUSE_PASSWORD}"
     batch:
       max_events: 1000
       timeout_secs: 1
