@@ -1,0 +1,37 @@
+services:
+  angie:
+    image: nginx:latest
+    ports:
+      - "80:80"
+    volumes:
+      - ./angie.conf:/etc/nginx/nginx.conf
+      - angie-logs:/var/log/angie
+    depends_on:
+      - vector
+  vector:
+    image: timberio/vector:0.36.0-debian
+    volumes:
+      - ./vector.yaml:/etc/vector/vector.yaml
+      - /var/log:/var/log
+      - angie-logs:/var/log/angie
+    depends_on:
+      - clickhouse
+  clickhouse:
+    image: clickhouse/clickhouse-server:latest
+    ports:
+      - "8123:8123"
+      - "9000:9000"
+    volumes:
+      - ./init.sql:/docker-entrypoint-initdb.d/init.sql
+    environment:
+      - CLICKHOUSE_PASSWORD=my_secure_password
+
+  dbeaver:
+    image: dbeaver/cloudbeaver:latest
+    ports:
+      - "8978:8978"
+    depends_on:
+      - clickhouse
+
+volumes:
+  angie-logs:
