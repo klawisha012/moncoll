@@ -5,12 +5,16 @@ services:
       - "80:80"
     volumes:
       - ./angie/angie.conf:/etc/angie/angie.conf
+      - ./angie/modsecurity.conf:/etc/angie/modsecurity.conf
+      - ./angie/crs:/etc/angie/crs
+      - ./angie/http.d:/etc/angie/http.d
       - angie-logs:/var/log/angie
     env_file:
       - ./envs/angie.env
     depends_on:
       - vector
-    command: sh -c "rm /var/log/angie/access.log && angie -g 'daemon off;'"
+    command: sh -c "angie -g 'daemon off;'"
+    # command: sh -c "rm /var/log/angie/access.log && angie -g 'daemon off;'"
 
   vector:
     image: timberio/vector:0.36.0-debian
