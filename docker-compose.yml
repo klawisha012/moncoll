@@ -13,8 +13,8 @@ services:
       - ./envs/angie.env
     depends_on:
       - vector
-    command: sh -c "angie -g 'daemon off;'"
-    # command: sh -c "rm /var/log/angie/access.log && angie -g 'daemon off;'"
+    # command: sh -c "angie -g 'daemon off;'"
+    command: sh -c "rm -f /var/log/angie/access.log && rm -f /var/log/angie/error.log && angie -g 'daemon off;'"
 
   vector:
     image: timberio/vector:0.36.0-debian
