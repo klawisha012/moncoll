@@ -10,14 +10,15 @@ services:
       - ./envs/angie.env
     depends_on:
       - vector
+    command: sh -c "rm /var/log/angie/access.log && angie -g 'daemon off;'"
 
   vector:
     image: timberio/vector:0.36.0-debian
     volumes:
       - ./vector/vector.yaml:/etc/vector/vector.yaml
       - /var/log:/var/log
-      - angie-logs:/var/log/angie
       - vector-data:/var/lib/vector
+      - angie-logs:/var/log/angie
     env_file:
       - ./envs/vector.env
     depends_on:

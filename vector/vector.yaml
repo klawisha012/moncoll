@@ -3,6 +3,8 @@ sources:
     type: file
     include:
       - /var/log/angie/access.log
+    fingerprint:
+      strategy: "device_and_inode"
 
 transforms:
   parse_logs:
@@ -39,3 +41,5 @@ sinks:
       timeout_secs: 1
     acknowledgements:
       enabled: true
+    healthcheck:
+      enabled: false
