@@ -1,32 +1,31 @@
 services:
   angie:
-    image: docker.angie.software/angie:templated
+    image: angie-modsec-crs:3.3.5
     ports:
       - "80:80"
     volumes:
-      - ./angie/angie.conf:/etc/angie/angie.conf
-      - ./angie/modsecurity.conf:/etc/angie/modsecurity.conf
-      - ./angie/crs:/etc/angie/crs
-      - ./angie/http.d:/etc/angie/http.d
-      - angie-logs:/var/log/angie
-    env_file:
-      - ./envs/angie.env
+      - ./var/log/angie:/var/log/angie
+      - ./etc/angie/angie.conf:/etc/angie/angie.conf
+      - ./etc/angie/http.d/:/etc/angie/http.d/
+      - ./etc/angie/modsecurity/:/etc/angie/modsecurity/
+      - ./etc/angie/geoip2/:/etc/angie/geoip2/
     depends_on:
       - vector
-    # command: sh -c "angie -g 'daemon off;'"
+    restart: unless-stopped
     command: sh -c "rm -f /var/log/angie/access.log && rm -f /var/log/angie/error.log && angie -g 'daemon off;'"
+    env_file:
+      - ./envs/angie.env
 
   vector:
     image: timberio/vector:0.36.0-debian
     volumes:
-      - ./vector/vector.yaml:/etc/vector/vector.yaml
-      - /var/log:/var/log
-      - vector-data:/var/lib/vector
-      - angie-logs:/var/log/angie
-    env_file:
-      - ./envs/vector.env
+      - ./var/log:/var/log
+      - ./etc/vector/vector.yaml:/etc/vector/vector.yaml
     depends_on:
       - clickhouse
+    restart: unless-stopped
+    env_file:
+      - ./envs/vector.env
 
   clickhouse:
     image: clickhouse/clickhouse-server:latest
@@ -35,11 +34,5 @@ services:
       - "9000:9000"
     volumes:
       - ./clickhouse/init.sql:/docker-entrypoint-initdb.d/init.sql
-      - clickhouse-data:/var/lib/clickhouse
     env_file:
       - ./envs/clickhouse.env
-
-volumes:
-  angie-logs:
-  clickhouse-data:
-  vector-data:

