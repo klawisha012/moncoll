@@ -12,7 +12,6 @@ services:
     depends_on:
       - vector
     restart: unless-stopped
-    command: sh -c "rm -f /var/log/angie/access.log && rm -f /var/log/angie/error.log && angie -g 'daemon off;'"
     env_file:
       - ./envs/angie.env
 
@@ -34,5 +33,9 @@ services:
       - "9000:9000"
     volumes:
       - ./clickhouse/init.sql:/docker-entrypoint-initdb.d/init.sql
+      - clickhouse:/var/lib/clickhouse
     env_file:
       - ./envs/clickhouse.env
+
+volumes:
+  clickhouse:

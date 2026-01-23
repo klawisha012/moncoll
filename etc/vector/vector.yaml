@@ -1,47 +1,222 @@
-#                                    __   __  __
-#                                    \ \ / / / /
-#                                     \ V / / /
-#                                      \_/  \/
-#
-#                                    V E C T O R
-#                                   Configuration
-#
-# ------------------------------------------------------------------------------
-# Website: https://vector.dev
-# Docs: https://vector.dev/docs
-# Chat: https://chat.vector.dev
-# ------------------------------------------------------------------------------
+# Vector Configuration for WAF and GeoIP Logs
+# This configuration processes audit.log and geoip.log and sends them to ClickHouse
 
-# Change this to use a non-default directory for Vector data storage:
-# data_dir: "/var/lib/vector"
-
-# Random Syslog-formatted logs
+# Sources: Define where logs come from
 sources:
-  dummy_logs:
-    type: "demo_logs"
-    format: "syslog"
-    interval: 1
+  # Source for ModSecurity audit logs
+  waf_audit_source:
+    type: file
+    include:
+      - /var/log/angie/audit.log
+    read_from: end
+    fingerprint:
+      strategy: device_and_inode
 
-# Parse Syslog logs
-# See the Vector Remap Language reference for more info: https://vrl.dev
+  # Source for GeoIP access logs
+  geoip_access_source:
+    type: file
+    include:
+      - /var/log/angie/geoip.log
+    read_from: end
+    fingerprint:
+      strategy: device_and_inode
+
+# Transforms: Parse and structure the logs
 transforms:
-  parse_logs:
-    type: "remap"
-    inputs: ["dummy_logs"]
+  # Transform for WAF audit logs
+  parse_waf_audit:
+    type: remap
+    inputs:
+      - waf_audit_source
     source: |
-      . = parse_syslog!(string!(.message))
+      # 1. Safe JSON parsing (Fixes "invalid unicode code point")
+      # If the log line contains binary garbage, parse_json returns an error.
+      # We catch it and abort processing for this specific event to prevent crash.
+      parsed_event, err = parse_json(.message)
+      if err != null {
+        log("Failed to parse WAF JSON: " + err, level: "warn")
+        abort
+      }
+      . = parsed_event
+      
+      # 2. Extract transaction data
+      .timestamp = parse_timestamp!(.transaction.time_stamp, format: "%a %b %d %H:%M:%S %Y")
+      .unique_id = to_string(.transaction.unique_id) ?? ""
+      .server_id = to_string(.transaction.server_id) ?? ""
+      .client_ip = to_string(.transaction.client_ip) ?? "0.0.0.0"
+      .client_port = to_int(.transaction.client_port) ?? 0
+      .host_ip = to_string(.transaction.host_ip) ?? "0.0.0.0"
+      .host_port = to_int(.transaction.host_port) ?? 0
+      
+      # 3. Request Data & HEADER FIX
+      .request_method = to_string(.transaction.request.method) ?? ""
+      .request_http_version = to_string(.transaction.request.http_version) ?? "1.1"
+      .request_uri = to_string(.transaction.request.uri) ?? ""
+      
+      # FIX: Force all header values to strings.
+      # ClickHouse Map(String, String) rejects numbers (e.g., Content-Length: 123).
+      req_headers = object(.transaction.request.headers) ?? {}
+      .request_headers = map_values(req_headers) -> |val| { to_string(val) ?? "" }
+      
+      # 4. Response Data & Header Fix
+      .response_http_code = to_int(.transaction.response.http_code) ?? 0
+      
+      res_headers = object(.transaction.response.headers) ?? {}
+      .response_headers = map_values(res_headers) -> |val| { to_string(val) ?? "" }
+      
+      # 5. Producer Data
+      .producer_modsecurity = to_string(.transaction.producer.modsecurity) ?? ""
+      .producer_connector = to_string(.transaction.producer.connector) ?? ""
+      .producer_secrules_engine = to_string(.transaction.producer.secrules_engine) ?? ""
+      
+      # 6. Nested Structures (Parallel Arrays) logic
+      # Initialize temp arrays for ClickHouse Nested columns
+      ruleIds = []
+      severities = []
+      messages = []
+      datas = []
+      files = []
+      lineNumbers = []
+      matches = []
+      
+      .messages_tags = []
+      .anomaly_score = 0
+      
+      raw_msgs = array(.transaction.messages) ?? []
+      
+      for_each(raw_msgs) -> |_index, msg| {
+        details = object(msg.details) ?? {}
+        
+        # Use to_string(...) ?? "" to safely handle nulls and ensure types
+        ruleIds = push(ruleIds, to_string(details.ruleId) ?? "")
+        severities = push(severities, to_int(details.severity) ?? 0)
+        messages = push(messages, to_string(msg.message) ?? "")
+        datas = push(datas, to_string(details.data) ?? "")
+        files = push(files, to_string(details.file) ?? "")
+        lineNumbers = push(lineNumbers, to_string(details.lineNumber) ?? "")
+        matches = push(matches, to_string(details.match) ?? "")
+        
+        # Handle Tags
+        tags_raw = array(msg.tags) ?? []
+        # Convert tags to strings to avoid type errors
+        tags_str = map_values(tags_raw) -> |t| { to_string(t) ?? "" }
+        .messages_tags = push(.messages_tags, tags_str)
+        
+        # Calculate Anomaly Score safely
+        if details.ruleId == "949110" {
+           score_str = to_string(msg.message) ?? ""
+           match_str = to_string(details.match) ?? ""
+           
+           score_data = parse_regex(score_str, r'Total Score: (?P<score>\d+)') ?? {}
+           if is_null(score_data.score) {
+              score_data = parse_regex(match_str, r'Value: `(?P<score>\d+)\'') ?? {}
+           }
+           if !is_null(score_data.score) {
+             .anomaly_score = to_int(score_data.score) ?? 0
+           }
+        }
+      }
+      
+      # Construct the final "messages" object.
+      # Vector sends this as a JSON object with array values, 
+      # which ClickHouse maps to Nested columns (e.g. messages.ruleId).
+      .messages = {
+        "ruleId": ruleIds,
+        "severity": severities,
+        "message": messages,
+        "data": datas,
+        "file": files,
+        "lineNumber": lineNumbers,
+        "match": matches
+      }
 
-# Print parsed logs to stdout
+  # Transform for GeoIP access logs
+  parse_geoip_access:
+    type: remap
+    inputs:
+      - geoip_access_source
+    source: |
+      # Safe parsing
+      parsed_event, err = parse_json(.message)
+      if err != null {
+        log("Failed to parse GeoIP JSON: " + err, level: "warn")
+        abort
+      }
+      . = parsed_event
+      
+      .time_local = parse_timestamp!(.time_local, format: "%d/%b/%Y:%H:%M:%S %z")
+      
+      # Safe type conversions
+      .remote_addr = to_string(.remote_addr) ?? "0.0.0.0"
+      .remote_user = to_string(.remote_user) ?? ""
+      .request_method = to_string(.request_method) ?? ""
+      .request_uri = to_string(.request_uri) ?? ""
+      .server_protocol = to_string(.server_protocol) ?? ""
+      .status = to_int(.status) ?? 0
+      .body_bytes_sent = to_int(.body_bytes_sent) ?? 0
+      .http_referer = to_string(.http_referer) ?? ""
+      .http_user_agent = to_string(.http_user_agent) ?? ""
+      
+      .geoip_country_code = to_string(.geoip.country_code) ?? ""
+      .geoip_city_name = to_string(.geoip.city_name) ?? ""
+      .geoip_organization = to_string(.geoip.organization) ?? ""
+      .geoip_latitude = to_float(.geoip.latitude) ?? 0.0
+      .geoip_longitude = to_float(.geoip.longitude) ?? 0.0
+
+# Sinks: Define where logs go
 sinks:
-  print:
-    type: "console"
-    inputs: ["parse_logs"]
-    encoding:
-      codec: "json"
+  # Sink for WAF audit logs to ClickHouse
+  waf_audit_sink:
+    type: clickhouse
+    inputs:
+      - parse_waf_audit
+    endpoint: "http://clickhouse:8123"
+    database: "logs"
+    table: "waf_audit_log"
+    compression: gzip
+    auth:
+      strategy: basic
+      user: "default"
+      password: "my_secure_password"
+    
+    # CRITICAL: Ignore extra fields (host, source_type, etc.) that aren't in the DB schema
+    skip_unknown_fields: true
+    date_time_best_effort: true 
+    
+    healthcheck:
+      enabled: false
+    
+    batch:
+      max_bytes: 10485760 # 10MB
+      timeout_secs: 0.1
 
-# Vector's GraphQL API (disabled by default)
-# Uncomment to try it out with the `vector top` command or
-# in your browser at http://localhost:8686
-# api:
-#   enabled: true
-#   address: "127.0.0.1:8686"
+  # Sink for GeoIP access logs to ClickHouse
+  geoip_access_sink:
+    type: clickhouse
+    inputs:
+      - parse_geoip_access
+    endpoint: "http://clickhouse:8123"
+    database: "logs"
+    table: "nginx_access_log"
+    compression: gzip
+    auth:
+      strategy: basic
+      user: "default"
+      password: "my_secure_password"
+
+    # CRITICAL: Ignore extra fields
+    skip_unknown_fields: true
+    date_time_best_effort: true
+
+    healthcheck:
+      enabled: false
+    
+    batch:
+      max_bytes: 10485760 # 10MB
+      timeout_secs: 0.1
+
+# API and monitoring
+api:
+  enabled: true
+  address: 0.0.0.0:8686
+  playground: false
