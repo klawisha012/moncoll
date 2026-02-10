@@ -64,7 +64,7 @@ CREATE TABLE IF NOT EXISTS logs.nginx_access_log
 (
     `time_local` DateTime CODEC(Delta, ZSTD(1)),
     
-    `remote_addr` String,
+    `remote_addr` IPv4,
     `remote_user` String,
     
     `request_method` LowCardinality(String),
