@@ -18,4 +18,4 @@ datasources:
     isDefault: true
     jsonDataAuthType: none
     secureJsonData:
-      password: "5YilCXuCuDUFVZ4xqfohQRnA7ObxWAhQ"
+      password: 5YilCXuCuDUFVZ4xqfohQRnA7ObxWAhQ

@@ -37,6 +37,9 @@ CLICKHOUSE_ENDPOINT=http://clickhouse:8123
 CLICKHOUSE_USER=$CLICKHOUSE_USER
 CLICKHOUSE_PASSWORD=$CLICKHOUSE_PASSWORD
 CLICKHOUSE_DB=waf
+
+# Grafana
+GF_INSTALL_PLUGINS=grafana-clickhouse-datasource
 EOF
 
 echo "Generated .env file"
