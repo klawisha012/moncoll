@@ -1,8 +1,8 @@
-from fastapi import APIRouter, HTTPException
-from pydantic import BaseModel
-from datetime import datetime, timedelta
 import random
+from datetime import datetime, timedelta
 
+from fastapi import APIRouter
+from pydantic import BaseModel
 
 router = APIRouter(prefix="/dashboard", tags=["dashboard"])
 

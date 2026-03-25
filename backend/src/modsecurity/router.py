@@ -1,19 +1,18 @@
-from fastapi import APIRouter, HTTPException, status, Depends
 import docker
+from fastapi import APIRouter, HTTPException, status
 
-from .schemas import (
-    ModSecurityConfigResponse,
-    ModSecurityConfigUpdate,
-    RuleCreate,
-    RuleResponse,
-    RuleItem,
-    ReloadResponse,
-)
-from .settings_schemas import ModSecuritySettingsResponse, ModSecuritySettingsUpdate
 from . import service as modsecurity_service
 from . import settings_service as modsec_settings_service
 from .exceptions import ConfigNotFoundError, InvalidRuleError
-
+from .schemas import (
+    ModSecurityConfigResponse,
+    ModSecurityConfigUpdate,
+    ReloadResponse,
+    RuleCreate,
+    RuleItem,
+    RuleResponse,
+)
+from .settings_schemas import ModSecuritySettingsResponse, ModSecuritySettingsUpdate
 
 router = APIRouter(prefix="/modsecurity", tags=["modsecurity"])
 
@@ -31,7 +30,7 @@ async def get_config():
         content, file_path = modsecurity_service.config_service.get_config()
         return ModSecurityConfigResponse(content=content, file_path=str(file_path))
     except ConfigNotFoundError as e:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e)) from e
 
 
 @router.get("/rules", response_model=ModSecurityConfigResponse)
@@ -40,7 +39,7 @@ async def get_rules():
         content, file_path = modsecurity_service.config_service.get_rules()
         return ModSecurityConfigResponse(content=content, file_path=str(file_path))
     except ConfigNotFoundError as e:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e)) from e
 
 
 @router.get("/rules/list", response_model=list[RuleItem])
@@ -63,12 +62,12 @@ async def update_rules(update: ModSecurityConfigUpdate):
 @router.post("/rules", response_model=RuleResponse, status_code=status.HTTP_201_CREATED)
 async def add_rule(rule: RuleCreate):
     try:
-        rule_id, file_path = modsecurity_service.config_service.add_rule(rule.rule)
+        rule_id, _ = modsecurity_service.config_service.add_rule(rule.rule)
         return RuleResponse(
             rule=rule.rule, id=rule_id, success=True, message="Rule added successfully"
         )
     except InvalidRuleError as e:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
 
 
 @router.delete("/rules/{rule_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -102,9 +101,7 @@ async def reload_angie():
 
         return ReloadResponse(success=True, message="Angie reloaded successfully")
     except docker.errors.NotFound:
-        return ReloadResponse(
-            success=False, message=f"Container '{CONTAINER_NAME}' not found"
-        )
+        return ReloadResponse(success=False, message=f"Container '{CONTAINER_NAME}' not found")
     except Exception as e:
         return ReloadResponse(success=False, message=str(e))
 

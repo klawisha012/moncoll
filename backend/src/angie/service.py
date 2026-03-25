@@ -82,16 +82,12 @@ def parse_angie_config(content: str) -> AngieSettings:
 
     settings.sendfile = "sendfile        on;" in content
 
-    m = re.search(
-        r"map\s+\$geoip2_data_country_code\s+\$denied\s*\{([^}]+)\}", content, re.DOTALL
-    )
+    m = re.search(r"map\s+\$geoip2_data_country_code\s+\$denied\s*\{([^}]+)\}", content, re.DOTALL)
     if m:
         countries = re.findall(r'^\s+(\w+)\s+"1"', m.group(1), re.MULTILINE)
         settings.denied_countries = countries
 
-    loaded_modules = set(
-        re.findall(r"^load_module\s+modules/(\S+\.so);", content, re.MULTILINE)
-    )
+    loaded_modules = set(re.findall(r"^load_module\s+modules/(\S+\.so);", content, re.MULTILINE))
     modules = []
     for mod_name in ALL_MODULES:
         modules.append(ModuleInfo(name=mod_name, loaded=mod_name in loaded_modules))
@@ -108,13 +104,9 @@ def generate_angie_config(settings: AngieSettings) -> str:
 
     modules_block = "\n".join(module_lines)
 
-    denied_block = "\n".join(
-        f'        {code} "1";' for code in settings.denied_countries
-    )
+    denied_block = "\n".join(f'        {code} "1";' for code in settings.denied_countries)
 
-    sendfile_line = (
-        "sendfile        on;" if settings.sendfile else "sendfile        off;"
-    )
+    sendfile_line = "sendfile        on;" if settings.sendfile else "sendfile        off;"
 
     log_format = (
         "    log_format with_geoip_json escape=json '{'\n"

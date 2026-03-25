@@ -1,9 +1,9 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from .modsecurity import router as modsecurity_router
-from .dashboard import router as dashboard_router
 from .angie import router as angie_router
+from .dashboard import router as dashboard_router
+from .modsecurity import router as modsecurity_router
 
 
 def create_app() -> FastAPI:

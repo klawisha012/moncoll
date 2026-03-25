@@ -1,9 +1,8 @@
-from fastapi import APIRouter, HTTPException, status
 import docker
+from fastapi import APIRouter
 
-from .schemas import AngieSettings, AngieSettingsResponse, AngieSettingsUpdate
 from . import service as angie_service
-
+from .schemas import AngieSettingsResponse, AngieSettingsUpdate
 
 router = APIRouter(prefix="/angie", tags=["angie"])
 

@@ -7,16 +7,10 @@ class ModuleInfo(BaseModel):
 
 
 class AngieSettings(BaseModel):
-    worker_processes: str = Field(
-        default="auto", description="worker_processes: auto or number"
-    )
+    worker_processes: str = Field(default="auto", description="worker_processes: auto or number")
     worker_rlimit_nofile: int = Field(default=65536, description="worker_rlimit_nofile")
-    worker_connections: int = Field(
-        default=65536, description="worker_connections in events block"
-    )
-    keepalive_timeout: int = Field(
-        default=65, description="keepalive_timeout in seconds"
-    )
+    worker_connections: int = Field(default=65536, description="worker_connections in events block")
+    keepalive_timeout: int = Field(default=65, description="keepalive_timeout in seconds")
     sendfile: bool = Field(default=True, description="sendfile on/off")
     denied_countries: list[str] = Field(
         default=["PL", "QA"], description="GeoIP denied country codes"

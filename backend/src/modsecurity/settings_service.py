@@ -101,16 +101,19 @@ def parse_modsecurity_config(content: str) -> ModSecuritySettings:
     return settings
 
 
+def _on_off(value: bool) -> str:
+    return "On" if value else "Off"
+
+
 def generate_modsecurity_config(settings: ModSecuritySettings) -> str:
     mime_types = " ".join(settings.response_body_mime_types)
-    on_off = lambda v: "On" if v else "Off"
-    status_engine = on_off(settings.status_engine)
+    status_engine = _on_off(settings.status_engine)
 
     return f"""# -- Rule engine initialization ----------------------------------------------
 SecRuleEngine {settings.rule_engine}
 
 # -- Request body handling ---------------------------------------------------
-SecRequestBodyAccess {on_off(settings.request_body_access)}
+SecRequestBodyAccess {_on_off(settings.request_body_access)}
 
 SecRule REQUEST_HEADERS:Content-Type "^(?:application(?:/soap\\+|/)|text/)xml" \\
      "id:'200000',phase:1,t:none,t:lowercase,pass,nolog,ctl:requestBodyProcessor=XML"
@@ -160,7 +163,7 @@ SecRule TX:/^MSC_/ "!@streq 0" \\
     "id:'200005',phase:2,t:none,log,deny,msg:'ModSecurity internal error flagged: %{{MATCHED_VAR_NAME}}'"
 
 # -- Response body handling --------------------------------------------------
-SecResponseBodyAccess {on_off(settings.response_body_access)}
+SecResponseBodyAccess {_on_off(settings.response_body_access)}
 
 SecResponseBodyMimeType {mime_types}
 
