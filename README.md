@@ -1,0 +1,1 @@
+docker build -f angie.Dockerfile -t angie-modsec-crs:3.3.5 .
