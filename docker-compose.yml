@@ -8,10 +8,10 @@ services:
       - "80:80"
     volumes:
       - ./var/log/angie:/var/log/angie
-      - ./etc/angie/angie.conf:/etc/angie/angie.conf
-      - ./etc/angie/http.d/:/etc/angie/http.d/
-      - ./etc/angie/modsecurity/:/etc/angie/modsecurity/
-      - ./etc/angie/geoip2/:/etc/angie/geoip2/
+      - ./configs/angie/angie.conf:/etc/angie/angie.conf
+      - ./configs/angie/http.d/:/etc/angie/http.d/
+      - ./configs/angie/modsecurity/:/etc/angie/modsecurity/
+      - ./configs/angie/geoip2/:/etc/angie/geoip2/
     depends_on:
       - vector
     restart: unless-stopped
@@ -22,7 +22,7 @@ services:
     image: timberio/vector:0.36.0-debian
     volumes:
       - ./var/log:/var/log
-      - ./etc/vector/vector.yaml:/etc/vector/vector.yaml
+      - ./configs/vector/vector.yaml:/etc/vector/vector.yaml
     depends_on:
       - clickhouse
     restart: unless-stopped
@@ -35,7 +35,7 @@ services:
       - "8123:8123"
       - "9000:9000"
     volumes:
-      - ./clickhouse/init.sql:/docker-entrypoint-initdb.d/init.sql
+      - ./configs/clickhouse/init.sql:/docker-entrypoint-initdb.d/init.sql
       - clickhouse:/var/lib/clickhouse
     env_file:
       - .env
@@ -46,7 +46,7 @@ services:
       - "3001:3000"
     volumes:
     #   - ./etc/grafana/grafana.ini:/etc/grafana/grafana.ini
-      - ./etc/grafana/provisioning:/etc/grafana/provisioning
+      - ./configs/grafana/provisioning:/etc/grafana/provisioning
       - grafana-storage:/var/lib/grafana
     depends_on:
       - clickhouse
@@ -61,8 +61,8 @@ services:
     ports:
       - "8000:8000"
     volumes:
-      - ./etc/angie/modsecurity:/app/etc/angie/modsecurity
-      - ./etc/angie/angie.conf:/app/etc/angie/angie.conf
+      - ./configs/angie/modsecurity:/app/etc/angie/modsecurity
+      - ./configs/angie/angie.conf:/app/etc/angie/angie.conf
       - /var/run/docker.sock:/var/run/docker.sock
     restart: unless-stopped
 
