@@ -6,8 +6,8 @@ async def test_get_metrics(client):
     resp = await client.get("/dashboard/metrics")
     assert resp.status_code == 200
     data = resp.json()
-    assert "totalRequests" in data
-    assert "blockedAttacks" in data
+    assert "total_requests" in data
+    assert "blocked_threats" in data
 
 
 @pytest.mark.asyncio
