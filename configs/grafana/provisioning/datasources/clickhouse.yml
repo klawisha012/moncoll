@@ -6,16 +6,16 @@ datasources:
     uid: bfbcca0459mo0f
     access: proxy
     orgId: 1
-    database: waf
+    database: logs
     secure: false
     jsonData:
       protocol: http
       port: 8123
       host: clickhouse
-      username: default
+      username: user_434d675d
     version: 1
     editable: false
     isDefault: true
     jsonDataAuthType: none
     secureJsonData:
-      password: "my_secure_password"
+      password: "5YilCXuCuDUFVZ4xqfohQRnA7ObxWAhQ"

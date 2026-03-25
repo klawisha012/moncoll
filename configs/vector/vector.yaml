@@ -176,8 +176,8 @@ sinks:
     compression: gzip
     auth:
       strategy: basic
-      user: "default"
-      password: "my_secure_password"
+      user: "${CLICKHOUSE_USER}"
+      password: "${CLICKHOUSE_PASSWORD}"
     
     # CRITICAL: Ignore extra fields (host, source_type, etc.) that aren't in the DB schema
     skip_unknown_fields: true
@@ -201,8 +201,8 @@ sinks:
     compression: gzip
     auth:
       strategy: basic
-      user: "default"
-      password: "my_secure_password"
+      user: "${CLICKHOUSE_USER}"
+      password: "${CLICKHOUSE_PASSWORD}"
 
     # CRITICAL: Ignore extra fields
     skip_unknown_fields: true

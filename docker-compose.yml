@@ -1,9 +1,7 @@
 name: waf
 services:
   angie:
-    build:
-      context: .
-      dockerfile: angie.Dockerfile
+    build: configs/angie
     ports:
       - "80:80"
     volumes:
@@ -28,6 +26,9 @@ services:
     restart: unless-stopped
     env_file:
       - .env
+    environment:
+      - CLICKHOUSE_USER=${CLICKHOUSE_USER:-default}
+      - CLICKHOUSE_PASSWORD=${CLICKHOUSE_PASSWORD:-}
 
   clickhouse:
     image: clickhouse/clickhouse-server:latest
@@ -37,6 +38,10 @@ services:
     volumes:
       - ./configs/clickhouse/init.sql:/docker-entrypoint-initdb.d/init.sql
       - clickhouse:/var/lib/clickhouse
+    environment:
+      - CLICKHOUSE_USER=${CLICKHOUSE_USER:-default}
+      - CLICKHOUSE_PASSWORD=${CLICKHOUSE_PASSWORD:-}
+      - CLICKHOUSE_DB=${CLICKHOUSE_DB:-logs}
     env_file:
       - .env
 
@@ -51,10 +56,12 @@ services:
     depends_on:
       - clickhouse
     restart: unless-stopped
+    env_file:
+      - .env
     environment:
-    #   - GF_SECURITY_ADMIN_PASSWORD=admin
-    #   - GF_USERS_ALLOW_SIGN_UP=false
       - GF_INSTALL_PLUGINS=grafana-clickhouse-datasource
+      - CLICKHOUSE_USER=${CLICKHOUSE_USER:-default}
+      - CLICKHOUSE_PASSWORD=${CLICKHOUSE_PASSWORD:-}
 
   backend:
     build: ./backend
