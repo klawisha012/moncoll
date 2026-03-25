@@ -1,5 +1,5 @@
 .ai/
-
+.env
 # Logs
 *.log
 logs/

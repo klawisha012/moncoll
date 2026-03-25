@@ -14,7 +14,7 @@ services:
       - vector
     restart: unless-stopped
     env_file:
-      - ./envs/angie.env
+      - .env
 
   vector:
     image: timberio/vector:0.36.0-debian
@@ -25,7 +25,7 @@ services:
       - clickhouse
     restart: unless-stopped
     env_file:
-      - ./envs/vector.env
+      - .env
 
   clickhouse:
     image: clickhouse/clickhouse-server:latest
@@ -36,7 +36,7 @@ services:
       - ./clickhouse/init.sql:/docker-entrypoint-initdb.d/init.sql
       - clickhouse:/var/lib/clickhouse
     env_file:
-      - ./envs/clickhouse.env
+      - .env
 
   grafana:
     image: grafana/grafana:latest
