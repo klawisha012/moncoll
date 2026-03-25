@@ -1,18 +1,51 @@
-.ai/
+# Environment
 .env
+.env.local
+.env.*.local
+
+# AI
+.ai/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.egg-info/
+*.egg
+.venv/
+venv/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+htmlcov/
+.coverage
+coverage.xml
+
+# Node / Frontend
+node_modules/
+dist/
+*.tsbuildinfo
+
 # Logs
 *.log
-logs/
+var/log/
 
 # Temporary files
 temp/
 tmp/
 
-# Python
-__pycache__/
-*.pyc
-.pytest_cache/
-
 # Test artifacts
 test_output/
 test_results/
+
+# Editor / IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db

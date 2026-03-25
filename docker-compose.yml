@@ -1,7 +1,9 @@
 name: waf
 services:
   angie:
-    image: angie-modsec-crs:3.3.5
+    build:
+      context: .
+      dockerfile: angie.Dockerfile
     ports:
       - "80:80"
     volumes:
@@ -41,7 +43,7 @@ services:
   grafana:
     image: grafana/grafana:latest
     ports:
-      - "3000:3000"
+      - "3001:3000"
     volumes:
     #   - ./etc/grafana/grafana.ini:/etc/grafana/grafana.ini
       - ./etc/grafana/provisioning:/etc/grafana/provisioning
@@ -53,6 +55,24 @@ services:
     #   - GF_SECURITY_ADMIN_PASSWORD=admin
     #   - GF_USERS_ALLOW_SIGN_UP=false
       - GF_INSTALL_PLUGINS=grafana-clickhouse-datasource
+
+  backend:
+    build: ./backend
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./etc/angie/modsecurity:/app/etc/angie/modsecurity
+      - ./etc/angie/angie.conf:/app/etc/angie/angie.conf
+      - /var/run/docker.sock:/var/run/docker.sock
+    restart: unless-stopped
+
+  frontend:
+    build: ./frontend
+    ports:
+      - "3000:3000"
+    depends_on:
+      - backend
+    restart: unless-stopped
 
 volumes:
   clickhouse:
