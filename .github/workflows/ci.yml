@@ -25,10 +25,10 @@ jobs:
         working-directory: backend
 
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v4
 
       - name: Set up Python
-        uses: actions/setup-python@v6
+        uses: actions/setup-python@v5
         with:
           python-version: "3.11"
           cache: "pip"
@@ -59,10 +59,10 @@ jobs:
         working-directory: frontend
 
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v4
 
       - name: Set up Node.js
-        uses: actions/setup-node@v5
+        uses: actions/setup-node@v4
         with:
           node-version: "20"
           cache: "npm"
@@ -85,13 +85,13 @@ jobs:
     needs: [backend-checks, frontend-checks]
 
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v4
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v4
+        uses: docker/setup-buildx-action@v3
 
       - name: Build backend image
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v5
         with:
           context: ./backend
           push: false
@@ -100,7 +100,7 @@ jobs:
           cache-to: type=gha,mode=max
 
       - name: Build frontend image
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v5
         with:
           context: ./frontend
           push: false
@@ -109,7 +109,7 @@ jobs:
           cache-to: type=gha,mode=max
 
       - name: Build angie image
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v5
         with:
           context: ./configs/angie
           push: false
@@ -126,10 +126,10 @@ jobs:
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
 
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v4
 
       - name: Set up Python
-        uses: actions/setup-python@v6
+        uses: actions/setup-python@v5
         with:
           python-version: "3.11"
 
@@ -175,7 +175,7 @@ jobs:
 
       - name: Upload logs artifact
         if: steps.integration.outcome == 'failure'
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@v4
         with:
           name: docker-logs
           path: docker-logs.txt
@@ -196,13 +196,13 @@ jobs:
       security-events: write
 
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v4
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v4
+        uses: docker/setup-buildx-action@v3
 
       - name: Build backend image for scan
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v5
         with:
           context: ./backend
           load: true
@@ -217,14 +217,14 @@ jobs:
           severity: "CRITICAL,HIGH"
 
       - name: Upload Trivy backend results
-        uses: github/codeql-action/upload-sarif@v4
+        uses: github/codeql-action/upload-sarif@v3
         if: always() && hashFiles('trivy-backend.sarif') != ''
         with:
           sarif_file: "trivy-backend.sarif"
           category: backend
 
       - name: Build frontend image for scan
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v5
         with:
           context: ./frontend
           load: true
@@ -239,7 +239,7 @@ jobs:
           severity: "CRITICAL,HIGH"
 
       - name: Upload Trivy frontend results
-        uses: github/codeql-action/upload-sarif@v4
+        uses: github/codeql-action/upload-sarif@v3
         if: always() && hashFiles('trivy-frontend.sarif') != ''
         with:
           sarif_file: "trivy-frontend.sarif"
