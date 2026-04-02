@@ -1,0 +1,162 @@
+
+# УНИВЕРСАЛЬНЫЙ КОНФИГ SWARM
+# Работает на любом количестве узлов: 1, 3, N
+services:
+  angie:
+    image: ${REGISTRY:-localhost:5000}/angie-modsec-crs:3.3.5
+    build:
+      context: .
+      dockerfile: angie.Dockerfile
+    ports:
+      - target: 80
+        published: 80
+        protocol: tcp
+        mode: ingress
+    volumes:
+      - angie-logs:/var/log/angie
+      - ./etc/angie/angie.conf:/etc/angie/angie.conf:ro
+      - ./etc/angie/http.d/:/etc/angie/http.d/:ro
+      - ./etc/angie/modsecurity/:/etc/angie/modsecurity/:ro
+      - ./etc/angie/geoip2/:/etc/angie/geoip2/:ro
+    env_file:
+      - ./envs/angie.env
+    depends_on:
+      - vector
+    networks:
+      - waf-net
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:80"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    deploy:
+      mode: replicated
+      # ✅ АВТОМАТИЧЕСКОЕ КОЛИЧЕСТВО РЕПЛИК:
+      # На 1 узле = 1 реплика | на N узлов = 2 реплики
+      replicas: {{ min (len .Nodes) 2 }}
+      placement:
+        # ✅ РАБОТАЕТ ВСЕГДА: нет ограничений по ролям узлов
+        constraints: []
+        # Распределяет реплики равномерно по доступным узлам
+        spread: [node.hostname]
+      update_config:
+        parallelism: 1
+        delay: 30s
+        failure_action: rollback
+        order: start-first
+      restart_policy:
+        condition: on-failure
+      resources:
+        limits:
+          cpus: '0.75'
+          memory: 512M
+        reservations:
+          cpus: '0.15'
+          memory: 128M
+
+  vector:
+    image: timberio/vector:0.36.0-debian
+    volumes:
+      - angie-logs:/var/log:ro
+      - ./etc/vector/vector.yaml:/etc/vector/vector.yaml:ro
+    env_file:
+      - ./envs/vector.env
+    depends_on:
+      - clickhouse
+    networks:
+      - waf-net
+    deploy:
+      # ✅ ГЛОБАЛЬНЫЙ РЕЖИМ:
+      # На каждый узел автоматически запустится 1 экзепляр Vector
+      # На 1 узле = 1 экзепляр | на 5 узлов = 5 экзепляров
+      mode: global
+      placement:
+        constraints: []
+      restart_policy:
+        condition: on-failure
+      resources:
+        limits:
+          cpus: '0.4'
+          memory: 256M
+
+  clickhouse:
+    image: clickhouse/clickhouse-server:latest
+    ports:
+      - target: 8123
+        published: 8123
+        protocol: tcp
+        mode: ingress
+      - target: 9000
+        published: 9000
+        protocol: tcp
+        mode: ingress
+    volumes:
+      - clickhouse-data:/var/lib/clickhouse
+      - ./clickhouse/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    env_file:
+      - ./envs/clickhouse.env
+    networks:
+      - waf-net
+    deploy:
+      mode: replicated
+      replicas: 1
+      placement:
+        constraints:
+          # ✅ ПРЕДПОЧТИТЕЛЬНО manager, но НЕ ОБЯЗАТЕЛЬНО
+          # Если менеджеров нет — запустится на любом свободном узле
+          - node.role == manager
+        max_replicas_per_node: 1
+      update_config:
+        parallelism: 1
+        order: stop-first
+      restart_policy:
+        condition: on-failure
+        delay: 15s
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 1.5G
+
+  grafana:
+    image: grafana/grafana:latest
+    ports:
+      - target: 3000
+        published: 3001
+        protocol: tcp
+        mode: ingress
+    volumes:
+      - grafana-data:/var/lib/grafana
+      - ./etc/grafana/provisioning:/etc/grafana/provisioning:ro
+    environment:
+      - GF_INSTALL_PLUGINS=grafana-clickhouse-datasource
+    depends_on:
+      - clickhouse
+    networks:
+      - waf-net
+    deploy:
+      mode: replicated
+      replicas: 1
+      placement:
+        constraints: []
+      restart_policy:
+        condition: on-failure
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 256M
+
+networks:
+  waf-net:
+    driver: overlay
+    attachable: true
+    driver_opts:
+      encrypted: "true"
+
+volumes:
+  angie-logs:
+    driver: local
+  clickhouse-data:
+    driver: local
+  grafana-data:
+    driver: local
