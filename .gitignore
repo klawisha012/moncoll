@@ -16,3 +16,7 @@ __pycache__/
 # Test artifacts
 test_output/
 test_results/
+
+# Environment files with secrets
+envs/*.env
+!envs/*-example.env
