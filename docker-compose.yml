@@ -1,4 +1,3 @@
-name: waf
 services:
   angie:
     image: angie-modsec-crs:3.3.5
