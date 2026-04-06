@@ -1,293 +1,248 @@
-# Имя стека Docker Swarm
 name: waf
 
+# ==============================================================================
+# SECRETS
+# Создать перед деплоем:
+#   printf 'my_secure_password' | docker secret create clickhouse_password -
+#   printf 'admin' | docker secret create grafana_admin_password -
+# ==============================================================================
+secrets:
+  clickhouse_password:
+    external: true
+  grafana_admin_password:
+    external: true
+
+# ==============================================================================
+# CONFIGS
+# Создать перед деплоем:
+#   docker config create angie_conf       ./etc/angie/angie.conf
+#   docker config create angie_default    ./etc/angie/http.d/default.conf
+#   docker config create modsecurity_conf ./etc/angie/modsecurity/modsecurity.conf
+#   docker config create modsecurity_rules ./etc/angie/modsecurity/rules.conf
+#   docker config create vector_yaml      ./etc/vector/vector.yaml
+# ==============================================================================
+configs:
+  angie_conf:
+    external: true
+  angie_default:
+    external: true
+  modsecurity_conf:
+    external: true
+  modsecurity_rules:
+    external: true
+  vector_yaml:
+    external: true
+
+networks:
+  waf_net:
+    driver: overlay
+    attachable: true
+
+volumes:
+  clickhouse_data:
+    driver: local
+  grafana_data:
+    driver: local
+  angie_logs:
+    driver: local
+
 services:
-  # ============================================================
-  # WAF-прокси на базе Angie с ModSecurity и Core Rule Set
-  # Принимает входящий HTTP-трафик и фильтрует атаки
-  # ============================================================
+
+  # ----------------------------------------------------------------------------
+  # Angie (WAF + Reverse Proxy)
+  # ----------------------------------------------------------------------------
   angie:
-    # Образ собирается из angie.Dockerfile, публикуется в указанный реестр
     image: ${REGISTRY:-localhost:5000}/angie-modsec-crs:3.3.5
-    build:
-      context: .
-      dockerfile: angie.Dockerfile
-    # Проброс порта 80 в режиме host (минует ingress-балансировщик Swarm)
-    # для снижения задержки на высоконагруженном трафике
     ports:
       - target: 80
         published: 80
         protocol: tcp
-        mode: host
+        mode: ingress
     volumes:
-      # Общий том с логами — записывается angie, читается vector
-      - angie-logs:/var/log/angie
-      # Конфигурация Angie (только чтение)
-      - ./etc/angie/angie.conf:/etc/angie/angie.conf:ro
-      - ./etc/angie/http.d/:/etc/angie/http.d/:ro
-      # Правила ModSecurity и OWASP CRS
-      - ./etc/angie/modsecurity/:/etc/angie/modsecurity/:ro
-      # База данных GeoIP2 для геолокации клиентов
-      - ./etc/angie/geoip2/:/etc/angie/geoip2/:ro
+      - angie_logs:/var/log/angie
+      # GeoIP базы монтируем как bind-mount (должны быть на каждой ноде)
+      - type: bind
+        source: /opt/waf/geoip2
+        target: /etc/angie/geoip2
+    configs:
+      - source: angie_conf
+        target: /etc/angie/angie.conf
+        mode: 0444
+      - source: angie_default
+        target: /etc/angie/http.d/default.conf
+        mode: 0444
+      - source: modsecurity_conf
+        target: /etc/angie/modsecurity/modsecurity.conf
+        mode: 0444
+      - source: modsecurity_rules
+        target: /etc/angie/modsecurity/rules.conf
+        mode: 0444
+    networks:
+      - waf_net
     env_file:
       - ./envs/angie.env
-    depends_on:
-      - vector
-    networks:
-      - waf-net
-    # Проверка здоровья: HTTP-запрос к локальному порту 80
-    healthcheck:
-      test: ["CMD", "wget", "--spider", "-q", "http://localhost:80"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 30s
     deploy:
-      # Режим replicated — указанное количество реплик
-      mode: replicated
-      # 2 реплики для балансировки нагрузки и отказоустойчивости
-      replicas: 2
-      # Запуск только на worker-узлах (manager занят БД и мониторингом)
-      placement:
-        constraints:
-          - node.role == worker
-      # Стратегия обновления: поочерёдный перезапуск с задержкой
-      update_config:
-        parallelism: 1          # Обновлять по 1 реплике за раз
-        delay: 30s               # Пауза между обновлениями
-        failure_action: rollback # Откат при ошибке
-        order: start-first       # Сначала запустить новую, потом остановить старую
-      # Стратегия отката к предыдущей версии
-      rollback_config:
-        parallelism: 1
-        delay: 10s
-      # Политика перезапуска при сбоях
+      replicas: 1
       restart_policy:
         condition: on-failure
         delay: 5s
-        max_attempts: 5
-        window: 60s
-      # Ограничение ресурсов
-      resources:
-        limits:
-          cpus: '2.0'
-          memory: 1G
-        reservations:
-          cpus: '0.5'
-          memory: 256M
-      labels:
-        - "com.waf.service=angie"
-        - "com.waf.role=waf-proxy"
-
-  # ============================================================
-  # Vector — сборщик и трансформатор логов
-  # Читает логи Angie (audit.log, geoip.log) и отправляет в ClickHouse
-  # ============================================================
-  vector:
-    image: timberio/vector:0.36.0-debian
-    volumes:
-      # Только чтение: доступ к логам Angie через общий том
-      - angie-logs:/var/log:ro
-      # Конфигурация Vector (источники, трансформации, sinks)
-      - ./etc/vector/vector.yaml:/etc/vector/vector.yaml:ro
-    env_file:
-      - ./envs/vector.env
-    depends_on:
-      - clickhouse
-    networks:
-      - waf-net
-    # Проверка здоровья через встроенный HTTP API Vector (порт 8686)
-    healthcheck:
-      test: ["CMD", "wget", "--spider", "-q", "http://localhost:8686/health"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 15s
-    deploy:
-      # Режим global — автоматически по 1 экземпляру на каждый worker-узел
-      # Это гарантирует, что логи читаются локально на каждом узле
-      mode: global
-      placement:
-        constraints:
-          - node.role == worker
-      # Обновление: сначала остановить старый, потом запустить новый
+        max_attempts: 3
       update_config:
         parallelism: 1
-        delay: 15s
-        failure_action: rollback
-        order: stop-first
-      rollback_config:
-        parallelism: 1
         delay: 10s
-      restart_policy:
-        condition: on-failure
-        delay: 5s
-        max_attempts: 5
-        window: 60s
-      # Vector — лёгкий сервис, минимум ресурсов
-      resources:
-        limits:
-          cpus: '1.0'
-          memory: 512M
-        reservations:
-          cpus: '0.25'
-          memory: 128M
-      labels:
-        - "com.waf.service=vector"
-        - "com.waf.role=log-collector"
-
-  # ============================================================
-  # ClickHouse — аналитическая БД для хранения логов WAF
-  # Хранит waf_audit_log и nginx_access_log с TTL-автоочисткой
-  # ============================================================
-  clickhouse:
-    image: clickhouse/clickhouse-server:latest
-    # HTTP-интерфейс (8123) и нативный протокол (9000)
-    ports:
-      - target: 8123
-        published: 8123
-        protocol: tcp
-        mode: host
-      - target: 9000
-        published: 9000
-        protocol: tcp
-        mode: host
-    volumes:
-      # Персистентный том для данных БД
-      - clickhouse-data:/var/lib/clickhouse
-      # SQL-скрипт инициализации (создание таблиц) при первом запуске
-      - ./clickhouse/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
-    env_file:
-      - ./envs/clickhouse.env
-    networks:
-      - waf-net
-    # Проверка здоровья: выполнение тестового SQL-запроса
-    healthcheck:
-      test: ["CMD", "clickhouse-client", "--query", "SELECT 1"]
-      interval: 30s
-      timeout: 10s
-      retries: 5
-      start_period: 30s
-    deploy:
-      mode: replicated
-      replicas: 1
-      # Фиксация на manager-узле для стабильности хранилища данных
-      placement:
-        constraints:
-          - node.role == manager
-      # Обновление: сначала остановить, потом запустить (без потери данных)
-      update_config:
-        parallelism: 1
-        delay: 60s          # Большая пауза для graceful shutdown
-        failure_action: rollback
-        order: stop-first
-      rollback_config:
-        parallelism: 1
-        delay: 10s
-      # ClickHouse требует больше времени на восстановление после сбоя
-      restart_policy:
-        condition: on-failure
-        delay: 10s
-        max_attempts: 5
-        window: 120s
-      # ClickHouse ресурсоёмкий — выделяем больше CPU и памяти
-      resources:
-        limits:
-          cpus: '4.0'
-          memory: 4G
-        reservations:
-          cpus: '1.0'
-          memory: 1G
-      labels:
-        - "com.waf.service=clickhouse"
-        - "com.waf.role=database"
-
-  # ============================================================
-  # Grafana — система мониторинга и визуализации
-  # Дашборды для анализа трафика и атак из ClickHouse
-  # ============================================================
-  grafana:
-    image: grafana/grafana:latest
-    # Веб-интерфейс Grafana
-    ports:
-      - target: 3000
-        published: 3000
-        protocol: tcp
-        mode: host
-    volumes:
-      # Персистентный том для настроек и дашбордов
-      - grafana-data:/var/lib/grafana
-      # Автоматическое provision-ирование datasource и дашбордов
-      - ./etc/grafana/provisioning:/etc/grafana/provisioning:ro
-    # Установка плагина ClickHouse при старте контейнера
-    environment:
-      - GF_INSTALL_PLUGINS=grafana-clickhouse-datasource
-    depends_on:
-      - clickhouse
-    networks:
-      - waf-net
-    # Проверка здоровья через API Grafana
-    healthcheck:
-      test: ["CMD", "wget", "--spider", "-q", "http://localhost:3000/api/health"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 30s
-    deploy:
-      mode: replicated
-      replicas: 1
-      # На manager-узле рядом с ClickHouse для минимизации задержки
-      placement:
-        constraints:
-          - node.role == manager
-      # start-first: новая версия запускается до остановки старой
-      # (для Grafana допустимо, т.к. пользователи не теряют сессии)
-      update_config:
-        parallelism: 1
-        delay: 30s
         failure_action: rollback
         order: start-first
       rollback_config:
         parallelism: 1
-        delay: 10s
-      restart_policy:
-        condition: on-failure
         delay: 5s
-        max_attempts: 5
-        window: 60s
       resources:
         limits:
-          cpus: '1.0'
+          cpus: '2'
           memory: 512M
         reservations:
           cpus: '0.25'
           memory: 128M
       labels:
+        - "com.waf.service=angie"
+
+  # ----------------------------------------------------------------------------
+  # Vector (Log Shipper)
+  # ----------------------------------------------------------------------------
+  vector:
+    image: timberio/vector:0.36.0-debian
+    volumes:
+      - angie_logs:/var/log/angie:ro
+    configs:
+      - source: vector_yaml
+        target: /etc/vector/vector.yaml
+        mode: 0444
+    secrets:
+      - clickhouse_password
+    networks:
+      - waf_net
+    env_file:
+      - ./envs/vector.env
+    # Передаём пароль через env, vector.yaml читает его через переменную окружения
+    environment:
+      - CLICKHOUSE_PASSWORD_FILE=/run/secrets/clickhouse_password
+    deploy:
+      replicas: 1
+      restart_policy:
+        condition: on-failure
+        delay: 5s
+        max_attempts: 3
+      update_config:
+        parallelism: 1
+        delay: 10s
+        failure_action: rollback
+      resources:
+        limits:
+          cpus: '1'
+          memory: 256M
+        reservations:
+          cpus: '0.1'
+          memory: 64M
+      labels:
+        - "com.waf.service=vector"
+
+  # ----------------------------------------------------------------------------
+  # ClickHouse
+  # ----------------------------------------------------------------------------
+  clickhouse:
+    image: clickhouse/clickhouse-server:24.3
+    ports:
+      - target: 8123
+        published: 8123
+        protocol: tcp
+        mode: ingress
+      - target: 9000
+        published: 9000
+        protocol: tcp
+        mode: ingress
+    volumes:
+      - clickhouse_data:/var/lib/clickhouse
+      - type: bind
+        source: /opt/waf/clickhouse/init.sql
+        target: /docker-entrypoint-initdb.d/init.sql
+        read_only: true
+    secrets:
+      - clickhouse_password
+    networks:
+      - waf_net
+    env_file:
+      - ./envs/clickhouse.env
+    environment:
+      - CLICKHOUSE_PASSWORD_FILE=/run/secrets/clickhouse_password
+    deploy:
+      replicas: 1
+      # ClickHouse хранит состояние — фиксируем на конкретную ноду через label
+      placement:
+        constraints:
+          - node.labels.clickhouse == true
+      restart_policy:
+        condition: on-failure
+        delay: 10s
+        max_attempts: 3
+      update_config:
+        parallelism: 1
+        delay: 30s
+        failure_action: rollback
+        order: stop-first
+      resources:
+        limits:
+          cpus: '4'
+          memory: 4G
+        reservations:
+          cpus: '0.5'
+          memory: 1G
+      labels:
+        - "com.waf.service=clickhouse"
+
+  # ----------------------------------------------------------------------------
+  # Grafana
+  # ----------------------------------------------------------------------------
+  grafana:
+    image: grafana/grafana:11.4.0
+    ports:
+      - target: 3000
+        published: 3000
+        protocol: tcp
+        mode: ingress
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - type: bind
+        source: /opt/waf/grafana/provisioning
+        target: /etc/grafana/provisioning
+        read_only: true
+    secrets:
+      - grafana_admin_password
+    networks:
+      - waf_net
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD__FILE=/run/secrets/grafana_admin_password
+      - GF_USERS_ALLOW_SIGN_UP=false
+      - GF_INSTALL_PLUGINS=grafana-clickhouse-datasource
+      - GF_AUTH_ANONYMOUS_ENABLED=false
+    deploy:
+      replicas: 1
+      placement:
+        constraints:
+          - node.labels.grafana == true
+      restart_policy:
+        condition: on-failure
+        delay: 5s
+        max_attempts: 3
+      update_config:
+        parallelism: 1
+        delay: 10s
+        failure_action: rollback
+        order: start-first
+      resources:
+        limits:
+          cpus: '1'
+          memory: 512M
+        reservations:
+          cpus: '0.1'
+          memory: 128M
+      labels:
         - "com.waf.service=grafana"
-        - "com.waf.role=monitoring"
-
-# ============================================================
-# Overlay-сеть для межсервисного взаимодействия в Swarm
-# ============================================================
-networks:
-  waf-net:
-    driver: overlay
-    # attachable — позволяет подключать standalone-контейнеры для отладки
-    attachable: true
-    driver_opts:
-      # Шифрование трафика между узлами Swarm
-      encrypted: "true"
-
-# ============================================================
-# Именованные тома для персистентного хранения данных
-# ============================================================
-volumes:
-  # Логи Angie (общий том между angie и vector)
-  angie-logs:
-    driver: local
-  # Данные ClickHouse (таблицы, индексы)
-  clickhouse-data:
-    driver: local
-  # Данные Grafana (дашборды, пользователи, настройки)
-  grafana-data:
-    driver: local
