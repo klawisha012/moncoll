@@ -1,4 +1,3 @@
-name: waf
 services:
   angie:
     build: configs/angie
