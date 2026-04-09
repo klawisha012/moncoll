@@ -13,11 +13,11 @@ secrets:
 # ==============================================================================
 # CONFIGS
 # Создать перед деплоем:
-#   docker config create angie_conf       ./etc/angie/angie.conf
-#   docker config create angie_default    ./etc/angie/http.d/default.conf
-#   docker config create modsecurity_conf ./etc/angie/modsecurity/modsecurity.conf
-#   docker config create modsecurity_rules ./etc/angie/modsecurity/rules.conf
-#   docker config create vector_yaml      ./etc/vector/vector.yaml
+#   docker config create angie_conf        ./configs/angie/angie.conf
+#   docker config create angie_default     ./configs/angie/http.d/default.conf
+#   docker config create modsecurity_conf  ./configs/angie/modsecurity/modsecurity.conf
+#   docker config create modsecurity_rules ./configs/angie/modsecurity/rules.conf
+#   docker config create vector_yaml       ./configs/vector/vector.yaml
 # ==============================================================================
 configs:
   angie_conf:
@@ -58,9 +58,8 @@ services:
         mode: ingress
     volumes:
       - angie_logs:/var/log/angie
-      # GeoIP базы монтируем как bind-mount (должны быть на каждой ноде)
       - type: bind
-        source: ./etc/angie/geoip2
+        source: ./configs/angie/geoip2
         target: /etc/angie/geoip2
     configs:
       - source: angie_conf
@@ -104,7 +103,7 @@ services:
         - "com.waf.service=angie"
 
   # ----------------------------------------------------------------------------
-  # Vector (Log Shipper)
+  # Vector
   # ----------------------------------------------------------------------------
   vector:
     image: timberio/vector:0.36.0-debian
@@ -120,7 +119,6 @@ services:
       - waf_net
     env_file:
       - ./envs/vector.env
-    # Передаём пароль через env, vector.yaml читает его через переменную окружения
     environment:
       - CLICKHOUSE_PASSWORD_FILE=/run/secrets/clickhouse_password
     deploy:
@@ -148,6 +146,7 @@ services:
   # ----------------------------------------------------------------------------
   clickhouse:
     image: clickhouse/clickhouse-server:24.3
+    # публикуем сервис наружу, надо будет убрать, небезопасно
     ports:
       - target: 8123
         published: 8123
@@ -160,7 +159,7 @@ services:
     volumes:
       - clickhouse_data:/var/lib/clickhouse
       - type: bind
-        source: /opt/waf/clickhouse/init.sql
+        source: ./configs/clickhouse/init.sql
         target: /docker-entrypoint-initdb.d/init.sql
         read_only: true
     secrets:
@@ -173,7 +172,6 @@ services:
       - CLICKHOUSE_PASSWORD_FILE=/run/secrets/clickhouse_password
     deploy:
       replicas: 1
-      # ClickHouse хранит состояние — фиксируем на конкретную ноду через label
       placement:
         constraints:
           - node.labels.clickhouse == true
@@ -209,7 +207,7 @@ services:
     volumes:
       - grafana_data:/var/lib/grafana
       - type: bind
-        source: /opt/waf/grafana/provisioning
+        source: ./configs/grafana/provisioning
         target: /etc/grafana/provisioning
         read_only: true
     secrets:

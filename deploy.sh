@@ -21,17 +21,15 @@ fi
 NODE_ID=$(docker info --format '{{.Swarm.NodeID}}')
 info "Swarm активен. Node ID: ${NODE_ID}"
 
-# --- 2. Создание env-файлов из примеров ---
-for env_file in angie clickhouse vector; do
-    if [ ! -f "./envs/${env_file}.env" ]; then
-        if [ -f "./envs/${env_file}-example.env" ]; then
-            warn "Создаю envs/${env_file}.env из примера — заполните реальными значениями!"
-            cp "./envs/${env_file}-example.env" "./envs/${env_file}.env"
-        else
-            error "Файл envs/${env_file}.env не найден и пример отсутствует"
-        fi
-    fi
-done
+# --- 2. Создание env-файлов из .env ---
+if [ ! -f "scripts/.env" ]; then
+    error "Файл .env не найден. Запустите: bash scripts/generate-env.sh"
+fi
+mkdir -p envs
+grep '^ANGIE_'      scripts/.env > envs/angie.env
+grep '^VECTOR_'     scripts/.env > envs/vector.env
+grep '^CLICKHOUSE_' scripts/.env > envs/clickhouse.env
+info "env-файлы созданы из .env"
 
 # --- 3. Создание Docker Secrets (если не существуют) ---
 create_secret() {
@@ -50,31 +48,12 @@ create_secret() {
 create_secret "clickhouse_password" "пароль ClickHouse"
 create_secret "grafana_admin_password" "пароль Grafana admin"
 
-# --- 4. Создание директорий на хосте ---
-info "Создаю директории на хосте..."
-mkdir -p /opt/waf/geoip2
-mkdir -p /opt/waf/clickhouse
-mkdir -p /opt/waf/grafana/provisioning/datasources
-mkdir -p /opt/waf/grafana/provisioning/dashboards
-
-# Копируем init.sql если ещё нет
-if [ ! -f /opt/waf/clickhouse/init.sql ]; then
-    cp ./clickhouse/init.sql /opt/waf/clickhouse/init.sql
-    info "init.sql скопирован в /opt/waf/clickhouse/"
-fi
-
-# Копируем grafana provisioning если ещё нет
-if [ -d ./etc/grafana/provisioning ]; then
-    cp -rn ./etc/grafana/provisioning/. /opt/waf/grafana/provisioning/ 2>/dev/null || true
-    info "Grafana provisioning скопирован"
-fi
-
-# --- 5. Навешиваем labels на текущую ноду (для ClickHouse и Grafana) ---
+# --- 4. Навешиваем labels на текущую ноду (для ClickHouse и Grafana) ---
 info "Устанавливаю node labels для stateful-сервисов..."
 docker node update --label-add clickhouse=true "${NODE_ID}" 2>/dev/null || true
 docker node update --label-add grafana=true "${NODE_ID}" 2>/dev/null || true
 
-# --- 6. Создание Docker Configs ---
+# --- 5. Создание Docker Configs ---
 create_or_update_config() {
     local name="$1"
     local file="$2"
@@ -92,15 +71,15 @@ create_or_update_config() {
     fi
 }
 
-create_or_update_config "angie_conf"        "./etc/angie/angie.conf"
-create_or_update_config "angie_default"     "./etc/angie/http.d/default.conf"
-create_or_update_config "modsecurity_conf"  "./etc/angie/modsecurity/modsecurity.conf"
-create_or_update_config "modsecurity_rules" "./etc/angie/modsecurity/rules.conf"
-create_or_update_config "vector_yaml"       "./etc/vector/vector.yaml"
+create_or_update_config "angie_conf"        "./configs/angie/angie.conf"
+create_or_update_config "angie_default"     "./configs/angie/http.d/default.conf"
+create_or_update_config "modsecurity_conf"  "./configs/angie/modsecurity/modsecurity.conf"
+create_or_update_config "modsecurity_rules" "./configs/angie/modsecurity/rules.conf"
+create_or_update_config "vector_yaml"       "./configs/vector/vector.yaml"
 
-# --- 7. Сборка образа Angie ---
+# --- 6. Сборка образа Angie ---
 info "Сборка angie-modsec-crs:${IMAGE_TAG}..."
-docker build -t "${REGISTRY}/angie-modsec-crs:${IMAGE_TAG}" -f angie.Dockerfile .
+docker build -t "${REGISTRY}/angie-modsec-crs:${IMAGE_TAG}" -f ./configs/angie/Dockerfile .
 
 # Push если реестр не локальный
 if [ "${REGISTRY}" != "localhost:5000" ]; then
