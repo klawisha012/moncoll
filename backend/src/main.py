@@ -4,6 +4,7 @@ from starlette.responses import RedirectResponse
 
 from .angie import router as angie_router
 from .modsecurity import router as modsecurity_router
+from .connections.router import connections_router
 
 
 def create_app() -> FastAPI:
@@ -17,9 +18,9 @@ def create_app() -> FastAPI:
         allow_headers=["*"],
     )
 
-
     app.include_router(modsecurity_router)
     app.include_router(angie_router)
+    app.include_router(connections_router)
 
     return app
 

@@ -35,6 +35,45 @@ export interface ModuleInfo {
   loaded: boolean;
 }
 
+export interface Connection {
+  id: number;
+  name: string;
+  domains: string[];
+  backend_url: string;
+  enabled: boolean;
+  ssl_enabled: boolean;
+  ssl_cert_path: string | null;
+  ssl_key_path: string | null;
+  preserve_host: boolean;
+  custom_nginx_config: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ConnectionCreate {
+  name: string;
+  domains: string[];
+  backend_url: string;
+  enabled?: boolean;
+  ssl_enabled?: boolean;
+  ssl_cert_path?: string | null;
+  ssl_key_path?: string | null;
+  preserve_host?: boolean;
+  custom_nginx_config?: string | null;
+}
+
+export interface ConnectionUpdate {
+  name?: string;
+  domains?: string[];
+  backend_url?: string;
+  enabled?: boolean;
+  ssl_enabled?: boolean;
+  ssl_cert_path?: string | null;
+  ssl_key_path?: string | null;
+  preserve_host?: boolean;
+  custom_nginx_config?: string | null;
+}
+
 export interface AngieSettings {
   worker_processes: string;
   worker_rlimit_nofile: number;
@@ -100,31 +139,49 @@ async function fetchApi<T>(url: string, options?: RequestInit): Promise<T> {
 
 export const api = {
   getModsecSettings: () =>
-    fetchApi<ModSecuritySettings>("/modsecurity/settings"),
+    fetchApi<ModSecuritySettings>("/api/modsecurity/settings"),
   updateModsecSettings: (settings: ModSecuritySettings) =>
-    fetchApi<ModSecuritySettings>("/modsecurity/settings", {
+    fetchApi<ModSecuritySettings>("/api/modsecurity/settings", {
       method: "PUT",
       body: JSON.stringify(settings),
     }),
 
-  getAngieSettings: () => fetchApi<AngieSettings>("/angie/settings"),
+  getAngieSettings: () => fetchApi<AngieSettings>("/api/angie/settings"),
   updateAngieSettings: (settings: AngieSettings) =>
-    fetchApi<AngieSettings>("/angie/settings", {
+    fetchApi<AngieSettings>("/api/angie/settings", {
       method: "PUT",
       body: JSON.stringify(settings),
     }),
 
   reloadModsec: () =>
-    fetchApi<ReloadResponse>("/modsecurity/reload", { method: "POST" }),
+    fetchApi<ReloadResponse>("/api/modsecurity/reload", { method: "POST" }),
   reloadAngie: () =>
-    fetchApi<ReloadResponse>("/angie/reload", { method: "POST" }),
+    fetchApi<ReloadResponse>("/api/angie/reload", { method: "POST" }),
 
-  getMetrics: () => fetchApi<Metrics>("/dashboard/metrics"),
-  getTraffic: () => fetchApi<TrafficDataPoint[]>("/dashboard/traffic"),
+  getMetrics: () => fetchApi<Metrics>("/api/dashboard/metrics"),
+  getTraffic: () => fetchApi<TrafficDataPoint[]>("/api/dashboard/traffic"),
   getThreatOrigins: () =>
-    fetchApi<ThreatOrigin[]>("/dashboard/threat-origins"),
-  getEvents: (limit = 50, severity = "all") =>
-    fetchApi<SecurityEvent[]>(
-      `/dashboard/events?limit=${limit}&severity=${severity}`
-    ),
-};
+    fetchApi<ThreatOrigin[]>("/api/dashboard/threat-origins"),
+   getEvents: (limit = 50, severity = "all") =>
+     fetchApi<SecurityEvent[]>(
+       `/api/dashboard/events?limit=${limit}&severity=${severity}`
+     ),
+
+    // Connections API
+    getConnections: () => fetchApi<Connection[]>("/api/connections/"),
+    getConnection: (id: number) => fetchApi<Connection>(`/api/connections/${id}`),
+    createConnection: (conn: ConnectionCreate) =>
+      fetchApi<Connection>("/api/connections/", {
+        method: "POST",
+        body: JSON.stringify(conn),
+      }),
+    updateConnection: (id: number, conn: ConnectionUpdate) =>
+      fetchApi<Connection>(`/api/connections/${id}`, {
+        method: "PUT",
+        body: JSON.stringify(conn),
+      }),
+    deleteConnection: (id: number) =>
+      fetchApi<void>(`/api/connections/${id}`, { method: "DELETE" }),
+    reloadConnections: () =>
+      fetchApi<ReloadResponse>("/api/connections/reload", { method: "POST" }),
+ };

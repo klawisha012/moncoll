@@ -308,6 +308,16 @@ tr:hover td {
   color: var(--success);
 }
 
+.badge-primary {
+  background: rgba(59, 130, 246, 0.15);
+  color: var(--accent);
+}
+
+.badge-secondary {
+  background: rgba(148, 163, 184, 0.15);
+  color: var(--text-secondary);
+}
+
 .badge-phase {
   background: rgba(59, 130, 246, 0.15);
   color: var(--accent);

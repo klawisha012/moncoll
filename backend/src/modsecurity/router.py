@@ -14,7 +14,7 @@ from .schemas import (
 )
 from .settings_schemas import ModSecuritySettingsResponse, ModSecuritySettingsUpdate
 
-router = APIRouter(prefix="/modsecurity", tags=["modsecurity"])
+router = APIRouter(prefix="/api/modsecurity", tags=["modsecurity"])
 
 CONTAINER_NAME = "waf-angie-1"
 

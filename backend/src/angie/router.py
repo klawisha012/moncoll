@@ -4,7 +4,7 @@ from fastapi import APIRouter
 from . import service as angie_service
 from .schemas import AngieSettingsResponse, AngieSettingsUpdate
 
-router = APIRouter(prefix="/angie", tags=["angie"])
+router = APIRouter(prefix="/api/angie", tags=["angie"])
 
 CONTAINER_NAME = "waf-angie-1"
 

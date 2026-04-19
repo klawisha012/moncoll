@@ -1,0 +1,177 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Example Site - WAF Test</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: white;
+        }
+        .container {
+            text-align: center;
+            padding: 40px;
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 20px;
+            backdrop-filter: blur(10px);
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
+            max-width: 600px;
+            margin: 20px;
+        }
+        h1 {
+            font-size: 2.5em;
+            margin-bottom: 20px;
+            text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.2);
+        }
+        p {
+            font-size: 1.2em;
+            margin-bottom: 15px;
+            opacity: 0.9;
+        }
+        .status {
+            display: inline-block;
+            padding: 8px 16px;
+            background: rgba(34, 197, 94, 0.8);
+            border-radius: 20px;
+            font-size: 0.9em;
+            margin-top: 20px;
+        }
+        .info {
+            margin-top: 30px;
+            padding-top: 20px;
+            border-top: 1px solid rgba(255, 255, 255, 0.2);
+            font-size: 0.9em;
+            opacity: 0.7;
+        }
+        .test-form {
+            margin-top: 25px;
+            padding: 20px;
+            background: rgba(0, 0, 0, 0.2);
+            border-radius: 10px;
+        }
+        input, button {
+            padding: 10px 15px;
+            border: none;
+            border-radius: 5px;
+            margin: 5px;
+            font-size: 14px;
+        }
+        input {
+            background: white;
+            color: #333;
+            width: 200px;
+        }
+        button {
+            background: #4CAF50;
+            color: white;
+            cursor: pointer;
+            transition: background 0.3s;
+        }
+        button:hover {
+            background: #45a049;
+        }
+        #result {
+            margin-top: 15px;
+            padding: 10px;
+            background: rgba(0, 0, 0, 0.3);
+            border-radius: 5px;
+            min-height: 40px;
+            font-family: monospace;
+            font-size: 13px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🛡️ Example Test Site</h1>
+        <p>This is a sample web application for testing WAF proxy functionality.</p>
+        <p>It demonstrates that your site is properly proxied through Angie WAF.</p>
+        
+        <div class="status">
+            ✅ WAF Protection Active
+        </div>
+
+        <div class="test-form">
+            <h3 style="margin-bottom: 15px;">Test Request</h3>
+            <p style="font-size: 0.9em; margin-bottom: 10px;">
+                Send a test request to verify WAF is protecting this site:
+            </p>
+            <form id="testForm" onsubmit="sendTest(event)">
+                <input type="text" id="testInput" placeholder="Enter test data" value="normal request">
+                <button type="submit">Send Request</button>
+            </form>
+            <div id="result"></div>
+        </div>
+
+        <div class="info">
+            <strong>Connection Details:</strong><br>
+            This page is served from your backend application<br>
+            All requests pass through Angie WAF with ModSecurity enabled<br>
+            Check the WAF Dashboard to see this request in analytics
+        </div>
+    </div>
+
+    <script>
+        async function sendTest(event) {
+            event.preventDefault();
+            const input = document.getElementById('testInput');
+            const result = document.getElementById('result');
+            
+            result.innerHTML = '⏳ Sending request...';
+            
+            try {
+                // Simulate an API call through the proxied connection
+                const response = await fetch('/api/test', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({ 
+                        message: input.value,
+                        timestamp: new Date().toISOString()
+                    })
+                });
+                
+                const data = await response.json();
+                
+                if (response.ok) {
+                    result.innerHTML = `
+                        ✅ Request successful!<br>
+                        Status: ${response.status}<br>
+                        Response: <pre>${JSON.stringify(data, null, 2)}</pre>
+                    `;
+                } else {
+                    result.innerHTML = `
+                        ❌ Request blocked!<br>
+                        Status: ${response.status}<br>
+                        ${data.detail || 'WAF blocked this request'}
+                    `;
+                }
+            } catch (error) {
+                result.innerHTML = `❌ Error: ${error.message}`;
+            }
+        }
+
+        // Auto-detect if proxied
+        fetch('/api/status')
+            .then(r => r.json())
+            .then(data => {
+                console.log('WAF Proxy Status:', data);
+            })
+            .catch(err => {
+                console.log('Backend not available (expected if only static HTML)');
+            });
+    </script>
+</body>
+</html>

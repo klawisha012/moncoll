@@ -4,7 +4,7 @@ from datetime import datetime, timedelta
 from fastapi import APIRouter
 from pydantic import BaseModel
 
-router = APIRouter(prefix="/dashboard", tags=["dashboard"])
+router = APIRouter(prefix="/api/dashboard", tags=["dashboard"])
 
 
 class MetricsResponse(BaseModel):
