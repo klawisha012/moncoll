@@ -242,8 +242,8 @@ export default function Dashboard() {
         </div>
         <div style={{ height: "800px", overflow: "hidden" }}>
           <iframe
-            // Use the proxied Grafana path so the dashboard is served through Nginx
-            src="/dashboard/d/waf-nginx-dashboard?orgId=1&refresh=10s"
+            // Grafana is embedded via the /grafana/ proxy path
+            src="/grafana/d/waf-nginx-dashboard?orgId=1&refresh=10s"
             style={{ border: "none", width: "100%", height: "100%" }}
             title="Grafana Dashboard"
             sandbox="allow-scripts allow-same-origin"
