@@ -1,8 +1,8 @@
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from starlette.responses import RedirectResponse
 
 from .angie import router as angie_router
-from .dashboard import router as dashboard_router
 from .modsecurity import router as modsecurity_router
 
 
@@ -17,8 +17,8 @@ def create_app() -> FastAPI:
         allow_headers=["*"],
     )
 
+
     app.include_router(modsecurity_router)
-    app.include_router(dashboard_router)
     app.include_router(angie_router)
 
     return app

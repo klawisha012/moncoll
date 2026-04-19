@@ -42,7 +42,8 @@ services:
     ports:
       - "3001:3000"
     volumes:
-    #   - ./etc/grafana/grafana.ini:/etc/grafana/grafana.ini
+      # Mount custom Grafana configuration to serve from sub‑path
+      - ./configs/grafana/grafana.ini:/etc/grafana/grafana.ini
       - ./configs/grafana/provisioning:/etc/grafana/provisioning
       - grafana-storage:/var/lib/grafana
     depends_on:
@@ -55,6 +56,9 @@ services:
       - CLICKHOUSE_USER=${CLICKHOUSE_USER:-default}
       - CLICKHOUSE_PASSWORD=${CLICKHOUSE_PASSWORD:-}
       - GF_PROVISIONING_ENABLED=true
+      # Serve Grafana under the /dashboard sub‑path so it generates correct asset URLs
+      - GF_SERVER_ROOT_URL=%(protocol)s://%(domain)s:%(http_port)s/dashboard/
+      - GF_SERVER_SERVE_FROM_SUB_PATH=true
 
   backend:
     build: ./backend
