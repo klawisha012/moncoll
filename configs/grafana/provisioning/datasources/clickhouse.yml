@@ -1,21 +1,15 @@
 apiVersion: 1
-
 datasources:
   - name: ClickHouse
     type: grafana-clickhouse-datasource
-    uid: bfbcca0459mo0f
+    uid: bfbcca0459mo0f  # <-- ЗАМЕНИТЬ НА ЭТОТ
     access: proxy
-    orgId: 1
-    database: logs
-    secure: false
     jsonData:
-      protocol: http
+      server: clickhouse
       port: 8123
-      host: clickhouse
-      username: user_434d675d
-    version: 1
-    editable: false
-    isDefault: true
-    jsonDataAuthType: none
+      protocol: http
+      username: ${CLICKHOUSE_USER}
+      defaultDatabase: ${CLICKHOUSE_DB}
     secureJsonData:
-      password: 5YilCXuCuDUFVZ4xqfohQRnA7ObxWAhQ
+      password: ${CLICKHOUSE_PASSWORD}
+    editable: true

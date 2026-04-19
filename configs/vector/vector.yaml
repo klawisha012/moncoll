@@ -7,7 +7,7 @@ sources:
   waf_audit_source:
     type: file
     include:
-      - /var/log/angie/audit.log
+      - /var/log/angie/modsec_audit.log
     read_from: end
     fingerprint:
       strategy: device_and_inode

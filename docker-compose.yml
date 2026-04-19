@@ -39,7 +39,6 @@ services:
 
   grafana:
     image: grafana/grafana:latest
-    entrypoint: ["/bin/sh", "-c", "sed -i \"s|__CLICKHOUSE_USER__|$$CLICKHOUSE_USER|g; s|__CLICKHOUSE_PASSWORD__|$$CLICKHOUSE_PASSWORD|g\" /etc/grafana/provisioning/datasources/clickhouse.yml && /run.sh"]
     ports:
       - "3001:3000"
     volumes:
@@ -51,6 +50,11 @@ services:
     restart: unless-stopped
     env_file:
       - .env
+    environment:
+      - GF_PLUGINS_PREINSTALL_SYNC=grafana-clickhouse-datasource
+      - CLICKHOUSE_USER=${CLICKHOUSE_USER:-default}
+      - CLICKHOUSE_PASSWORD=${CLICKHOUSE_PASSWORD:-}
+      - GF_PROVISIONING_ENABLED=true
 
   backend:
     build: ./backend
@@ -61,7 +65,8 @@ services:
       - ./configs/angie/angie.conf:/app/etc/angie/angie.conf
       - /var/run/docker.sock:/var/run/docker.sock
     restart: unless-stopped
-
+    env_file:
+      - .env
   frontend:
     build: ./frontend
     ports:
@@ -69,7 +74,8 @@ services:
     depends_on:
       - backend
     restart: unless-stopped
-
+    env_file:
+      - .env
 volumes:
   clickhouse:
   grafana-storage:
