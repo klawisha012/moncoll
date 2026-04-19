@@ -234,6 +234,22 @@ export default function Dashboard() {
           </table>
         </div>
       </div>
+
+      {/* Embed full Grafana dashboard for comprehensive view */}
+      <div className="card" style={{ marginTop: "2rem" }}>
+        <div className="card-header">
+          <h2>Full Grafana Dashboard</h2>
+        </div>
+        <div style={{ height: "800px", overflow: "hidden" }}>
+          <iframe
+            // Use the proxied Grafana path so the dashboard is served through Nginx
+            src="/dashboard/d/waf-nginx-dashboard?orgId=1&refresh=10s"
+            style={{ border: "none", width: "100%", height: "100%" }}
+            title="Grafana Dashboard"
+            sandbox="allow-scripts allow-same-origin"
+          />
+        </div>
+      </div>
     </div>
   );
 }
