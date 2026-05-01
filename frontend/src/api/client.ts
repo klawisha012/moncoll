@@ -115,11 +115,20 @@ export interface SecurityEvent {
 }
 
 async function fetchApi<T>(url: string, options?: RequestInit): Promise<T> {
+  const headers: Record<string, string> = {
+    ...(options?.headers
+      ? Object.fromEntries(
+          new Headers(options.headers as HeadersInit).entries()
+        )
+      : {}),
+  };
+  // Only set Content-Type for requests with a body
+  if (options?.body !== undefined) {
+    headers["Content-Type"] = "application/json";
+  }
+
   const response = await fetch(`${API_BASE}${url}`, {
-    headers: {
-      "Content-Type": "application/json",
-      ...options?.headers,
-    },
+    headers,
     ...options,
   });
 

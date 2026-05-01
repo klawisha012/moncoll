@@ -37,6 +37,11 @@ def _generate_nginx_config(conn: dict) -> str:
     """Generate Nginx server block configuration for a connection."""
     domains = " ".join(conn["domains"]) if conn["domains"] else "_"
 
+    # Ensure backend_url has a scheme
+    backend_url = conn["backend_url"]
+    if not backend_url.startswith(("http://", "https://")):
+        backend_url = f"http://{backend_url}"
+
     # Build server block
     lines = []
     lines.append(f"## Connection: {conn['name']} (ID: {conn['id']})")
@@ -64,7 +69,7 @@ def _generate_nginx_config(conn: dict) -> str:
     lines.append(f"    modsecurity_rules_file /etc/angie/modsecurity/rules.conf;")
 
     # Proxy settings
-    lines.append(f"    proxy_pass {conn['backend_url']};")
+    lines.append(f"    proxy_pass {backend_url};")
     if conn["preserve_host"]:
         lines.append(f"    proxy_set_header Host $host;")
     else:

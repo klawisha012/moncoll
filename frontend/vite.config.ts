@@ -7,16 +7,8 @@ export default defineConfig({
     host: "0.0.0.0",
     port: 3000,
     proxy: {
-      "/modsecurity": {
-        target: "http://backend:8000",
-        changeOrigin: true,
-      },
-      "/angie": {
-        target: "http://backend:8000",
-        changeOrigin: true,
-      },
-      "/dashboard": {
-        target: "http://backend:8000",
+      "/api": {
+        target: "http://localhost:8000",
         changeOrigin: true,
       },
     },
