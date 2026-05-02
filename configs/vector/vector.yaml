@@ -21,6 +21,15 @@ sources:
     fingerprint:
       strategy: device_and_inode
 
+  # Source for CrowdSec alerts
+  crowdsec_alerts_source:
+    type: file
+    include:
+      - /var/log/crowdsec/alerts.log
+    read_from: end
+    fingerprint:
+      strategy: device_and_inode
+
 # Transforms: Parse and structure the logs
 transforms:
   # Transform for WAF audit logs
@@ -130,6 +139,48 @@ transforms:
         "match": matches
       }
 
+  # Transform for CrowdSec alerts
+  parse_crowdsec_alerts:
+    type: remap
+    inputs:
+      - crowdsec_alerts_source
+    source: |
+      # Parse JSON from CrowdSec alert
+      parsed, err = parse_json(.message)
+      if err != null {
+        log("Failed to parse CrowdSec alert: " + err, level: "warn")
+        abort
+      }
+      . = parsed
+
+      # Extract fields with safe type conversions
+      .timestamp = parse_timestamp(.timestamp, format: "%Y-%m-%dT%H:%M:%S.%fZ") ?? now()
+
+      .alert_id = to_string(.alert_id) ?? ""
+      .scenario = to_string(.scenario) ?? ""
+      .message = to_string(.message) ?? ""
+
+      .source_ip = to_string(.source.ip) ?? "0.0.0.0"
+      .source_port = to_int(.source.port) ?? 0
+
+      .scenario_trust = to_string(.scenario_trust) ?? ""
+      .scenario_label = to_string(.scenario_label) ?? ""
+      .scenario_hub = to_string(.scenario_hub) ?? ""
+
+      .decision_type = to_string(.decision.type) ?? ""
+      .decision_duration = to_string(.decision.duration) ?? ""
+      .decision_scope = to_string(.decision.scope) ?? ""
+      .decision_value = to_string(.decision.value) ?? ""
+      .decision_origin = to_string(.decision.origin) ?? ""
+      .decision_simulated = to_bool(.decision.simulated) ?? false
+
+      # Handle meta as a map
+      .meta = object(.meta) ?? {}
+
+      .capacity = to_int(.capacity) ?? 0
+      .leakspeed = to_string(.leakspeed) ?? ""
+      .events_count = to_int(.events_count) ?? 0
+
   # Transform for GeoIP access logs
   parse_geoip_access:
     type: remap
@@ -210,7 +261,32 @@ sinks:
 
     healthcheck:
       enabled: false
-    
+
+    batch:
+      max_bytes: 10485760 # 10MB
+      timeout_secs: 0.1
+
+  # Sink for CrowdSec alerts to ClickHouse
+  crowdsec_alerts_sink:
+    type: clickhouse
+    inputs:
+      - parse_crowdsec_alerts
+    endpoint: "http://clickhouse:8123"
+    database: "logs"
+    table: "crowdsec_alerts"
+    compression: gzip
+    auth:
+      strategy: basic
+      user: "${CLICKHOUSE_USER}"
+      password: "${CLICKHOUSE_PASSWORD}"
+
+    # CRITICAL: Ignore extra fields
+    skip_unknown_fields: true
+    date_time_best_effort: true
+
+    healthcheck:
+      enabled: false
+
     batch:
       max_bytes: 10485760 # 10MB
       timeout_secs: 0.1

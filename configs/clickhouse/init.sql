@@ -5,7 +5,7 @@ CREATE DATABASE IF NOT EXISTS logs;
 CREATE TABLE IF NOT EXISTS logs.waf_audit_log
 (
     -- Временная метка события
-    `timestamp` DateTime CODEC(Delta, ZSTD(1)),
+    `timestamp` DateTime64(3, 'UTC'),
     
     -- Идентификаторы
     `unique_id` String,
@@ -62,7 +62,7 @@ TTL timestamp + INTERVAL 6 MONTH; -- Авто-удаление старых ло
 -- Легковесная таблица для аналитики трафика
 CREATE TABLE IF NOT EXISTS logs.nginx_access_log
 (
-    `time_local` DateTime CODEC(Delta, ZSTD(1)),
+    `time_local` DateTime64(3, 'UTC'),
     
     `remote_addr` IPv4,
     `remote_user` String,
@@ -88,3 +88,44 @@ CREATE TABLE IF NOT EXISTS logs.nginx_access_log
 PARTITION BY toYYYYMM(time_local)
 ORDER BY (time_local, remote_addr, status)
 TTL time_local + INTERVAL 3 MONTH;
+
+
+-- Таблица для алертов CrowdSec
+-- Хранит информацию о обнаруженных аномалиях и решениях
+CREATE TABLE IF NOT EXISTS logs.crowdsec_alerts
+(
+    -- Временная метка события
+    `timestamp` DateTime64(3, 'UTC'),
+    
+    -- Идентификаторы
+    `alert_id` String,
+    `scenario` LowCardinality(String), -- Название сценария (например, crowdsecurity/http-scan-404)
+    `message` String, -- Описание алерта
+    
+    -- Сетевая информация
+    `source_ip` String,
+    `source_port` UInt16 DEFAULT 0,
+    
+    -- Детали алерта
+    `scenario_trust` String DEFAULT '', -- Уровень доверия сценария
+    `scenario_label` LowCardinality(String) DEFAULT '', -- Метка сценария (например, http, scan)
+    `scenario_hub` String DEFAULT '', -- Источник сценария (hub или локальный)
+    
+    -- Решения (decisions)
+    `decision_type` LowCardinality(String) DEFAULT '', -- Тип решения (ban, captcha и т.д.)
+    `decision_duration` String DEFAULT '', -- Длительность блокировки (например, 4h)
+    `decision_scope` LowCardinality(String) DEFAULT '', -- Область действия (ip, range и т.д.)
+    `decision_value` String DEFAULT '', -- Значение (обычно IP-адрес)
+    `decision_origin` String DEFAULT '', -- Источник решения (CAPI, CAPI и т.д.)
+    `decision_simulated` Bool DEFAULT false, -- Симуляция или реальное решение
+    
+    -- Метаданные
+    `meta` Map(String, String), -- Дополнительные метаданные (например, http_status, country и т.д.)
+    `capacity` UInt32 DEFAULT 0, -- Вместимость bucket'а
+    `leakspeed` String DEFAULT '', -- Скорость утечки
+    `events_count` UInt32 DEFAULT 0 -- Количество событий в bucket'е
+
+) ENGINE = MergeTree()
+PARTITION BY toYYYYMM(timestamp)
+ORDER BY (timestamp, source_ip, scenario)
+TTL timestamp + INTERVAL 6 MONTH;

@@ -50,3 +50,5 @@ test_results/
 # OS
 .DS_Store
 Thumbs.db
+"configs/crowdsec/collections/linux.yaml" 
+"configs/crowdsec/collections/*" 

@@ -1,4 +1,16 @@
 services:
+  crowdsec:
+    image: crowdsecurity/crowdsec:latest
+    volumes:
+      - ./var/log/angie:/var/log/angie
+      - ./configs/crowdsec:/etc/crowdsec
+      - crowdsec-db:/var/lib/crowdsec/data
+    environment:
+      - GID=1000
+    restart: unless-stopped
+    env_file:
+      - .env
+
   angie:
     build: configs/angie
     ports:
@@ -6,12 +18,15 @@ services:
     volumes:
       - ./var/log/angie:/var/log/angie
       - ./configs/angie/angie.conf:/etc/angie/angie.conf
+      - ./configs/angie/bouncer.conf:/etc/angie/bouncer.conf
+      - ./configs/angie/blocked_ips.conf:/etc/angie/blocked_ips.conf
       - ./configs/angie/http.d/:/etc/angie/http.d/
       - ./configs/angie/connections.d/:/etc/angie/connections.d/
       - ./configs/angie/modsecurity/:/etc/angie/modsecurity/
       - ./configs/angie/geoip2/:/etc/angie/geoip2/
     depends_on:
       - vector
+      - crowdsec
     restart: unless-stopped
     env_file:
       - .env
@@ -86,3 +101,4 @@ services:
 volumes:
   clickhouse:
   grafana-storage:
+  crowdsec-db:
