@@ -6,7 +6,7 @@ import subprocess
 import time
 
 
-CROWDSEC_CONTAINER = "waf-crowdsec"
+CROWDSEC_CONTAINER = "waf-crowdsec-1"
 ANGIE_CONTAINER = "waf-angie-1"
 ANGIE_URL = "http://localhost"
 
