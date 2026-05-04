@@ -13,25 +13,25 @@ services:
       - .env
 
   angie:
-     build: configs/angie
-     ports:
-       - "80:80"
-     volumes:
-       - ./var/log/angie:/var/log/angie
-       - ./configs/angie/angie.conf:/etc/angie/angie.conf
-       - ./configs/angie/bouncer.conf:/etc/angie/bouncer.conf
-       - ./configs/angie/blocked_ips.conf:/etc/angie/blocked_ips.conf
-       - ./configs/angie/http.d/:/etc/angie/http.d/
-       - ./configs/angie/connections.d/:/etc/angie/connections.d/
-       - ./configs/angie/acme/:/var/lib/angie/acme/
-       - ./configs/angie/modsecurity/:/etc/angie/modsecurity/
-       - ./configs/angie/geoip2/:/etc/angie/geoip2/
-     depends_on:
-       - vector
-       - crowdsec
-     restart: unless-stopped
-     env_file:
-       - .env
+    build: configs/angie
+    ports:
+      - "80:80"
+    volumes:
+      - ./var/log/angie:/var/log/angie
+      - ./configs/angie/angie.conf:/etc/angie/angie.conf
+      - ./configs/angie/bouncer.conf:/etc/angie/bouncer.conf
+      - ./configs/angie/blocked_ips.conf:/etc/angie/blocked_ips.conf
+      - ./configs/angie/http.d/:/etc/angie/http.d/
+      - ./configs/angie/connections.d/:/etc/angie/connections.d/
+      - ./configs/angie/acme/:/var/lib/angie/acme/
+      - ./configs/angie/modsecurity/:/etc/angie/modsecurity/
+      - ./configs/angie/geoip2/:/etc/angie/geoip2/
+    depends_on:
+      - vector
+      - crowdsec
+    restart: unless-stopped
+    env_file:
+      - .env
 
   vector:
     image: timberio/vector:0.36.0-debian
@@ -60,7 +60,6 @@ services:
     ports:
       - "3001:3000"
     volumes:
-      # Mount custom Grafana configuration to serve from sub‑path
       - ./configs/grafana/grafana.ini:/etc/grafana/grafana.ini
       - ./configs/grafana/provisioning:/etc/grafana/provisioning
       - grafana-storage:/var/lib/grafana
@@ -74,22 +73,21 @@ services:
       - CLICKHOUSE_USER=${CLICKHOUSE_USER:-default}
       - CLICKHOUSE_PASSWORD=${CLICKHOUSE_PASSWORD:-}
       - GF_PROVISIONING_ENABLED=true
-      # Serve Grafana under the /grafana sub‑path so it generates correct asset URLs
       - GF_SERVER_ROOT_URL=/grafana/
       - GF_SERVER_SERVE_FROM_SUB_PATH=true
 
   backend:
-     build: ./backend
-     ports:
-       - "8000:8000"
-     volumes:
-       - ./configs/angie/connections.json:/var/lib/angie/connections.json
-       - ./configs/angie/connections.d/:/var/lib/angie/connections.d/
-       - ./configs/angie/acme/:/var/lib/angie/acme/
-       - /var/run/docker.sock:/var/run/docker.sock
-     restart: unless-stopped
-     env_file:
-       - .env
+    build: ./backend
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./configs/angie/connections.json:/var/lib/angie/connections.json
+      - ./configs/angie/connections.d/:/var/lib/angie/connections.d/
+      - ./configs/angie/acme/:/var/lib/angie/acme/
+      - /var/run/docker.sock:/var/run/docker.sock
+    restart: unless-stopped
+    env_file:
+      - .env
 
   frontend:
     build: ./frontend
@@ -100,6 +98,48 @@ services:
     restart: unless-stopped
     env_file:
       - .env
+
+  prometheus:
+    image: prom/prometheus:latest
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./configs/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml
+      - prometheus-storage:/prometheus
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.path=/prometheus"
+      - "--web.console.libraries=/etc/prometheus/console_libraries"
+      - "--web.console.templates=/etc/prometheus/consoles"
+      - "--storage.tsdb.retention.time=30d"
+      - "--web.enable-lifecycle"
+    restart: unless-stopped
+
+  node-exporter:
+    image: prom/node-exporter:latest
+    ports:
+      - "9100:9100"
+    volumes:
+      - /proc:/host/proc:ro
+      - /sys:/host/sys:ro
+      - /:/rootfs:ro
+    command:
+      - "--path.procfs=/host/proc"
+      - "--path.sysfs=/host/sys"
+      - "--collector.filesystem.mount-points-exclude=^/(dev|proc|sys|var/lib/docker/.+)"
+      - "--collector.textfile.directory=/etc/node-exporter"
+    restart: unless-stopped
+
+  cadvisor:
+    image: gcr.io/cadvisor/cadvisor:latest
+    ports:
+      - "8080:8080"
+    volumes:
+      - /:/rootfs:ro
+      - /var/run:/var/run:ro
+      - /sys:/sys:ro
+      - /var/lib/docker:/var/lib/docker:ro
+    restart: unless-stopped
 
   crowdsec-exporter:
     command: sh -c "pip install requests pyyaml && python /app/crowdsec-alerts-exporter.py"
@@ -134,3 +174,4 @@ volumes:
   clickhouse:
   grafana-storage:
   crowdsec-db:
+  prometheus-storage:

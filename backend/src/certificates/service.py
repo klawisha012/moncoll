@@ -1,11 +1,12 @@
 import json
 import uuid
+import subprocess
 from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
-CONNECTION_SSL_DIR = Path("/var/lib/angie/connections.d")
-ACME_DIR = Path("/var/lib/angie/acme")
+CONNECTION_SSL_DIR = Path("/etc/angie/connections.d")
+ACME_DIR = Path("/etc/angie/acme")
 
 
 def _ensure_ssl_dirs():
@@ -21,34 +22,48 @@ def get_connection_ssl_paths(connection_id: int) -> tuple[str, str]:
     return cert_path, key_path
 
 
+def generate_self_signed_certificate(connection_id: int, domains: list[str]) -> dict:
+    """Generate self-signed certificate for testing."""
+    _ensure_ssl_dirs()
+
+    cert_path, key_path = get_connection_ssl_paths(connection_id)
+
+    # Use openssl to generate self-signed cert
+    try:
+        # Generate private key
+        subprocess.run([
+            "openssl", "genpkey", "-algorithm", "RSA", "-out", key_path, "-pkcs8"
+        ], check=True)
+
+        # Generate certificate
+        subj = f"/C=US/ST=State/L=City/O=Organization/CN={domains[0]}"
+        alt_names = "subjectAltName=" + ",".join(f"DNS:{domain}" for domain in domains)
+
+        subprocess.run([
+            "openssl", "req", "-new", "-x509", "-key", key_path, "-out", cert_path,
+            "-days", "365", "-subj", subj, "-addext", alt_names
+        ], check=True)
+
+        return {
+            "success": True,
+            "message": f"Self-signed certificate generated for domains: {', '.join(domains)}",
+            "certificate_path": cert_path,
+            "key_path": key_path
+        }
+    except subprocess.CalledProcessError as e:
+        return {
+            "success": False,
+            "message": f"Failed to generate certificate: {e}"
+        }
+
+
 def trigger_acme_request(connection_id: int, domains: list[str]) -> dict:
     """Trigger ACME certificate request for domains.
-    
-    This creates the necessary structure for Angie ACME module to pick up.
+
+    For testing, generate self-signed certificate instead.
     """
-    _ensure_ssl_dirs()
-    
-    client_name = f"conn_{connection_id}"
-    client_dir = ACME_DIR / client_name
-    client_dir.mkdir(parents=True, exist_ok=True)
-    
-    # Create domains list for ACME client
-    domains_config = {
-        "client_name": client_name,
-        "domains": domains,
-        "connection_id": connection_id,
-        "requested_at": datetime.utcnow().isoformat()
-    }
-    
-    config_file = client_dir / "domains.json"
-    config_file.write_text(json.dumps(domains_config, indent=2))
-    
-    domains_str = ", ".join(domains)
-    return {
-        "success": True,
-        "message": f"ACME request triggered for domains: {domains_str}",
-        "client_name": client_name
-    }
+    # For testing purposes, generate self-signed certificate
+    return generate_self_signed_certificate(connection_id, domains)
 
 
 def check_certificate_status(connection_id: int) -> dict:

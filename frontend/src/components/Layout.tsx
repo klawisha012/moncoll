@@ -1,5 +1,5 @@
 import { NavLink, Outlet } from "react-router-dom";
-import { BarChart3, Settings, Link2 } from "lucide-react";
+import { BarChart3, Settings, Link2, Activity } from "lucide-react";
 
 export default function Layout() {
   return (
@@ -19,24 +19,33 @@ export default function Layout() {
              <BarChart3 />
              Dashboard
            </NavLink>
-           <NavLink
-             to="/connections"
-             className={({ isActive }) =>
-               `nav-link ${isActive ? "active" : ""}`
-             }
-           >
-             <Link2 />
-             Connections
-           </NavLink>
-           <NavLink
-             to="/config"
-             className={({ isActive }) =>
-               `nav-link ${isActive ? "active" : ""}`
-             }
-           >
-             <Settings />
-             Configuration
-           </NavLink>
+<NavLink
+              to="/connections"
+              className={({ isActive }) =>
+                `nav-link ${isActive ? "active" : ""}`
+              }
+            >
+              <Link2 />
+              Connections
+            </NavLink>
+            <NavLink
+              to="/monitoring"
+              className={({ isActive }) =>
+                `nav-link ${isActive ? "active" : ""}`
+              }
+            >
+              <Activity />
+              Monitoring
+            </NavLink>
+            <NavLink
+              to="/config"
+              className={({ isActive }) =>
+                `nav-link ${isActive ? "active" : ""}`
+              }
+            >
+              <Settings />
+              Configuration
+            </NavLink>
          </nav>
       </aside>
       <main className="main-content">

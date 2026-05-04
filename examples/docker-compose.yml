@@ -11,6 +11,7 @@ services:
       - ENVIRONMENT=development
     volumes:
       - ../backend:/app
+      - ./ssl:/etc/angie/connections.d
 
   nginx:
     image: nginx:alpine
