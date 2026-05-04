@@ -1,3 +1,3 @@
 quick start:
 
-./generate-env.sh
+./scripts/generate-env.sh

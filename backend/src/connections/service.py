@@ -4,8 +4,9 @@ from datetime import datetime
 from pathlib import Path
 
 from .schemas import Connection, ConnectionCreate, ConnectionUpdate
+from ..certificates import service as cert_service
 
-CONNECTIONS_DIR = Path("/app/etc/angie")
+CONNECTIONS_DIR = Path("/var/lib/angie")
 CONNECTIONS_FILE = CONNECTIONS_DIR / "connections.json"
 CONNECTIONS_D_DIR = CONNECTIONS_DIR / "connections.d"
 
@@ -33,6 +34,13 @@ def _save_connections(connections: list[dict]):
     CONNECTIONS_FILE.write_text(json.dumps(connections, indent=2))
 
 
+def _get_ssl_paths(conn_id: int) -> tuple[str, str]:
+    """Get certificate and key paths for a connection."""
+    cert_path = f"/var/lib/angie/connections.d/{conn_id}.crt"
+    key_path = f"/var/lib/angie/connections.d/{conn_id}.key"
+    return cert_path, key_path
+
+
 def _generate_nginx_config(conn: dict) -> str:
     """Generate Nginx server block configuration for a connection."""
     domains = " ".join(conn["domains"]) if conn["domains"] else "_"
@@ -48,52 +56,88 @@ def _generate_nginx_config(conn: dict) -> str:
     lines.append(f"## Generated at: {datetime.utcnow().isoformat()}Z")
     lines.append("")
 
-    # Server block
-    lines.append(f"server {{")
-    lines.append(f"    listen 80;")
-    if conn["ssl_enabled"]:
-        lines.append(f"    listen 443 ssl;")
-        if conn["ssl_cert_path"]:
-            lines.append(f"    ssl_certificate {conn['ssl_cert_path']};")
-        if conn["ssl_key_path"]:
-            lines.append(f"    ssl_certificate_key {conn['ssl_key_path']};")
+    # HTTP server for ACME challenge and redirect
+    lines.append("server {")
+    lines.append("    listen 80;")
+
+    # ACME directive for SSL-enabled connections
+    if conn.get("ssl_enabled") and conn.get("domains"):
+        lines.append("    acme default;")
 
     lines.append(f"    server_name {domains};")
     lines.append("")
 
-    # Location block with proxy settings
-    lines.append(f"    location / {{")
+    if conn.get("ssl_enabled"):
+        # ACME challenge location
+        lines.append("    location /.well-known/acme-challenge/ {")
+        lines.append("        # ACME challenge handled by Angie ACME module")
+        lines.append("    }")
+        lines.append("")
+        lines.append("    location / {")
+        lines.append("        return 301 https://$host$request_uri;")
+        lines.append("    }")
+        lines.append("}")
+        lines.append("")
 
-    # ModSecurity integration (using Angie/ModSecurity v2 directives)
-    lines.append(f"    modsecurity on;")
-    lines.append(f"    modsecurity_rules_file /etc/angie/modsecurity/rules.conf;")
+        # HTTPS server block
+        cert_path, key_path = _get_ssl_paths(conn["id"])
+        lines.append("server {")
+        lines.append("    listen 443 ssl;")
+        lines.append(f"    server_name {domains};")
+        lines.append("")
 
-    # Proxy settings
-    lines.append(f"    proxy_pass {backend_url};")
-    if conn["preserve_host"]:
-        lines.append(f"    proxy_set_header Host $host;")
+        # SSL configuration - use ACME-managed certificates by default
+        if conn.get("ssl_cert_path") and conn.get("ssl_key_path"):
+            lines.append(f"    ssl_certificate {conn['ssl_cert_path']};")
+            lines.append(f"    ssl_certificate_key {conn['ssl_key_path']};")
+        else:
+            lines.append("    ssl_certificate $acme_cert_default;")
+            lines.append("    ssl_certificate_key $acme_cert_key_default;")
+
+        lines.append("")
+        lines.append("    # ModSecurity integration")
+        lines.append("    modsecurity on;")
+        lines.append("    modsecurity_rules_file /etc/angie/modsecurity/rules.conf;")
+        lines.append("")
+
+        lines.append("    location / {")
+        lines.append(f"    proxy_pass {backend_url};")
+        if conn["preserve_host"]:
+            lines.append("    proxy_set_header Host $host;")
+        else:
+            lines.append("    proxy_set_header Host $proxy_host;")
+        lines.append("    proxy_set_header X-Real-IP $remote_addr;")
+        lines.append("    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;")
+        lines.append("    proxy_set_header X-Forwarded-Proto $scheme;")
+        lines.append("    proxy_http_version 1.1;")
+        lines.append("    proxy_set_header Connection '';")
+        lines.append("    proxy_buffering off;")
+        lines.append("    proxy_request_buffering off;")
+        lines.append("    proxy_redirect off;")
+        lines.append("    }")
     else:
-        lines.append(f"    proxy_set_header Host $proxy_host;")
+        # Non-SSL: proxy directly
+        lines.append("    location / {")
+        lines.append("    # ModSecurity integration")
+        lines.append("    modsecurity on;")
+        lines.append("    modsecurity_rules_file /etc/angie/modsecurity/rules.conf;")
+        lines.append("")
 
-    lines.append(f"    proxy_set_header X-Real-IP $remote_addr;")
-    lines.append(f"    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;")
-    lines.append(f"    proxy_set_header X-Forwarded-Proto $scheme;")
-    lines.append(f"    proxy_http_version 1.1;")
-    lines.append(f"    proxy_set_header Connection '';")
-    lines.append(f"    proxy_buffering off;")
-    lines.append(f"    proxy_request_buffering off;")
-    lines.append(f"    proxy_redirect off;")
-
-    lines.append(f"    }}")
-    lines.append("")
-
-    # Custom nginx config if provided
-    if conn.get("custom_nginx_config"):
-        lines.append("    ## Custom configuration")
-        custom_lines = conn["custom_nginx_config"].strip().split("\n")
-        for custom_line in custom_lines:
-            if custom_line.strip():
-                lines.append(f"    {custom_line}")
+        # Proxy settings
+        lines.append(f"    proxy_pass {backend_url};")
+        if conn["preserve_host"]:
+            lines.append("    proxy_set_header Host $host;")
+        else:
+            lines.append("    proxy_set_header Host $proxy_host;")
+        lines.append("    proxy_set_header X-Real-IP $remote_addr;")
+        lines.append("    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;")
+        lines.append("    proxy_set_header X-Forwarded-Proto $scheme;")
+        lines.append("    proxy_http_version 1.1;")
+        lines.append("    proxy_set_header Connection '';")
+        lines.append("    proxy_buffering off;")
+        lines.append("    proxy_request_buffering off;")
+        lines.append("    proxy_redirect off;")
+        lines.append("    }")
 
     lines.append("}")
 
@@ -152,13 +196,15 @@ def create_connection(conn_in: ConnectionCreate) -> Connection:
         "updated_at": now.isoformat(),
     }
 
-    # If not enabled, add disabled marker to filename
     connections.append(new_conn)
     _save_connections(connections)
 
     # Generate Nginx config
     if new_conn["enabled"]:
         _write_nginx_config(new_conn)
+        # Trigger ACME certificate request if SSL is enabled
+        if new_conn["ssl_enabled"] and new_conn["domains"]:
+            cert_service.trigger_acme_request(new_id, new_conn["domains"])
 
     return Connection(**new_conn)
 
@@ -180,6 +226,9 @@ def update_connection(conn_id: int, conn_in: ConnectionUpdate) -> Connection | N
             # Regenerate or delete Nginx config based on enabled status
             if conn.get("enabled"):
                 _write_nginx_config(conn)
+                # Trigger ACME certificate request if SSL is enabled
+                if conn.get("ssl_enabled") and conn.get("domains"):
+                    cert_service.trigger_acme_request(conn_id, conn["domains"])
             else:
                 _delete_nginx_config(conn_id)
 

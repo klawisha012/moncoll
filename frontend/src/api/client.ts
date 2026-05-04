@@ -146,6 +146,21 @@ async function fetchApi<T>(url: string, options?: RequestInit): Promise<T> {
   return response.json();
 }
 
+export interface CertificateStatus {
+  certificate_exists: boolean;
+  key_exists: boolean;
+  certificate_path: string | null;
+  key_path: string | null;
+}
+
+export interface CertificateResponse {
+  success: boolean;
+  message: string;
+  certificate_path?: string;
+  key_path?: string;
+  client_name?: string;
+}
+
 export const api = {
   getModsecSettings: () =>
     fetchApi<ModSecuritySettings>("/api/modsecurity/settings"),
@@ -171,26 +186,39 @@ export const api = {
   getTraffic: () => fetchApi<TrafficDataPoint[]>("/api/dashboard/traffic"),
   getThreatOrigins: () =>
     fetchApi<ThreatOrigin[]>("/api/dashboard/threat-origins"),
-   getEvents: (limit = 50, severity = "all") =>
-     fetchApi<SecurityEvent[]>(
-       `/api/dashboard/events?limit=${limit}&severity=${severity}`
-     ),
+  getEvents: (limit = 50, severity = "all") =>
+    fetchApi<SecurityEvent[]>(
+      `/api/dashboard/events?limit=${limit}&severity=${severity}`
+    ),
 
-    // Connections API
-    getConnections: () => fetchApi<Connection[]>("/api/connections/"),
-    getConnection: (id: number) => fetchApi<Connection>(`/api/connections/${id}`),
-    createConnection: (conn: ConnectionCreate) =>
-      fetchApi<Connection>("/api/connections/", {
-        method: "POST",
-        body: JSON.stringify(conn),
-      }),
-    updateConnection: (id: number, conn: ConnectionUpdate) =>
-      fetchApi<Connection>(`/api/connections/${id}`, {
-        method: "PUT",
-        body: JSON.stringify(conn),
-      }),
-    deleteConnection: (id: number) =>
-      fetchApi<void>(`/api/connections/${id}`, { method: "DELETE" }),
-    reloadConnections: () =>
-      fetchApi<ReloadResponse>("/api/connections/reload", { method: "POST" }),
- };
+  // Connections API
+  getConnections: () => fetchApi<Connection[]>("/api/connections/"),
+  getConnection: (id: number) => fetchApi<Connection>(`/api/connections/${id}`),
+  createConnection: (conn: ConnectionCreate) =>
+    fetchApi<Connection>("/api/connections/", {
+      method: "POST",
+      body: JSON.stringify(conn),
+    }),
+  updateConnection: (id: number, conn: ConnectionUpdate) =>
+    fetchApi<Connection>(`/api/connections/${id}`, {
+      method: "PUT",
+      body: JSON.stringify(conn),
+    }),
+  deleteConnection: (id: number) =>
+    fetchApi<void>(`/api/connections/${id}`, { method: "DELETE" }),
+  reloadConnections: () =>
+    fetchApi<ReloadResponse>("/api/connections/reload", { method: "POST" }),
+
+  // SSL Certificates API
+  getCertificateStatus: (connectionId: number) =>
+    fetchApi<CertificateStatus>(`/api/ssl/status/${connectionId}`),
+  requestCertificate: (connectionId: number, domains?: string[]) =>
+    fetchApi<CertificateResponse>(`/api/ssl/request/${connectionId}`, {
+      method: "POST",
+      body: JSON.stringify({ domains, challenge_type: "http" }),
+    }),
+  regenerateCertificate: (connectionId: number) =>
+    fetchApi<CertificateResponse>(`/api/ssl/regenerate/${connectionId}`, {
+      method: "POST",
+    }),
+};

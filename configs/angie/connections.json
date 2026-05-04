@@ -1,18 +1,18 @@
 [
   {
-    "id": 1,
+    "id": 3,
     "name": "test",
     "domains": [
       "local.waf.test"
     ],
-    "backend_url": "gateway.docker.internal:5000",
+    "backend_url": "http://localhost:8001",
     "enabled": true,
-    "ssl_enabled": false,
-    "ssl_cert_path": null,
-    "ssl_key_path": null,
+    "ssl_enabled": true,
+    "ssl_cert_path": "/etc/angie/connections.d/3.crt",
+    "ssl_key_path": "/etc/angie/connections.d/3.key",
     "preserve_host": true,
     "custom_nginx_config": null,
-    "created_at": "2026-04-19T20:35:31.630238",
-    "updated_at": "2026-04-19T20:57:44.119547"
+    "created_at": "2026-05-04T14:43:21.324553",
+    "updated_at": "2026-05-04T14:44:12.757788"
   }
 ]

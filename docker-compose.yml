@@ -13,24 +13,25 @@ services:
       - .env
 
   angie:
-    build: configs/angie
-    ports:
-      - "80:80"
-    volumes:
-      - ./var/log/angie:/var/log/angie
-      - ./configs/angie/angie.conf:/etc/angie/angie.conf
-      - ./configs/angie/bouncer.conf:/etc/angie/bouncer.conf
-      - ./configs/angie/blocked_ips.conf:/etc/angie/blocked_ips.conf
-      - ./configs/angie/http.d/:/etc/angie/http.d/
-      - ./configs/angie/connections.d/:/etc/angie/connections.d/
-      - ./configs/angie/modsecurity/:/etc/angie/modsecurity/
-      - ./configs/angie/geoip2/:/etc/angie/geoip2/
-    depends_on:
-      - vector
-      - crowdsec
-    restart: unless-stopped
-    env_file:
-      - .env
+     build: configs/angie
+     ports:
+       - "80:80"
+     volumes:
+       - ./var/log/angie:/var/log/angie
+       - ./configs/angie/angie.conf:/etc/angie/angie.conf
+       - ./configs/angie/bouncer.conf:/etc/angie/bouncer.conf
+       - ./configs/angie/blocked_ips.conf:/etc/angie/blocked_ips.conf
+       - ./configs/angie/http.d/:/etc/angie/http.d/
+       - ./configs/angie/connections.d/:/etc/angie/connections.d/
+       - ./configs/angie/acme/:/var/lib/angie/acme/
+       - ./configs/angie/modsecurity/:/etc/angie/modsecurity/
+       - ./configs/angie/geoip2/:/etc/angie/geoip2/
+     depends_on:
+       - vector
+       - crowdsec
+     restart: unless-stopped
+     env_file:
+       - .env
 
   vector:
     image: timberio/vector:0.36.0-debian
@@ -78,18 +79,17 @@ services:
       - GF_SERVER_SERVE_FROM_SUB_PATH=true
 
   backend:
-    build: ./backend
-    ports:
-      - "8000:8000"
-    volumes:
-      - ./configs/angie/modsecurity:/app/etc/angie/modsecurity
-      - ./configs/angie/angie.conf:/app/etc/angie/angie.conf
-      - ./configs/angie/connections.json:/app/etc/angie/connections.json
-      - ./configs/angie/connections.d/:/app/etc/angie/connections.d/
-      - /var/run/docker.sock:/var/run/docker.sock
-    restart: unless-stopped
-    env_file:
-      - .env
+     build: ./backend
+     ports:
+       - "8000:8000"
+     volumes:
+       - ./configs/angie/connections.json:/var/lib/angie/connections.json
+       - ./configs/angie/connections.d/:/var/lib/angie/connections.d/
+       - ./configs/angie/acme/:/var/lib/angie/acme/
+       - /var/run/docker.sock:/var/run/docker.sock
+     restart: unless-stopped
+     env_file:
+       - .env
 
   frontend:
     build: ./frontend

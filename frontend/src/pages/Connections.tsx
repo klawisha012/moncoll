@@ -1,12 +1,15 @@
 import { useState, useEffect, useRef } from "react";
-import { api, Connection, ConnectionCreate, ConnectionUpdate } from "../api/client";
-import { Plus, Edit2, Trash2, RefreshCw, X } from "lucide-react";
+import { api, Connection, ConnectionCreate, ConnectionUpdate, CertificateStatus } from "../api/client";
+import { Plus, Edit2, Trash2, RefreshCw, X, Shield, CheckCircle, XCircle } from "lucide-react";
 
 export default function Connections() {
   const [connections, setConnections] = useState<Connection[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [reloading, setReloading] = useState(false);
+  const [generatingCert, setGeneratingCert] = useState(false);
+  const [generatingCertId, setGeneratingCertId] = useState<number | null>(null);
+  const [certStatuses, setCertStatuses] = useState<Record<number, CertificateStatus>>({});
   const [toast, setToast] = useState<{ message: string; type: "success" | "error" | "info" } | null>(null);
   const [showForm, setShowForm] = useState(false);
   const [editingId, setEditingId] = useState<number | null>(null);
@@ -32,6 +35,21 @@ export default function Connections() {
     try {
       const data = await api.getConnections();
       setConnections(data);
+      // Load certificate statuses for SSL-enabled connections
+      const statuses: Record<number, CertificateStatus> = {};
+      await Promise.all(
+        data
+          .filter((c) => c.ssl_enabled)
+          .map(async (c) => {
+            try {
+              const status = await api.getCertificateStatus(c.id);
+              statuses[c.id] = status;
+            } catch (err) {
+              // ignore errors for individual status checks
+            }
+          })
+      );
+      setCertStatuses(statuses);
     } catch (err) {
       showToast("Failed to load connections", "error");
     } finally {
@@ -58,6 +76,7 @@ export default function Connections() {
     });
     setEditingId(null);
     setShowForm(false);
+    setCertStatuses({});
     // Clear file input
     if (fileInputRef.current) {
       fileInputRef.current.value = "";
@@ -78,6 +97,7 @@ export default function Connections() {
       custom_nginx_config: conn.custom_nginx_config,
     });
     setShowForm(true);
+    loadCertificateStatus(conn.id);
   }
 
   async function handleSubmit(e: React.FormEvent) {
@@ -87,18 +107,29 @@ export default function Connections() {
       if (editingId !== null) {
         await api.updateConnection(editingId, formData);
         showToast("Connection updated successfully", "success");
+        resetForm();
+        loadConnections();
       } else {
-        await api.createConnection(formData);
+        const newConnection = await api.createConnection(formData);
         showToast("Connection created successfully", "success");
+        // If SSL is enabled, switch to edit mode to allow certificate generation
+        if (formData.ssl_enabled) {
+          setEditingId(newConnection.id);
+          loadCertificateStatus(newConnection.id);
+        } else {
+          // No further actions needed, close modal
+          resetForm();
+        }
+        // Refresh the connections list
+        loadConnections();
       }
-      resetForm();
-      loadConnections();
     } catch (err) {
       showToast("Failed to save connection", "error");
     } finally {
       setSaving(false);
     }
   }
+
 
   async function handleDelete(id: number) {
     if (!confirm("Are you sure you want to delete this connection?")) return;
@@ -125,9 +156,90 @@ export default function Connections() {
     } finally {
       setReloading(false);
     }
+   }
+
+   async function loadCertificateStatus(connectionId: number) {
+     try {
+       const status = await api.getCertificateStatus(connectionId);
+       setCertStatuses((prev) => ({ ...prev, [connectionId]: status }));
+       return status;
+     } catch (err) {
+       setCertStatuses((prev) => {
+         const next = { ...prev };
+         delete next[connectionId];
+         return next;
+       });
+       return null;
+     }
+   }
+
+   async function handleGenerateCertificate() {
+    if (editingId === null) return;
+    setGeneratingCert(true);
+    try {
+      const result = await api.requestCertificate(editingId, formData.domains);
+      if (result.success) {
+        showToast(result.message || "Certificate request initiated", "success");
+        // Auto-fill certificate paths
+        const certPath = `/etc/angie/connections.d/${editingId}.crt`;
+        const keyPath = `/etc/angie/connections.d/${editingId}.key`;
+        updateFormField("ssl_cert_path", certPath);
+        updateFormField("ssl_key_path", keyPath);
+        // Reload certificate status after a short delay
+        setTimeout(() => loadCertificateStatus(editingId), 2000);
+      } else {
+        showToast(`Certificate request failed: ${result.message}`, "error");
+      }
+    } catch (err: any) {
+      showToast(`Certificate request error: ${err.message}`, "error");
+    } finally {
+      setGeneratingCert(false);
+    }
   }
 
-  function updateFormField<K extends keyof ConnectionCreate>(
+  async function handleRegenerateCertificate() {
+    if (editingId === null) return;
+    if (!confirm("Regenerate certificate? This will invalidate the current certificate.")) return;
+    setGeneratingCert(true);
+    try {
+      const result = await api.regenerateCertificate(editingId);
+      if (result.success) {
+        showToast(result.message || "Certificate regeneration initiated", "success");
+        // Reload certificate status after a short delay
+        setTimeout(() => loadCertificateStatus(editingId), 2000);
+      } else {
+        showToast(`Regeneration failed: ${result.message}`, "error");
+      }
+    } catch (err: any) {
+      showToast(`Regeneration error: ${err.message}`, "error");
+    } finally {
+      setGeneratingCert(false);
+    }
+   }
+
+   async function handleQuickGenerate(conn: Connection) {
+     if (!conn.ssl_enabled || !conn.domains.length) {
+       showToast("SSL must be enabled and domains must be set", "error");
+       return;
+     }
+     setGeneratingCertId(conn.id);
+     try {
+       const result = await api.requestCertificate(conn.id, conn.domains);
+       if (result.success) {
+         showToast(result.message || "Certificate requested successfully", "success");
+         // Reload connections after a delay to update status
+         setTimeout(() => loadConnections(), 3000);
+       } else {
+         showToast(`Failed: ${result.message}`, "error");
+       }
+     } catch (err: any) {
+       showToast(`Error: ${err.message}`, "error");
+     } finally {
+       setGeneratingCertId(null);
+     }
+   }
+
+   function updateFormField<K extends keyof ConnectionCreate>(
     key: K,
     value: ConnectionCreate[K]
   ) {
@@ -232,13 +344,37 @@ export default function Connections() {
                   <strong>Backend:</strong>
                   <code className="codeblock">{conn.backend_url}</code>
                 </div>
-                {conn.ssl_enabled && (
-                  <div className="detail-row">
-                    <strong>SSL:</strong>
-                    <span className="badge badge-primary">Enabled</span>
-                    {conn.ssl_cert_path && <span className="text-muted">{conn.ssl_cert_path}</span>}
-                  </div>
-                )}
+                 {conn.ssl_enabled && (
+                   <div className="detail-row">
+                     <strong>SSL:</strong>
+                     <span className="badge badge-primary">Enabled</span>
+                     {certStatuses[conn.id] ? (
+                       certStatuses[conn.id].certificate_exists && certStatuses[conn.id].key_exists ? (
+                         <span className="badge badge-success" style={{ marginLeft: "8px", display: "inline-flex", alignItems: "center", gap: "4px" }}>
+                           <Shield size={12} /> Certificate Ready
+                         </span>
+                       ) : (
+                         <span className="badge badge-warning" style={{ marginLeft: "8px", display: "inline-flex", alignItems: "center", gap: "4px" }}>
+                           <XCircle size={12} /> Pending
+                         </span>
+                       )
+                     ) : (
+                       <span className="badge badge-secondary" style={{ marginLeft: "8px" }}>
+                         Not Checked
+                       </span>
+                     )}
+                     <button
+                       type="button"
+                       className="btn btn-outline btn-sm"
+                       onClick={() => handleQuickGenerate(conn)}
+                       disabled={generatingCertId === conn.id}
+                       style={{ marginLeft: "8px" }}
+                     >
+                       {generatingCertId === conn.id ? "Generating..." : (certStatuses[conn.id]?.certificate_exists ? "Regenerate" : "Generate")}
+                     </button>
+                     {conn.ssl_cert_path && <span className="text-muted" style={{ marginLeft: "8px" }}>{conn.ssl_cert_path}</span>}
+                   </div>
+                 )}
                 {conn.custom_nginx_config && (
                   <div className="detail-row">
                     <strong>Custom Config:</strong>
@@ -335,17 +471,61 @@ export default function Connections() {
                 </div>
               )}
 
-              {formData.ssl_enabled && (
-                <div className="form-group">
-                  <label>SSL Key Path</label>
-                  <input
-                    type="text"
-                    value={formData.ssl_key_path || ""}
-                    onChange={(e) => updateFormField("ssl_key_path", e.target.value || null)}
-                    placeholder="/etc/angie/ssl/key.pem"
-                  />
-                </div>
-              )}
+               {formData.ssl_enabled && (
+                 <div className="form-group">
+                   <label>SSL Key Path</label>
+                   <input
+                     type="text"
+                     value={formData.ssl_key_path || ""}
+                     onChange={(e) => updateFormField("ssl_key_path", e.target.value || null)}
+                     placeholder="/etc/angie/ssl/key.pem"
+                   />
+                 </div>
+               )}
+
+               {formData.ssl_enabled && editingId && (
+                 <div className="form-group" style={{ marginTop: "16px" }}>
+                   <label>SSL Certificate Management</label>
+                   <div style={{ display: "flex", gap: "8px", flexWrap: "wrap", alignItems: "center" }}>
+                     <button
+                       type="button"
+                       className="btn btn-primary"
+                       onClick={handleGenerateCertificate}
+                       disabled={generatingCert}
+                     >
+                       <Shield size={16} />
+                       {generatingCert ? "Requesting..." : "Generate Certificate"}
+                     </button>
+                      {editingId && certStatuses[editingId] && (
+                        <>
+                           {certStatuses[editingId].certificate_exists && certStatuses[editingId].key_exists ? (
+                             <span className="badge badge-success" style={{ display: "inline-flex", alignItems: "center", gap: "4px" }}>
+                               <CheckCircle size={14} />
+                               Certificate Ready
+                             </span>
+                           ) : (
+                             <span className="badge badge-warning" style={{ display: "inline-flex", alignItems: "center", gap: "4px" }}>
+                               <XCircle size={14} />
+                               Pending Generation
+                             </span>
+                           )}
+                          <button
+                            type="button"
+                            className="btn btn-outline btn-sm"
+                            onClick={handleRegenerateCertificate}
+                            disabled={generatingCert}
+                          >
+                            Regenerate
+                          </button>
+                        </>
+                      )}
+                   </div>
+                   <small style={{ color: "#6b7280", marginTop: "4px", display: "block" }}>
+                     Automatically requests Let's Encrypt certificate for the domains listed above.
+                     Certificate will be saved to /etc/angie/connections.d/{editingId}.crt and .key
+                   </small>
+                 </div>
+               )}
 
               <div className="form-group">
                 <label>Custom Nginx Configuration (optional)</label>
@@ -444,11 +624,11 @@ export default function Connections() {
           background: #fee2e2;
           color: #dc2626;
         }
-        .text-muted {
-          color: #6b7280;
-          font-size: 14px;
-        }
-      `}</style>
+         .text-muted {
+           color: #6b7280;
+           font-size: 14px;
+         }
+       `}</style>
     </div>
   );
 }
