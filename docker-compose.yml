@@ -16,6 +16,7 @@ services:
     build: configs/angie
     ports:
       - "80:80"
+      - "443:443"
     volumes:
       - ./var/log/angie:/var/log/angie
       - ./configs/angie/angie.conf:/etc/angie/angie.conf
@@ -25,6 +26,7 @@ services:
       - ./configs/angie/http.d/acme/:/var/lib/angie/acme/
       - ./configs/angie/modsecurity/:/etc/angie/modsecurity/
       - ./configs/angie/geoip2/:/etc/angie/geoip2/
+      - ./examples/:/var/www/examples/
     depends_on:
       - vector
       - crowdsec

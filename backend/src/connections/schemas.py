@@ -1,5 +1,5 @@
 from pydantic import BaseModel, Field
-from typing import Optional
+from typing import Optional, Literal
 from datetime import datetime
 
 
@@ -12,7 +12,15 @@ class ConnectionBase(BaseModel):
     domains: list[str] = Field(
         default_factory=list, description="List of domain names (server_name directives)"
     )
-    backend_url: str = Field(..., description="Backend target URL (proxy_pass destination)")
+    mode: Literal["proxy", "static"] = Field(
+        default="proxy", description="Connection mode: proxy to backend or serve static files"
+    )
+    backend_url: str = Field(
+        default="", description="Backend target URL (proxy_pass destination) — required for proxy mode"
+    )
+    static_dir: Optional[str] = Field(
+        default=None, description="Directory path for static file serving (Angie container path)"
+    )
     enabled: bool = Field(default=True, description="Whether this proxy rule is active")
     ssl_enabled: bool = Field(default=False, description="Enable SSL/TLS for this site")
     ssl_cert_path: Optional[str] = Field(default=None, description="Path to SSL certificate file")
@@ -36,7 +44,9 @@ class ConnectionUpdate(BaseModel):
 
     name: Optional[str] = Field(None, min_length=1, max_length=128)
     domains: Optional[list[str]] = None
+    mode: Optional[Literal["proxy", "static"]] = None
     backend_url: Optional[str] = None
+    static_dir: Optional[str] = None
     enabled: Optional[bool] = None
     ssl_enabled: Optional[bool] = None
     ssl_cert_path: Optional[str] = None

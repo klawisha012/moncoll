@@ -39,7 +39,9 @@ export interface Connection {
   id: number;
   name: string;
   domains: string[];
+  mode: "proxy" | "static";
   backend_url: string;
+  static_dir: string | null;
   enabled: boolean;
   ssl_enabled: boolean;
   ssl_cert_path: string | null;
@@ -53,7 +55,9 @@ export interface Connection {
 export interface ConnectionCreate {
   name: string;
   domains: string[];
-  backend_url: string;
+  mode?: "proxy" | "static";
+  backend_url?: string;
+  static_dir?: string | null;
   enabled?: boolean;
   ssl_enabled?: boolean;
   ssl_cert_path?: string | null;
@@ -65,7 +69,9 @@ export interface ConnectionCreate {
 export interface ConnectionUpdate {
   name?: string;
   domains?: string[];
+  mode?: "proxy" | "static";
   backend_url?: string;
+  static_dir?: string | null;
   enabled?: boolean;
   ssl_enabled?: boolean;
   ssl_cert_path?: string | null;

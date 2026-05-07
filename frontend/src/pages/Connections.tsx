@@ -34,10 +34,13 @@ export default function Connections() {
   const [showForm, setShowForm] = useState(false);
   const [editingId, setEditingId] = useState<number | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const dirInputRef = useRef<HTMLInputElement>(null);
   const [formData, setFormData] = useState<ConnectionCreate>({
     name: "",
     domains: [],
+    mode: "proxy",
     backend_url: "",
+    static_dir: null,
     enabled: true,
     ssl_enabled: false,
     ssl_cert_path: null,
@@ -88,7 +91,9 @@ export default function Connections() {
     setFormData({
       name: "",
       domains: [],
+      mode: "proxy",
       backend_url: "",
+      static_dir: null,
       enabled: true,
       ssl_enabled: false,
       ssl_cert_path: null,
@@ -102,6 +107,9 @@ export default function Connections() {
     if (fileInputRef.current) {
       fileInputRef.current.value = "";
     }
+    if (dirInputRef.current) {
+      dirInputRef.current.value = "";
+    }
   }
 
   function handleEdit(conn: Connection) {
@@ -109,7 +117,9 @@ export default function Connections() {
     setFormData({
       name: conn.name,
       domains: conn.domains,
-      backend_url: conn.backend_url,
+      mode: conn.mode || "proxy",
+      backend_url: conn.backend_url || "",
+      static_dir: conn.static_dir,
       enabled: conn.enabled,
       ssl_enabled: conn.ssl_enabled,
       ssl_cert_path: conn.ssl_cert_path,
@@ -196,12 +206,18 @@ export default function Connections() {
     try {
       const result = await api.requestCertificate(editingId, formData.domains);
       if (result.success) {
-        showToast(result.message || "Certificate request initiated", "success");
-        const certPath = `/etc/angie/http.d/${editingId}.crt`;
-        const keyPath = `/etc/angie/http.d/${editingId}.key`;
+        // Auto-persist cert paths to the connection
+        const certPath = result.certificate_path || `/etc/angie/http.d/${editingId}.crt`;
+        const keyPath = result.key_path || `/etc/angie/http.d/${editingId}.key`;
         updateFormField("ssl_cert_path", certPath);
         updateFormField("ssl_key_path", keyPath);
-        setTimeout(() => loadCertificateStatus(editingId), 2000);
+        // Save the connection with new cert paths
+        await api.updateConnection(editingId, {
+          ssl_cert_path: certPath,
+          ssl_key_path: keyPath,
+        });
+        showToast(result.message || "Certificate generated & saved", "success");
+        setTimeout(() => loadCertificateStatus(editingId), 1000);
       } else {
         showToast(`Certificate request failed: ${result.message}`, "error");
       }
@@ -224,11 +240,17 @@ export default function Connections() {
     try {
       const result = await api.regenerateCertificate(editingId);
       if (result.success) {
-        showToast(
-          result.message || "Certificate regeneration initiated",
-          "success"
-        );
-        setTimeout(() => loadCertificateStatus(editingId), 2000);
+        // Auto-persist new cert paths
+        const certPath = result.certificate_path || `/etc/angie/http.d/${editingId}.crt`;
+        const keyPath = result.key_path || `/etc/angie/http.d/${editingId}.key`;
+        updateFormField("ssl_cert_path", certPath);
+        updateFormField("ssl_key_path", keyPath);
+        await api.updateConnection(editingId, {
+          ssl_cert_path: certPath,
+          ssl_key_path: keyPath,
+        });
+        showToast(result.message || "Certificate regenerated & saved", "success");
+        setTimeout(() => loadCertificateStatus(editingId), 1000);
       } else {
         showToast(`Regeneration failed: ${result.message}`, "error");
       }
@@ -248,11 +270,15 @@ export default function Connections() {
     try {
       const result = await api.requestCertificate(conn.id, conn.domains);
       if (result.success) {
-        showToast(
-          result.message || "Certificate requested successfully",
-          "success"
-        );
-        setTimeout(() => loadConnections(), 3000);
+        // Auto-persist cert paths to the connection
+        const certPath = result.certificate_path || `/etc/angie/http.d/${conn.id}.crt`;
+        const keyPath = result.key_path || `/etc/angie/http.d/${conn.id}.key`;
+        await api.updateConnection(conn.id, {
+          ssl_cert_path: certPath,
+          ssl_key_path: keyPath,
+        });
+        showToast(result.message || "Certificate generated & saved", "success");
+        setTimeout(() => loadConnections(), 2000);
       } else {
         showToast(`Failed: ${result.message}`, "error");
       }
@@ -390,9 +416,23 @@ export default function Connections() {
                 </div>
 
                 <div className="detail-row">
-                  <strong>Backend</strong>
-                  <code className="codeblock">{conn.backend_url}</code>
+                  <strong>Mode</strong>
+                  <span className={`badge ${conn.mode === "static" ? "badge-info" : "badge-secondary"}`}>
+                    {conn.mode === "static" ? "📁 Static Files" : "🔄 Proxy"}
+                  </span>
                 </div>
+
+                {conn.mode === "proxy" ? (
+                  <div className="detail-row">
+                    <strong>Backend</strong>
+                    <code className="codeblock">{conn.backend_url}</code>
+                  </div>
+                ) : (
+                  <div className="detail-row">
+                    <strong>Static Dir</strong>
+                    <code className="codeblock">{conn.static_dir || "/usr/share/angie/html"}</code>
+                  </div>
+                )}
 
                 {conn.ssl_enabled && (
                   <div className="detail-row">
@@ -512,17 +552,118 @@ export default function Connections() {
               </div>
 
               <div className="form-group">
-                <label>Backend URL *</label>
-                <input
-                  type="text"
-                  value={formData.backend_url}
-                  onChange={(e) =>
-                    updateFormField("backend_url", e.target.value)
-                  }
-                  placeholder="http://backend:3000"
-                  required
-                />
+                <label>Connection Mode</label>
+                <div style={{ display: "flex", gap: "16px", flexWrap: "wrap" }}>
+                  <label
+                    className="checkbox-row"
+                    onClick={() =>
+                      updateFormField("mode", "proxy")
+                    }
+                  >
+                    <input
+                      type="radio"
+                      name="mode"
+                      checked={formData.mode === "proxy"}
+                      onChange={() => {}}
+                    />
+                    <span>Proxy to Backend</span>
+                  </label>
+                  <label
+                    className="checkbox-row"
+                    onClick={() =>
+                      updateFormField("mode", "static")
+                    }
+                  >
+                    <input
+                      type="radio"
+                      name="mode"
+                      checked={formData.mode === "static"}
+                      onChange={() => {}}
+                    />
+                    <span>Serve Static Files</span>
+                  </label>
+                </div>
               </div>
+
+              {formData.mode === "proxy" ? (
+                <div className="form-group">
+                  <label>Backend URL *</label>
+                  <input
+                    type="text"
+                    value={formData.backend_url}
+                    onChange={(e) =>
+                      updateFormField("backend_url", e.target.value)
+                    }
+                    placeholder="http://backend:3000"
+                    required={formData.mode === "proxy"}
+                  />
+                </div>
+              ) : (
+                <div className="form-group">
+                  <label>Static Files Directory (Angie container path)</label>
+                  <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
+                    <input
+                      type="text"
+                      value={formData.static_dir || ""}
+                      onChange={(e) =>
+                        updateFormField("static_dir", e.target.value || null)
+                      }
+                      placeholder="/usr/share/angie/html"
+                      style={{ flex: 1, minWidth: "200px" }}
+                    />
+                    <button
+                      type="button"
+                      className="btn btn-outline btn-sm"
+                      onClick={() => dirInputRef.current?.click()}
+                      title="Browse for index.html — the directory will be used"
+                    >
+                      Browse index.html
+                    </button>
+                    <input
+                      type="file"
+                      ref={dirInputRef}
+                      style={{ display: "none" }}
+                      accept=".html,.htm"
+                      onChange={(e) => {
+                        const file = e.target.files?.[0];
+                        if (file) {
+                          const fileName = file.name;
+                          if ((file as any).path) {
+                            // Chromium browsers provide the full local path
+                            const rawPath = (file as any).path;
+                            // Detect Windows-style path (contains backslash or drive letter)
+                            if (/^[A-Za-z]:[\\/]/.test(rawPath) || rawPath.includes("\\")) {
+                              showToast(
+                                `⚠️ Selected "${fileName}" from local disk. Mount this directory into Angie via docker-compose volumes, then enter the container path above.`,
+                                "error"
+                              );
+                            } else {
+                              // Unix-style path — extract directory
+                              const dirPath = rawPath.replace(/\/[^/]+$/, "");
+                              updateFormField("static_dir", dirPath);
+                              showToast(`📁 Directory: ${dirPath}`, "info");
+                            }
+                          } else {
+                            showToast(
+                              `📄 Selected "${fileName}". Enter the container directory path above (e.g. /usr/share/angie/html).`,
+                              "info"
+                            );
+                          }
+                          // Reset so the same file can be selected again
+                          e.target.value = "";
+                        }
+                      }}
+                    />
+                  </div>
+                  <small>
+                    Container path inside Angie (e.g. <code>/usr/share/angie/html</code>).
+                    Mount host files via <code>docker-compose.yml volumes:</code>, then use the
+                    container path here.
+                    <br />
+                    <strong>Not a Windows path!</strong> Use <code>/var/www/...</code> style paths.
+                  </small>
+                </div>
+              )}
 
               <div className="form-group">
                 <label
@@ -551,19 +692,21 @@ export default function Connections() {
                   />
                   <span>Enable SSL / TLS</span>
                 </label>
-                <label
-                  className="checkbox-row"
-                  onClick={() =>
-                    updateFormField("preserve_host", !formData.preserve_host)
-                  }
-                >
-                  <input
-                    type="checkbox"
-                    checked={formData.preserve_host}
-                    onChange={() => {}}
-                  />
-                  <span>Preserve Host Header</span>
-                </label>
+                {formData.mode === "proxy" && (
+                  <label
+                    className="checkbox-row"
+                    onClick={() =>
+                      updateFormField("preserve_host", !formData.preserve_host)
+                    }
+                  >
+                    <input
+                      type="checkbox"
+                      checked={formData.preserve_host}
+                      onChange={() => {}}
+                    />
+                    <span>Preserve Host Header</span>
+                  </label>
+                )}
               </div>
 
               {formData.ssl_enabled && (
