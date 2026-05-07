@@ -1,4 +1,65 @@
+import { useEffect, useState } from "react";
+import { Metrics } from "../api/client";
+
+function formatNumber(n: number): string {
+  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
+  if (n >= 1_000) return `${(n / 1_000).toFixed(1)}K`;
+  return n.toLocaleString();
+}
+
 export default function Dashboard() {
+  const [metrics, setMetrics] = useState<Metrics | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const fetchMetrics = async () => {
+      try {
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 8_000);
+
+        const response = await fetch("/api/dashboard/metrics", {
+          signal: controller.signal,
+        });
+        clearTimeout(timeoutId);
+
+        if (!response.ok) {
+          throw new Error(`HTTP ${response.status}`);
+        }
+        const data: Metrics = await response.json();
+
+        if (!cancelled) {
+          setMetrics(data);
+          setError(null);
+          setLoading(false);
+        }
+      } catch (err) {
+        if (!cancelled) {
+          if (err instanceof DOMException && err.name === "AbortError") {
+            setError("Metrics endpoint is not reachable (ClickHouse may be offline)");
+          } else {
+            setError(err instanceof Error ? err.message : "Failed to load metrics");
+          }
+          setLoading(false);
+        }
+      }
+    };
+
+    fetchMetrics();
+    const interval = setInterval(fetchMetrics, 10_000);
+    return () => {
+      cancelled = true;
+      clearInterval(interval);
+    };
+  }, []);
+
+  const totalRequests = metrics?.total_requests ?? null;
+  const blockedThreats = metrics?.blocked_threats ?? null;
+  const avgLatency = metrics?.avg_latency_ms ?? null;
+  const activeRules = metrics?.active_rules ?? null;
+
   return (
     <div>
       <div className="page-header">
@@ -6,6 +67,19 @@ export default function Dashboard() {
           <h1>Dashboard</h1>
           <p>Real-time WAF monitoring and analytics powered by Grafana</p>
         </div>
+        {error && (
+          <div
+            style={{
+              padding: "8px 16px",
+              background: "var(--danger-bg, rgba(239, 68, 68, 0.1))",
+              borderRadius: "var(--radius-md, 8px)",
+              color: "var(--danger, #ef4444)",
+              fontSize: "13px",
+            }}
+          >
+            {error}
+          </div>
+        )}
       </div>
 
       {/* Stat cards row */}
@@ -27,8 +101,16 @@ export default function Dashboard() {
             </svg>
           </div>
           <div className="metric-label">Total Requests</div>
-          <div className="metric-value">—</div>
-          <div className="metric-change up">Live data via Grafana</div>
+          <div className="metric-value">
+            {loading ? "…" : totalRequests !== null ? formatNumber(totalRequests) : "—"}
+          </div>
+          <div className={`metric-change ${(metrics?.total_requests_change ?? 0) >= 0 ? "up" : "down"}`}>
+            {loading
+              ? "Loading…"
+              : metrics
+                ? `${metrics.total_requests_change >= 0 ? "+" : ""}${metrics.total_requests_change}% vs 24h ago`
+                : "Live data via Grafana"}
+          </div>
         </div>
 
         <div className="metric-card">
@@ -47,8 +129,16 @@ export default function Dashboard() {
             </svg>
           </div>
           <div className="metric-label">Blocked Threats</div>
-          <div className="metric-value">—</div>
-          <div className="metric-change down">Monitored by WAF</div>
+          <div className="metric-value">
+            {loading ? "…" : blockedThreats !== null ? formatNumber(blockedThreats) : "—"}
+          </div>
+          <div className="metric-change down">
+            {loading
+              ? "Loading…"
+              : metrics
+                ? `${metrics.high_severity_count} high severity`
+                : "Monitored by WAF"}
+          </div>
         </div>
 
         <div className="metric-card">
@@ -68,8 +158,16 @@ export default function Dashboard() {
             </svg>
           </div>
           <div className="metric-label">Avg Latency</div>
-          <div className="metric-value">—</div>
-          <div className="metric-change up">Performance metrics</div>
+          <div className="metric-value">
+            {loading ? "…" : avgLatency !== null ? `${avgLatency.toFixed(1)} ms` : "—"}
+          </div>
+          <div className="metric-change up">
+            {loading
+              ? "Loading…"
+              : metrics
+                ? `Health ${metrics.system_health}%`
+                : "Performance metrics"}
+          </div>
         </div>
 
         <div className="metric-card">
@@ -89,8 +187,16 @@ export default function Dashboard() {
             </svg>
           </div>
           <div className="metric-label">Active Rules</div>
-          <div className="metric-value">—</div>
-          <div className="metric-change up">CRS Protection</div>
+          <div className="metric-value">
+            {loading ? "…" : activeRules !== null ? activeRules.toLocaleString() : "—"}
+          </div>
+          <div className="metric-change up">
+            {loading
+              ? "Loading…"
+              : metrics
+                ? "CRS Protection"
+                : "CRS Protection"}
+          </div>
         </div>
       </div>
 
@@ -100,7 +206,7 @@ export default function Dashboard() {
         style={{ padding: "8px", overflow: "hidden", height: "calc(100vh - 320px)" }}
       >
         <iframe
-          src="/grafana/d/waf-nginx-dashboard?orgId=1&refresh=10s&theme=dark"
+          src="/grafana/d/waf-nginx-dashboard?orgId=1&refresh=10s&theme=dark&kiosk=tv"
           style={{
             border: "none",
             width: "100%",

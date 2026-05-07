@@ -148,6 +148,13 @@ events {{
 
 
 http {{
+    # Real IP from X-Forwarded-For (Docker / reverse proxy)
+    set_real_ip_from 10.0.0.0/8;
+    set_real_ip_from 172.16.0.0/12;
+    set_real_ip_from 192.168.0.0/16;
+    real_ip_header X-Forwarded-For;
+    real_ip_recursive on;
+
     geoip2 /etc/angie/geoip2/GeoLite2-Country.mmdb {{
         auto_reload 1h;
         $geoip2_data_country_code source=$http_x_forwarded_for country iso_code;

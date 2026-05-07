@@ -173,6 +173,7 @@ export interface Metrics {
   high_severity_count: number;
   system_health: number;
   avg_latency_ms: number;
+  active_rules: number;
 }
 
 export interface TrafficDataPoint {
