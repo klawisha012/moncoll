@@ -5,8 +5,8 @@ from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
-CONNECTION_SSL_DIR = Path("/etc/angie/connections.d")
-ACME_DIR = Path("/etc/angie/acme")
+CONNECTION_SSL_DIR = Path("/var/lib/angie/http.d")
+ACME_DIR = Path("/var/lib/angie/acme")
 
 
 def _ensure_ssl_dirs():
@@ -17,8 +17,8 @@ def _ensure_ssl_dirs():
 
 def get_connection_ssl_paths(connection_id: int) -> tuple[str, str]:
     """Get certificate and key paths for a connection."""
-    cert_path = f"/var/lib/angie/connections.d/{connection_id}.crt"
-    key_path = f"/var/lib/angie/connections.d/{connection_id}.key"
+    cert_path = f"/var/lib/angie/http.d/{connection_id}.crt"
+    key_path = f"/var/lib/angie/http.d/{connection_id}.key"
     return cert_path, key_path
 
 

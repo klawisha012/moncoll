@@ -8,11 +8,11 @@ from ..certificates import service as cert_service
 
 CONNECTIONS_DIR = Path("/var/lib/angie")
 CONNECTIONS_FILE = CONNECTIONS_DIR / "connections.json"
-CONNECTIONS_D_DIR = CONNECTIONS_DIR / "connections.d"
+CONNECTIONS_D_DIR = CONNECTIONS_DIR / "http.d"
 
 
 def _ensure_dirs():
-    """Ensure connections directory and connections.d directory exist."""
+    """Ensure connections directory and http.d directory exist."""
     CONNECTIONS_DIR.mkdir(parents=True, exist_ok=True)
     CONNECTIONS_D_DIR.mkdir(parents=True, exist_ok=True)
 
@@ -36,8 +36,8 @@ def _save_connections(connections: list[dict]):
 
 def _get_ssl_paths(conn_id: int) -> tuple[str, str]:
     """Get certificate and key paths for a connection."""
-    cert_path = f"/var/lib/angie/connections.d/{conn_id}.crt"
-    key_path = f"/var/lib/angie/connections.d/{conn_id}.key"
+    cert_path = f"/var/lib/angie/http.d/{conn_id}.crt"
+    key_path = f"/var/lib/angie/http.d/{conn_id}.key"
     return cert_path, key_path
 
 

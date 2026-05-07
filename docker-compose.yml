@@ -22,8 +22,7 @@ services:
       - ./configs/angie/bouncer.conf:/etc/angie/bouncer.conf
       - ./configs/angie/blocked_ips.conf:/etc/angie/blocked_ips.conf
       - ./configs/angie/http.d/:/etc/angie/http.d/
-      - ./configs/angie/connections.d/:/etc/angie/connections.d/
-      - ./configs/angie/acme/:/var/lib/angie/acme/
+      - ./configs/angie/http.d/acme/:/var/lib/angie/acme/
       - ./configs/angie/modsecurity/:/etc/angie/modsecurity/
       - ./configs/angie/geoip2/:/etc/angie/geoip2/
     depends_on:
@@ -82,8 +81,8 @@ services:
       - "8000:8000"
     volumes:
       - ./configs/angie/connections.json:/var/lib/angie/connections.json
-      - ./configs/angie/connections.d/:/var/lib/angie/connections.d/
-      - ./configs/angie/acme/:/var/lib/angie/acme/
+      - ./configs/angie/http.d/:/var/lib/angie/http.d/
+      - ./configs/angie/http.d/acme/:/var/lib/angie/acme/
       - /var/run/docker.sock:/var/run/docker.sock
     restart: unless-stopped
     env_file:
