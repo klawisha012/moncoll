@@ -3,9 +3,8 @@ import {
   api,
   ModSecuritySettings,
   AngieSettings,
-  ModuleInfo,
 } from "../api/client";
-import { Save, RefreshCw } from "lucide-react";
+import { Save, RefreshCw, Shield, Cog } from "lucide-react";
 
 type TabType = "modsecurity" | "angie";
 
@@ -38,14 +37,17 @@ export default function ConfigEditor() {
       ]);
       setModsec(m);
       setAngie(a);
-    } catch (err) {
+    } catch {
       showToast("Failed to load settings", "error");
     } finally {
       setLoading(false);
     }
   }
 
-  function showToast(message: string, type: "success" | "error" | "info") {
+  function showToast(
+    message: string,
+    type: "success" | "error" | "info"
+  ) {
     setToast({ message, type });
     setTimeout(() => setToast(null), 3000);
   }
@@ -56,7 +58,7 @@ export default function ConfigEditor() {
     try {
       await api.updateModsecSettings(modsec);
       showToast("ModSecurity settings saved", "success");
-    } catch (err) {
+    } catch {
       showToast("Failed to save ModSecurity settings", "error");
     } finally {
       setSaving(false);
@@ -69,7 +71,7 @@ export default function ConfigEditor() {
     try {
       await api.updateAngieSettings(angie);
       showToast("Angie settings saved", "success");
-    } catch (err) {
+    } catch {
       showToast("Failed to save Angie settings", "error");
     } finally {
       setSaving(false);
@@ -79,7 +81,9 @@ export default function ConfigEditor() {
   async function handleReload(type: "modsec" | "angie") {
     try {
       const result =
-        type === "modsec" ? await api.reloadModsec() : await api.reloadAngie();
+        type === "modsec"
+          ? await api.reloadModsec()
+          : await api.reloadAngie();
       if (result.success) {
         showToast("Reloaded successfully", "success");
       } else {
@@ -124,7 +128,7 @@ export default function ConfigEditor() {
     return (
       <div className="loading">
         <div className="spinner" />
-        Loading settings...
+        Loading settings…
       </div>
     );
   }
@@ -134,7 +138,7 @@ export default function ConfigEditor() {
       <div className="page-header">
         <div>
           <h1>Configuration</h1>
-          <p>Manage ModSecurity and Angie settings</p>
+          <p>Manage ModSecurity rules and Angie engine settings</p>
         </div>
       </div>
 
@@ -143,12 +147,14 @@ export default function ConfigEditor() {
           className={`tab ${activeTab === "modsecurity" ? "active" : ""}`}
           onClick={() => setActiveTab("modsecurity")}
         >
+          <Shield size={14} style={{ marginRight: "6px" }} />
           ModSecurity
         </button>
         <button
           className={`tab ${activeTab === "angie" ? "active" : ""}`}
           onClick={() => setActiveTab("angie")}
         >
+          <Cog size={14} style={{ marginRight: "6px" }} />
           Angie
         </button>
       </div>
@@ -182,8 +188,9 @@ export default function ConfigEditor() {
   );
 }
 
-/* ─── ModSecurity Tab ─── */
-
+/* ══════════════════════════════════════════════════════════════════
+   ModSecurity Tab
+   ══════════════════════════════════════════════════════════════════ */
 function ModSecurityTab({
   settings,
   onChange,
@@ -219,15 +226,9 @@ function ModSecurityTab({
         </div>
         <label
           className="checkbox-row"
-          onClick={() =>
-            onChange("status_engine", !settings.status_engine)
-          }
+          onClick={() => onChange("status_engine", !settings.status_engine)}
         >
-          <input
-            type="checkbox"
-            checked={settings.status_engine}
-            readOnly
-          />
+          <input type="checkbox" checked={settings.status_engine} readOnly />
           <span>SecStatusEngine — share version info</span>
         </label>
       </div>
@@ -313,10 +314,7 @@ function ModSecurityTab({
         <label
           className="checkbox-row"
           onClick={() =>
-            onChange(
-              "response_body_access",
-              !settings.response_body_access
-            )
+            onChange("response_body_access", !settings.response_body_access)
           }
         >
           <input
@@ -455,14 +453,14 @@ function ModSecurityTab({
         </div>
       </div>
 
-      <div className="actions-bar" style={{ marginTop: 16 }}>
+      <div className="actions-bar" style={{ marginTop: "16px" }}>
         <button
           className="btn btn-primary"
           onClick={onSave}
           disabled={saving}
         >
           <Save size={16} />
-          {saving ? "Saving..." : "Save ModSecurity Settings"}
+          {saving ? "Saving…" : "Save ModSecurity Settings"}
         </button>
         <button className="btn btn-success" onClick={onReload}>
           <RefreshCw size={16} />
@@ -473,8 +471,9 @@ function ModSecurityTab({
   );
 }
 
-/* ─── Angie Tab ─── */
-
+/* ══════════════════════════════════════════════════════════════════
+   Angie Tab
+   ══════════════════════════════════════════════════════════════════ */
 function AngieTab({
   settings,
   onChange,
@@ -498,10 +497,7 @@ function AngieTab({
   const topModules = settings.modules.slice(0, 20);
   const restModules = settings.modules.slice(20);
   const [showAllModules, setShowAllModules] = useState(false);
-
-  const visibleModules = showAllModules
-    ? settings.modules
-    : topModules;
+  const visibleModules = showAllModules ? settings.modules : topModules;
 
   return (
     <div>
@@ -601,14 +597,19 @@ function AngieTab({
               onClick={() => onToggleModule(mod.name)}
             >
               <input type="checkbox" checked={mod.loaded} readOnly />
-              <span>{mod.name.replace("ngx_http_", "").replace("ngx_", "").replace("_module.so", "")}</span>
+              <span>
+                {mod.name
+                  .replace("ngx_http_", "")
+                  .replace("ngx_", "")
+                  .replace("_module.so", "")}
+              </span>
             </label>
           ))}
         </div>
         {restModules.length > 0 && (
           <button
             className="btn btn-outline btn-sm"
-            style={{ marginTop: 12 }}
+            style={{ marginTop: "12px" }}
             onClick={() => setShowAllModules(!showAllModules)}
           >
             {showAllModules
@@ -618,14 +619,14 @@ function AngieTab({
         )}
       </div>
 
-      <div className="actions-bar" style={{ marginTop: 16 }}>
+      <div className="actions-bar" style={{ marginTop: "16px" }}>
         <button
           className="btn btn-primary"
           onClick={onSave}
           disabled={saving}
         >
           <Save size={16} />
-          {saving ? "Saving..." : "Save Angie Settings"}
+          {saving ? "Saving…" : "Save Angie Settings"}
         </button>
         <button className="btn btn-success" onClick={onReload}>
           <RefreshCw size={16} />

@@ -1,5 +1,11 @@
 import { useEffect, useState } from "react";
-import { Activity, Cpu, HardDrive, MemoryStick } from "lucide-react";
+import {
+  Activity,
+  Cpu,
+  HardDrive,
+  MemoryStick,
+  Server,
+} from "lucide-react";
 
 interface ContainerMetrics {
   name: string;
@@ -34,8 +40,9 @@ export default function Monitoring() {
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center h-64">
-        <div className="text-lg">Loading metrics...</div>
+      <div className="loading">
+        <div className="spinner" />
+        Loading metrics…
       </div>
     );
   }
@@ -45,58 +52,135 @@ export default function Monitoring() {
       <div className="page-header">
         <div>
           <h1>Monitoring</h1>
-          <p>Container resource usage and metrics</p>
+          <p>Container resource usage and real-time system metrics</p>
         </div>
       </div>
 
       <div className="metrics-grid">
-        {metrics.map((container) => (
-          <div key={container.name} className="card">
-            <div className="card-header">
-              <h3>{container.name}</h3>
-              <Activity className="h-5 w-5 text-blue-500" />
-            </div>
-
-            <div style={{ marginBottom: "12px" }}>
-              <div className="flex items-center justify-between text-sm" style={{ marginBottom: "4px" }}>
-                <span className="flex items-center gap-1">
-                  <Cpu className="h-4 w-4" /> CPU
-                </span>
-                <span>{(container.cpu ?? 0).toFixed(2)}%</span>
-              </div>
-              <div className="w-full bg-gray-200 rounded-full h-2">
-                <div
-                  className="bg-blue-500 h-2 rounded-full transition-all"
-                  style={{ width: `${Math.min(container.cpu ?? 0, 100)}%` }}
-                />
-              </div>
-            </div>
-
-            <div style={{ marginBottom: "12px" }}>
-              <div className="flex items-center justify-between text-sm" style={{ marginBottom: "4px" }}>
-                <span className="flex items-center gap-1">
-                  <MemoryStick className="h-4 w-4" /> Memory
-                </span>
-                 <span>{(container.memory ?? 0).toFixed(1)} MB ({(container.memoryPercent ?? 0).toFixed(1)}%)</span>
-              </div>
-              <div className="w-full bg-gray-200 rounded-full h-2">
-                <div
-                  className="bg-green-500 h-2 rounded-full transition-all"
-                  style={{ width: `${Math.min(container.memoryPercent ?? 0, 100)}%` }}
-                />
-              </div>
-            </div>
-
-            <div className="flex items-center justify-between text-sm pt-2 border-t">
-              <span className="flex items-center gap-1">
-                <HardDrive className="h-4 w-4" /> Network
-              </span>
-              <span className="text-xs">
-                ↓{((container.networkRx ?? 0) / 1024).toFixed(1)} KB/s ↑{((container.networkTx ?? 0) / 1024).toFixed(1)} KB/s
-              </span>
-            </div>
+        {metrics.length === 0 ? (
+          <div
+            className="card"
+            style={{ gridColumn: "1 / -1", textAlign: "center", padding: "48px" }}
+          >
+            <Server
+              size={48}
+              style={{ color: "var(--text-muted)", marginBottom: "16px" }}
+            />
+            <p style={{ fontWeight: 600, marginBottom: "4px" }}>
+              No container metrics available
+            </p>
+            <p className="text-muted">
+              Metrics will appear once the services are running.
+            </p>
           </div>
-        ))}
+        ) : (
+          metrics.map((container) => (
+            <div key={container.name} className="card">
+              <div className="card-header">
+                <h3>{container.name}</h3>
+                <Activity size={16} style={{ color: "var(--accent-3)" }} />
+              </div>
+
+              {/* CPU */}
+              <div style={{ marginBottom: "14px" }}>
+                <div
+                  style={{
+                    display: "flex",
+                    justifyContent: "space-between",
+                    alignItems: "center",
+                    marginBottom: "6px",
+                    fontSize: "12.5px",
+                  }}
+                >
+                  <span
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      gap: "6px",
+                      color: "var(--text-secondary)",
+                    }}
+                  >
+                    <Cpu size={14} /> CPU
+                  </span>
+                  <span style={{ fontWeight: 600 }}>
+                    {(container.cpu ?? 0).toFixed(1)}%
+                  </span>
+                </div>
+                <div className="progress-bar">
+                  <div
+                    className="progress-fill blue"
+                    style={{
+                      width: `${Math.min(container.cpu ?? 0, 100)}%`,
+                    }}
+                  />
+                </div>
+              </div>
+
+              {/* Memory */}
+              <div style={{ marginBottom: "14px" }}>
+                <div
+                  style={{
+                    display: "flex",
+                    justifyContent: "space-between",
+                    alignItems: "center",
+                    marginBottom: "6px",
+                    fontSize: "12.5px",
+                  }}
+                >
+                  <span
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      gap: "6px",
+                      color: "var(--text-secondary)",
+                    }}
+                  >
+                    <MemoryStick size={14} /> Memory
+                  </span>
+                  <span style={{ fontWeight: 600 }}>
+                    {(container.memory ?? 0).toFixed(0)} MB (
+                    {(container.memoryPercent ?? 0).toFixed(1)}%)
+                  </span>
+                </div>
+                <div className="progress-bar">
+                  <div
+                    className="progress-fill green"
+                    style={{
+                      width: `${Math.min(container.memoryPercent ?? 0, 100)}%`,
+                    }}
+                  />
+                </div>
+              </div>
+
+              {/* Network */}
+              <div
+                style={{
+                  display: "flex",
+                  justifyContent: "space-between",
+                  alignItems: "center",
+                  paddingTop: "12px",
+                  borderTop: "1px solid var(--border-subtle)",
+                  fontSize: "12px",
+                  color: "var(--text-muted)",
+                }}
+              >
+                <span
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    gap: "6px",
+                  }}
+                >
+                  <HardDrive size={14} /> Network
+                </span>
+                <span>
+                  ↓ {((container.networkRx ?? 0) / 1024).toFixed(1)} KB/s{" "}
+                  ↑ {((container.networkTx ?? 0) / 1024).toFixed(1)} KB/s
+                </span>
+              </div>
+            </div>
+          ))
+        )}
       </div>
     </div>
   );

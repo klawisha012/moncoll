@@ -68,9 +68,10 @@ services:
     env_file:
       - .env
     environment:
-      - GF_PLUGINS_PREINSTALL_SYNC=grafana-clickhouse-datasource
+      - GF_INSTALL_PLUGINS=grafana-clickhouse-datasource
       - CLICKHOUSE_USER=${CLICKHOUSE_USER:-default}
       - CLICKHOUSE_PASSWORD=${CLICKHOUSE_PASSWORD:-}
+      - CLICKHOUSE_DB=${CLICKHOUSE_DB:-logs}
       - GF_PROVISIONING_ENABLED=true
       - GF_SERVER_ROOT_URL=/grafana/
       - GF_SERVER_SERVE_FROM_SUB_PATH=true
@@ -141,7 +142,7 @@ services:
     restart: unless-stopped
 
   crowdsec-exporter:
-    command: sh -c "pip install requests pyyaml && python /app/crowdsec-alerts-exporter.py"
+    command: sh -c "pip install --root-user-action ignore requests pyyaml && python /app/crowdsec-alerts-exporter.py"
     depends_on:
       crowdsec:
         condition: service_started
@@ -154,17 +155,13 @@ services:
     restart: unless-stopped
     volumes:
       - type: bind
-        source: C:\Sync\Programming\projects\waf\scripts\crowdsec-alerts-exporter.py
+        source: ./scripts/crowdsec-alerts-exporter.py
         target: /app/crowdsec-alerts-exporter.py
-        bind:
-          create_host_path: true
       - type: bind
-        source: C:\Sync\Programming\projects\waf\var\log\crowdsec
+        source: ./var/log/crowdsec
         target: /var/log/crowdsec
-        bind:
-          create_host_path: true
       - type: bind
-        source: C:\Sync\Programming\projects\waf\configs\crowdsec\local_api_credentials.yaml
+        source: ./configs/crowdsec/local_api_credentials.yaml
         target: /etc/crowdsec/local_api_credentials.yaml
         read_only: true
     working_dir: /app

@@ -1,32 +1,35 @@
 import { NavLink, Outlet } from "react-router-dom";
-import { BarChart3, Settings, Link2, Activity } from "lucide-react";
+import {
+  LayoutDashboard,
+  Link2,
+  Activity,
+  Settings,
+  Shield,
+} from "lucide-react";
 
 export default function Layout() {
   return (
     <div className="layout">
       <aside className="sidebar">
-        <div className="sidebar-header">
-          <span className="icon">🛡️</span>
-          <h1>WAF Control</h1>
+        <div className="sidebar-brand">
+          <div className="brand-icon">⚔️</div>
+          <div className="brand-text">
+            <span className="brand-name">WAF Panel</span>
+            <span className="brand-sub">Control Center</span>
+          </div>
         </div>
-         <nav className="sidebar-nav">
-           <NavLink
-             to="/dashboard"
-             className={({ isActive }) =>
-               `nav-link ${isActive ? "active" : ""}`
-             }
-           >
-             <BarChart3 />
-             Dashboard
-           </NavLink>
-<NavLink
-              to="/connections"
+
+        <nav className="sidebar-nav">
+          <div className="nav-section">
+            <div className="nav-section-title">Overview</div>
+            <NavLink
+              to="/dashboard"
               className={({ isActive }) =>
                 `nav-link ${isActive ? "active" : ""}`
               }
             >
-              <Link2 />
-              Connections
+              <LayoutDashboard />
+              Dashboard
             </NavLink>
             <NavLink
               to="/monitoring"
@@ -37,6 +40,19 @@ export default function Layout() {
               <Activity />
               Monitoring
             </NavLink>
+          </div>
+
+          <div className="nav-section">
+            <div className="nav-section-title">Management</div>
+            <NavLink
+              to="/connections"
+              className={({ isActive }) =>
+                `nav-link ${isActive ? "active" : ""}`
+              }
+            >
+              <Link2 />
+              Connections
+            </NavLink>
             <NavLink
               to="/config"
               className={({ isActive }) =>
@@ -46,10 +62,30 @@ export default function Layout() {
               <Settings />
               Configuration
             </NavLink>
-         </nav>
+          </div>
+        </nav>
+
+        <div
+          style={{
+            padding: "16px",
+            borderTop: "1px solid var(--border-subtle)",
+            display: "flex",
+            alignItems: "center",
+            gap: "10px",
+            fontSize: "12px",
+            color: "var(--text-muted)",
+          }}
+        >
+          <Shield size={14} />
+          <span>WAF Engine Active</span>
+          <span className="status-dot active" style={{ marginLeft: "auto" }} />
+        </div>
       </aside>
+
       <main className="main-content">
-        <Outlet />
+        <div className="page-wrapper">
+          <Outlet />
+        </div>
       </main>
     </div>
   );
