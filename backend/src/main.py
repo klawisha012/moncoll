@@ -8,6 +8,7 @@ from .modsecurity import router as modsecurity_router
 from .connections.router import connections_router
 from .certificates import certificates_router
 from .monitoring import router as monitoring_router
+from .crowdsec.router import router as crowdsec_router
 
 
 def create_app() -> FastAPI:
@@ -26,6 +27,7 @@ def create_app() -> FastAPI:
     app.include_router(connections_router)
     app.include_router(certificates_router)
     app.include_router(monitoring_router)
+    app.include_router(crowdsec_router)
 
     # Expose Prometheus metrics endpoint
     Instrumentator().instrument(app).expose(app, endpoint="/metrics", include_in_schema=False)

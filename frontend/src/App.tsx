@@ -4,6 +4,7 @@ import Dashboard from "./pages/Dashboard";
 import Connections from "./pages/Connections";
 import ConfigEditor from "./pages/ConfigEditor";
 import Monitoring from "./pages/Monitoring";
+import CrowdSec from "./pages/CrowdSec";
 
 function App() {
   return (
@@ -14,6 +15,7 @@ function App() {
         <Route path="connections" element={<Connections />} />
         <Route path="monitoring" element={<Monitoring />} />
         <Route path="config" element={<ConfigEditor />} />
+        <Route path="crowdsec" element={<CrowdSec />} />
       </Route>
     </Routes>
   );

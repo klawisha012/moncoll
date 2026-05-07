@@ -84,6 +84,67 @@ export interface AngieSettings {
   modules: ModuleInfo[];
 }
 
+// ── CrowdSec types ─────────────────────────────────────────
+
+export interface CrowdSecStatus {
+  running: boolean;
+  version: string;
+  decisions_count: number;
+  scenarios_count: number;
+  alerts_count: number;
+}
+
+export interface DecisionItem {
+  id?: number;
+  source: string;
+  scope: string;
+  value: string;
+  type: string;
+  reason: string;
+  duration: string;
+  until: string;
+  alert_id?: number;
+}
+
+export interface DecisionCreate {
+  ip: string;
+  duration?: string;
+  reason?: string;
+  type?: string;
+}
+
+export interface DecisionResponse {
+  success: boolean;
+  message: string;
+  ip?: string;
+  action?: string;
+}
+
+export interface ScenarioInfo {
+  name: string;
+  description: string;
+  loaded: boolean;
+  type: string;
+  labels: string[];
+}
+
+export interface ManualBlockLogEntry {
+  timestamp: string;
+  action: string;
+  ip: string;
+  duration: string;
+  reason: string;
+  source: string;
+}
+
+export interface HubScenarioItem {
+  name: string;
+  description: string;
+  author: string;
+  labels: string[];
+  installed: boolean;
+}
+
 export interface Metrics {
   total_requests: number;
   total_requests_change: number;
@@ -221,4 +282,52 @@ export const api = {
     fetchApi<CertificateResponse>(`/api/ssl/regenerate/${connectionId}`, {
       method: "POST",
     }),
+
+  // ── CrowdSec API ──────────────────────────────────────────
+
+  getCrowdSecStatus: () =>
+    fetchApi<CrowdSecStatus>("/api/crowdsec/status"),
+
+  getCrowdSecDecisions: () =>
+    fetchApi<DecisionItem[]>("/api/crowdsec/decisions"),
+
+  addCrowdSecDecision: (req: DecisionCreate) =>
+    fetchApi<DecisionResponse>("/api/crowdsec/decisions", {
+      method: "POST",
+      body: JSON.stringify(req),
+    }),
+
+  deleteCrowdSecDecision: (ip: string) =>
+    fetchApi<DecisionResponse>(`/api/crowdsec/decisions/${encodeURIComponent(ip)}`, {
+      method: "DELETE",
+    }),
+
+  deleteAllCrowdSecDecisions: () =>
+    fetchApi<DecisionResponse>("/api/crowdsec/decisions", {
+      method: "DELETE",
+    }),
+
+  getCrowdSecManualBlocks: (limit = 100) =>
+    fetchApi<ManualBlockLogEntry[]>(`/api/crowdsec/manual-blocks?limit=${limit}`),
+
+  getCrowdSecScenarios: () =>
+    fetchApi<ScenarioInfo[]>("/api/crowdsec/scenarios"),
+
+  getCrowdSecScenarioHub: () =>
+    fetchApi<HubScenarioItem[]>("/api/crowdsec/scenarios/hub"),
+
+  installCrowdSecScenario: (name: string) =>
+    fetchApi<{success: boolean; message: string}>(
+      `/api/crowdsec/scenarios/install/${encodeURIComponent(name)}`,
+      { method: "POST" }
+    ),
+
+  removeCrowdSecScenario: (name: string) =>
+    fetchApi<{success: boolean; message: string}>(
+      `/api/crowdsec/scenarios/remove/${encodeURIComponent(name)}`,
+      { method: "DELETE" }
+    ),
+
+  reloadCrowdSec: () =>
+    fetchApi<ReloadResponse>("/api/crowdsec/reload", { method: "POST" }),
 };

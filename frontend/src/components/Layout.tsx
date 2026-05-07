@@ -5,6 +5,7 @@ import {
   Activity,
   Settings,
   Shield,
+  Ban,
 } from "lucide-react";
 
 export default function Layout() {
@@ -61,6 +62,19 @@ export default function Layout() {
             >
               <Settings />
               Configuration
+            </NavLink>
+          </div>
+
+          <div className="nav-section">
+            <div className="nav-section-title">Security</div>
+            <NavLink
+              to="/crowdsec"
+              className={({ isActive }) =>
+                `nav-link ${isActive ? "active" : ""}`
+              }
+            >
+              <Ban />
+              CrowdSec
             </NavLink>
           </div>
         </nav>

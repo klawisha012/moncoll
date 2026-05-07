@@ -129,3 +129,18 @@ CREATE TABLE IF NOT EXISTS logs.crowdsec_alerts
 PARTITION BY toYYYYMM(timestamp)
 ORDER BY (timestamp, source_ip, scenario)
 TTL timestamp + INTERVAL 6 MONTH;
+
+
+-- Таблица для логов ручных блокировок/разблокировок из WAF Panel
+CREATE TABLE IF NOT EXISTS logs.crowdsec_manual_blocks
+(
+    `timestamp` DateTime64(3, 'UTC'),
+    `action` LowCardinality(String),     -- 'block' или 'unblock'
+    `ip` String,
+    `duration` String DEFAULT '',        -- e.g. '4h', '1d'
+    `reason` String DEFAULT '',
+    `source` LowCardinality(String) DEFAULT 'waf-panel'
+) ENGINE = MergeTree()
+PARTITION BY toYYYYMM(timestamp)
+ORDER BY (timestamp, ip, action)
+TTL timestamp + INTERVAL 12 MONTH;
