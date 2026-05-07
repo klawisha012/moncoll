@@ -157,6 +157,15 @@ export interface HubScenarioItem {
   installed: boolean;
 }
 
+export interface ContainerMetrics {
+  name: string;
+  cpu: number;
+  memory: number;
+  memory_percent: number;
+  network_rx: number;
+  network_tx: number;
+}
+
 export interface Metrics {
   total_requests: number;
   total_requests_change: number;
@@ -256,6 +265,8 @@ export const api = {
     fetchApi<ReloadResponse>("/api/angie/reload", { method: "POST" }),
 
   getMetrics: () => fetchApi<Metrics>("/api/dashboard/metrics"),
+  getContainerMetrics: () =>
+    fetchApi<{ containers: ContainerMetrics[] }>("/api/monitoring/metrics"),
   getTraffic: () => fetchApi<TrafficDataPoint[]>("/api/dashboard/traffic"),
   getThreatOrigins: () =>
     fetchApi<ThreatOrigin[]>("/api/dashboard/threat-origins"),

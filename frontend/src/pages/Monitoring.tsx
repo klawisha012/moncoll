@@ -6,36 +6,46 @@ import {
   MemoryStick,
   Server,
 } from "lucide-react";
+import { api, ContainerMetrics } from "../api/client";
 
-interface ContainerMetrics {
-  name: string;
-  cpu: number;
-  memory: number;
-  memoryPercent: number;
-  networkRx: number;
-  networkTx: number;
+function formatBytes(bytes: number): string {
+  if (bytes >= 1_000_000_000) return `${(bytes / 1_000_000_000).toFixed(1)} GB/s`;
+  if (bytes >= 1_000_000) return `${(bytes / 1_000_000).toFixed(1)} MB/s`;
+  if (bytes >= 1_000) return `${(bytes / 1_000).toFixed(1)} KB/s`;
+  return `${bytes.toFixed(0)} B/s`;
 }
 
 export default function Monitoring() {
   const [metrics, setMetrics] = useState<ContainerMetrics[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
+    let cancelled = false;
+
     const fetchMetrics = async () => {
       try {
-        const response = await fetch("/api/monitoring/metrics");
-        const data = await response.json();
-        setMetrics(data.containers || []);
-        setLoading(false);
-      } catch (error) {
-        console.error("Failed to fetch metrics:", error);
-        setLoading(false);
+        const data = await api.getContainerMetrics();
+        if (!cancelled) {
+          setMetrics(data.containers || []);
+          setError(null);
+          setLoading(false);
+        }
+      } catch (err) {
+        if (!cancelled) {
+          console.error("Failed to fetch metrics:", err);
+          setError(err instanceof Error ? err.message : "Failed to load metrics");
+          setLoading(false);
+        }
       }
     };
 
     fetchMetrics();
     const interval = setInterval(fetchMetrics, 5000);
-    return () => clearInterval(interval);
+    return () => {
+      cancelled = true;
+      clearInterval(interval);
+    };
   }, []);
 
   if (loading) {
@@ -43,6 +53,32 @@ export default function Monitoring() {
       <div className="loading">
         <div className="spinner" />
         Loading metrics…
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div>
+        <div className="page-header">
+          <div>
+            <h1>Monitoring</h1>
+            <p>Container resource usage and real-time system metrics</p>
+          </div>
+        </div>
+        <div
+          className="card"
+          style={{ gridColumn: "1 / -1", textAlign: "center", padding: "48px" }}
+        >
+          <Server
+            size={48}
+            style={{ color: "var(--danger)", marginBottom: "16px" }}
+          />
+          <p style={{ fontWeight: 600, marginBottom: "4px", color: "var(--danger)" }}>
+            Failed to load metrics
+          </p>
+          <p className="text-muted">{error}</p>
+        </div>
       </div>
     );
   }
@@ -139,14 +175,14 @@ export default function Monitoring() {
                   </span>
                   <span style={{ fontWeight: 600 }}>
                     {(container.memory ?? 0).toFixed(0)} MB (
-                    {(container.memoryPercent ?? 0).toFixed(1)}%)
+                    {(container.memory_percent ?? 0).toFixed(1)}%)
                   </span>
                 </div>
                 <div className="progress-bar">
                   <div
                     className="progress-fill green"
                     style={{
-                      width: `${Math.min(container.memoryPercent ?? 0, 100)}%`,
+                      width: `${Math.min(container.memory_percent ?? 0, 100)}%`,
                     }}
                   />
                 </div>
@@ -174,8 +210,8 @@ export default function Monitoring() {
                   <HardDrive size={14} /> Network
                 </span>
                 <span>
-                  ↓ {((container.networkRx ?? 0) / 1024).toFixed(1)} KB/s{" "}
-                  ↑ {((container.networkTx ?? 0) / 1024).toFixed(1)} KB/s
+                  ↓ {formatBytes(container.network_rx ?? 0)}{" "}
+                  ↑ {formatBytes(container.network_tx ?? 0)}
                 </span>
               </div>
             </div>
