@@ -494,10 +494,12 @@ function AngieTab({
   onToggleCountry: (code: string) => void;
   saving: boolean;
 }) {
-  const topModules = settings.modules.slice(0, 20);
-  const restModules = settings.modules.slice(20);
-  const [showAllModules, setShowAllModules] = useState(false);
-  const visibleModules = showAllModules ? settings.modules : topModules;
+  const sortedModules = [...settings.modules].sort((a, b) => {
+    if (a.loaded === b.loaded) return 0;
+    return a.loaded ? -1 : 1;
+  });
+  const activeCount = sortedModules.filter((m) => m.loaded).length;
+  const totalCount = sortedModules.length;
 
   return (
     <div>
@@ -590,7 +592,7 @@ function AngieTab({
           <h3>Modules</h3>
         </div>
         <div className="checkbox-grid">
-          {visibleModules.map((mod) => (
+          {sortedModules.map((mod) => (
             <label
               key={mod.name}
               className="checkbox-row"
@@ -606,17 +608,9 @@ function AngieTab({
             </label>
           ))}
         </div>
-        {restModules.length > 0 && (
-          <button
-            className="btn btn-outline btn-sm"
-            style={{ marginTop: "12px" }}
-            onClick={() => setShowAllModules(!showAllModules)}
-          >
-            {showAllModules
-              ? "Show less"
-              : `Show all ${settings.modules.length} modules`}
-          </button>
-        )}
+        <div style={{ marginTop: "12px", fontSize: "13px", color: "var(--text-secondary)" }}>
+          {activeCount} active / {totalCount} total modules
+        </div>
       </div>
 
       <div className="actions-bar" style={{ marginTop: "16px" }}>
