@@ -137,6 +137,18 @@ export interface ManualBlockLogEntry {
   source: string;
 }
 
+export interface AlertItem {
+  id?: number;
+  scenario: string;
+  message: string;
+  source_ip: string;
+  source_scope: string;
+  start_at: string;
+  stop_at: string;
+  capacity?: number;
+  decisions_count: number;
+}
+
 export interface HubScenarioItem {
   name: string;
   description: string;
@@ -330,6 +342,9 @@ export const api = {
 
   reloadCrowdSec: () =>
     fetchApi<ReloadResponse>("/api/crowdsec/reload", { method: "POST" }),
+
+  getCrowdSecAlerts: () =>
+    fetchApi<AlertItem[]>("/api/crowdsec/alerts"),
 
   getCrowdSecServiceStatus: () =>
     fetchApi<{enabled: boolean}>("/api/crowdsec/service-status"),
