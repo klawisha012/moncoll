@@ -311,6 +311,55 @@ export default function Connections() {
     reader.readAsText(file);
   }
 
+  // Arrow key navigation between form fields (Up/Down)
+  function handleFormKeyDown(e: React.KeyboardEvent<HTMLFormElement>) {
+    if (e.key !== "ArrowUp" && e.key !== "ArrowDown") return;
+
+    const target = e.target as HTMLElement;
+    const tag = target.tagName;
+
+    // For textareas: only navigate when at the start (ArrowUp) or end (ArrowDown)
+    if (tag === "TEXTAREA") {
+      const ta = target as HTMLTextAreaElement;
+      const atStart = ta.selectionStart === 0;
+      const atEnd = ta.selectionStart === ta.value.length;
+      if (e.key === "ArrowUp" && !atStart) return;   // let cursor move
+      if (e.key === "ArrowDown" && !atEnd) return;    // let cursor move
+      // If at boundary, fall through to navigate between fields
+    }
+
+    // Don't intercept arrows inside select (option navigation)
+    if (tag === "SELECT") return;
+
+    const form = e.currentTarget;
+    const focusable = Array.from(
+      form.querySelectorAll<HTMLElement>(
+        'input:not([type="hidden"]):not([type="file"]), textarea, select, button:not([type="button"]), [tabindex]:not([tabindex="-1"])'
+      )
+    ).filter((el) => {
+      const rect = el.getBoundingClientRect();
+      return rect.width > 0 && rect.height > 0 && !(el as HTMLInputElement).disabled;
+    });
+
+    if (focusable.length === 0) return;
+
+    const currentIdx = focusable.findIndex((el) => el === document.activeElement);
+    if (currentIdx === -1) return;
+
+    e.preventDefault();
+    const nextIdx = e.key === "ArrowDown"
+      ? (currentIdx + 1) % focusable.length
+      : (currentIdx - 1 + focusable.length) % focusable.length;
+
+    focusable[nextIdx].focus();
+    
+    // For textareas, place cursor at start (when moving up) or end (when moving down)
+    if (focusable[nextIdx].tagName === "TEXTAREA") {
+      const ta = focusable[nextIdx] as HTMLTextAreaElement;
+      ta.selectionStart = ta.selectionEnd = e.key === "ArrowDown" ? 0 : ta.value.length;
+    }
+  }
+
   if (loading) {
     return (
       <div className="loading">
@@ -523,7 +572,7 @@ export default function Connections() {
               </button>
             </div>
 
-            <form onSubmit={handleSubmit}>
+            <form onSubmit={handleSubmit} onKeyDown={handleFormKeyDown}>
               <div className="form-group">
                 <label>Name *</label>
                 <input
@@ -554,31 +603,21 @@ export default function Connections() {
               <div className="form-group">
                 <label>Connection Mode</label>
                 <div style={{ display: "flex", gap: "16px", flexWrap: "wrap" }}>
-                  <label
-                    className="checkbox-row"
-                    onClick={() =>
-                      updateFormField("mode", "proxy")
-                    }
-                  >
+                  <label className="checkbox-row">
                     <input
                       type="radio"
                       name="mode"
                       checked={formData.mode === "proxy"}
-                      onChange={() => {}}
+                      onChange={() => updateFormField("mode", "proxy")}
                     />
                     <span>Proxy to Backend</span>
                   </label>
-                  <label
-                    className="checkbox-row"
-                    onClick={() =>
-                      updateFormField("mode", "static")
-                    }
-                  >
+                  <label className="checkbox-row">
                     <input
                       type="radio"
                       name="mode"
                       checked={formData.mode === "static"}
-                      onChange={() => {}}
+                      onChange={() => updateFormField("mode", "static")}
                     />
                     <span>Serve Static Files</span>
                   </label>
@@ -666,43 +705,28 @@ export default function Connections() {
               )}
 
               <div className="form-group">
-                <label
-                  className="checkbox-row"
-                  onClick={() =>
-                    updateFormField("enabled", !formData.enabled)
-                  }
-                >
+                <label className="checkbox-row">
                   <input
                     type="checkbox"
                     checked={formData.enabled}
-                    onChange={() => {}}
+                    onChange={(e) => updateFormField("enabled", e.target.checked)}
                   />
                   <span>Enabled</span>
                 </label>
-                <label
-                  className="checkbox-row"
-                  onClick={() =>
-                    updateFormField("ssl_enabled", !formData.ssl_enabled)
-                  }
-                >
+                <label className="checkbox-row">
                   <input
                     type="checkbox"
                     checked={formData.ssl_enabled}
-                    onChange={() => {}}
+                    onChange={(e) => updateFormField("ssl_enabled", e.target.checked)}
                   />
                   <span>Enable SSL / TLS</span>
                 </label>
                 {formData.mode === "proxy" && (
-                  <label
-                    className="checkbox-row"
-                    onClick={() =>
-                      updateFormField("preserve_host", !formData.preserve_host)
-                    }
-                  >
+                  <label className="checkbox-row">
                     <input
                       type="checkbox"
                       checked={formData.preserve_host}
-                      onChange={() => {}}
+                      onChange={(e) => updateFormField("preserve_host", e.target.checked)}
                     />
                     <span>Preserve Host Header</span>
                   </label>

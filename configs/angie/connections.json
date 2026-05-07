@@ -7,14 +7,14 @@
       "www.demo.waf.local"
     ],
     "backend_url": "frontend:3000",
-    "enabled": false,
+    "enabled": true,
     "ssl_enabled": true,
     "ssl_cert_path": "/etc/angie/http.d/3.crt",
     "ssl_key_path": "/etc/angie/http.d/3.key",
     "preserve_host": true,
     "custom_nginx_config": null,
     "created_at": "2026-05-07T22:30:00.000000",
-    "updated_at": "2026-05-07T23:07:46.434104",
+    "updated_at": "2026-05-07T23:31:12.540086",
     "mode": "proxy",
     "static_dir": null
   },
