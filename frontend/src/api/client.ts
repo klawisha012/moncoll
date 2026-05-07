@@ -330,4 +330,22 @@ export const api = {
 
   reloadCrowdSec: () =>
     fetchApi<ReloadResponse>("/api/crowdsec/reload", { method: "POST" }),
+
+  getCrowdSecServiceStatus: () =>
+    fetchApi<{enabled: boolean}>("/api/crowdsec/service-status"),
+
+  toggleCrowdSecService: (enabled: boolean) =>
+    fetchApi<{success: boolean; message: string; enabled: boolean}>(
+      "/api/crowdsec/toggle",
+      {
+        method: "POST",
+        body: JSON.stringify({ enabled }),
+      }
+    ),
+
+  toggleCrowdSecScenario: (name: string) =>
+    fetchApi<{success: boolean; message: string; name: string; enabled: boolean}>(
+      `/api/crowdsec/scenarios/toggle/${encodeURIComponent(name)}`,
+      { method: "POST" }
+    ),
 };

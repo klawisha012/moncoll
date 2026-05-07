@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
 import {
   Shield,
   Ban,
@@ -13,6 +13,14 @@ import {
   Globe,
   Package,
   HardDrive,
+  Power,
+  PowerOff,
+  ToggleLeft,
+  ToggleRight,
+  Search,
+  ChevronDown,
+  ChevronUp,
+  X,
 } from "lucide-react";
 import { api, CrowdSecStatus, DecisionItem, ScenarioInfo } from "../api/client";
 
@@ -41,6 +49,9 @@ export default function CrowdSec() {
   const [manualLog, setManualLog] = useState<ManualBlockLog[]>([]);
   const [loading, setLoading] = useState(true);
   const [actionLoading, setActionLoading] = useState<string | null>(null);
+  const [serviceEnabled, setServiceEnabled] = useState(true);
+  const [scenarioSearch, setScenarioSearch] = useState("");
+  const [hubExpanded, setHubExpanded] = useState(false);
 
   // Block form state
   const [blockIp, setBlockIp] = useState("");
@@ -63,16 +74,18 @@ export default function CrowdSec() {
   const loadData = useCallback(async () => {
     setLoading(true);
     try {
-      const [s, d, sc, ml] = await Promise.all([
+      const [s, d, sc, ml, svc] = await Promise.all([
         api.getCrowdSecStatus(),
         api.getCrowdSecDecisions(),
         api.getCrowdSecScenarios(),
         api.getCrowdSecManualBlocks(50),
+        api.getCrowdSecServiceStatus().catch(() => ({ enabled: true })),
       ]);
       setStatus(s);
       setDecisions(d);
       setScenarios(sc);
       setManualLog(ml);
+      setServiceEnabled(svc.enabled);
     } catch {
       showToast("Failed to load CrowdSec data", "error");
     } finally {
@@ -178,6 +191,46 @@ export default function CrowdSec() {
     }
   }
 
+  async function handleToggleScenario(name: string) {
+    setActionLoading(`toggle-${name}`);
+    try {
+      const result = await api.toggleCrowdSecScenario(name);
+      showToast(
+        result.success
+          ? `Scenario ${result.enabled ? "enabled" : "disabled"}`
+          : result.message || "Failed to toggle scenario",
+        result.success ? "success" : "error"
+      );
+      loadData();
+    } catch (e: any) {
+      showToast(e.message, "error");
+    } finally {
+      setActionLoading(null);
+    }
+  }
+
+  async function handleToggleService() {
+    const target = !serviceEnabled;
+    setActionLoading("toggleService");
+    try {
+      const result = await api.toggleCrowdSecService(target);
+      if (result.success) {
+        showToast(
+          `CrowdSec service ${result.enabled ? "enabled" : "disabled"}`,
+          "success"
+        );
+        setServiceEnabled(result.enabled);
+        loadData();
+      } else {
+        showToast(result.message || "Failed to toggle service", "error");
+      }
+    } catch (e: any) {
+      showToast(e.message || "Failed to toggle service", "error");
+    } finally {
+      setActionLoading(null);
+    }
+  }
+
   async function handleReload() {
     setActionLoading("reload");
     try {
@@ -199,12 +252,36 @@ export default function CrowdSec() {
     try {
       const items = await api.getCrowdSecScenarioHub();
       setHubScenarios(items);
+      setHubExpanded(true);
     } catch (e: any) {
       showToast(e.message, "error");
     } finally {
       setActionLoading(null);
     }
   }
+
+  // Filtered lists based on search
+  const filteredScenarios = useMemo(() => {
+    if (!scenarioSearch.trim()) return scenarios;
+    const q = scenarioSearch.toLowerCase();
+    return scenarios.filter(
+      (s) =>
+        (s.name || "").toLowerCase().includes(q) ||
+        (s.description || "").toLowerCase().includes(q) ||
+        (s.labels || []).some((l) => l.toLowerCase().includes(q))
+    );
+  }, [scenarios, scenarioSearch]);
+
+  const filteredHubScenarios = useMemo(() => {
+    if (!scenarioSearch.trim()) return hubScenarios;
+    const q = scenarioSearch.toLowerCase();
+    return hubScenarios.filter(
+      (s) =>
+        (s.name || "").toLowerCase().includes(q) ||
+        (s.description || "").toLowerCase().includes(q) ||
+        (s.author || "").toLowerCase().includes(q)
+    );
+  }, [hubScenarios, scenarioSearch]);
 
   if (loading) {
     return (
@@ -270,20 +347,37 @@ export default function CrowdSec() {
           <h1>CrowdSec</h1>
           <p>Manage IP blocks, scenarios, and security decisions</p>
         </div>
-        <button
-          className="btn btn-outline"
-          onClick={handleReload}
-          disabled={actionLoading === "reload"}
-        >
-          <RefreshCw
-            size={14}
-            style={{
-              animation:
-                actionLoading === "reload" ? "spin 1s linear infinite" : "none",
-            }}
-          />
-          Reload
-        </button>
+        <div style={{ display: "flex", gap: "8px" }}>
+          <button
+            className={`btn ${serviceEnabled ? "btn-danger" : "btn-success"}`}
+            onClick={handleToggleService}
+            disabled={actionLoading === "toggleService"}
+            title={serviceEnabled ? "Disable CrowdSec" : "Enable CrowdSec"}
+          >
+            {actionLoading === "toggleService" ? (
+              <RefreshCw size={14} style={{ animation: "spin 1s linear infinite" }} />
+            ) : serviceEnabled ? (
+              <PowerOff size={14} />
+            ) : (
+              <Power size={14} />
+            )}
+            {serviceEnabled ? "Disable" : "Enable"}
+          </button>
+          <button
+            className="btn btn-outline"
+            onClick={handleReload}
+            disabled={actionLoading === "reload"}
+          >
+            <RefreshCw
+              size={14}
+              style={{
+                animation:
+                  actionLoading === "reload" ? "spin 1s linear infinite" : "none",
+              }}
+            />
+            Reload
+          </button>
+        </div>
       </div>
 
       {/* Status cards */}
@@ -304,7 +398,7 @@ export default function CrowdSec() {
             <span
               className="badge"
               style={
-                status?.running
+                serviceEnabled && status?.running
                   ? {
                       background: "rgba(16,185,129,0.12)",
                       color: "var(--success)",
@@ -315,7 +409,11 @@ export default function CrowdSec() {
                     }
               }
             >
-              {status?.running ? "RUNNING" : "STOPPED"}
+              {!serviceEnabled
+                ? "DISABLED"
+                : status?.running
+                ? "RUNNING"
+                : "STOPPED"}
             </span>
           </div>
           <div className="metric-change" style={{ fontSize: "11px", color: "var(--text-muted)", marginTop: "6px" }}>
@@ -551,15 +649,62 @@ export default function CrowdSec() {
             <Package size={16} style={{ color: "var(--accent-3)" }} />
             Scenarios
           </h3>
-          <button
-            className="btn btn-outline btn-sm"
-            onClick={loadHubScenarios}
-            disabled={actionLoading === "hub"}
-            style={{ marginLeft: "auto" }}
-          >
-            <Plus size={12} />
-            Browse Hub
-          </button>
+          <div style={{ display: "flex", alignItems: "center", gap: "8px", marginLeft: "auto" }}>
+            <div style={{ position: "relative" }}>
+              <Search
+                size={14}
+                style={{
+                  position: "absolute",
+                  left: "8px",
+                  top: "50%",
+                  transform: "translateY(-50%)",
+                  color: "var(--text-muted)",
+                  pointerEvents: "none",
+                }}
+              />
+              <input
+                type="text"
+                className="input"
+                placeholder="Search scenarios..."
+                value={scenarioSearch}
+                onChange={(e) => setScenarioSearch(e.target.value)}
+                style={{
+                  paddingLeft: "28px",
+                  paddingRight: scenarioSearch ? "28px" : "8px",
+                  height: "30px",
+                  fontSize: "12px",
+                  width: "200px",
+                }}
+              />
+              {scenarioSearch && (
+                <button
+                  onClick={() => setScenarioSearch("")}
+                  style={{
+                    position: "absolute",
+                    right: "4px",
+                    top: "50%",
+                    transform: "translateY(-50%)",
+                    background: "none",
+                    border: "none",
+                    cursor: "pointer",
+                    color: "var(--text-muted)",
+                    padding: "2px",
+                    display: "flex",
+                  }}
+                >
+                  <X size={12} />
+                </button>
+              )}
+            </div>
+            <button
+              className="btn btn-outline btn-sm"
+              onClick={loadHubScenarios}
+              disabled={actionLoading === "hub"}
+            >
+              <Plus size={12} />
+              Browse Hub
+            </button>
+          </div>
         </div>
 
         {/* Installed scenarios */}
@@ -587,8 +732,14 @@ export default function CrowdSec() {
                     No scenarios installed
                   </td>
                 </tr>
+              ) : filteredScenarios.length === 0 ? (
+                <tr>
+                  <td colSpan={6} style={{ textAlign: "center", color: "var(--text-muted)", padding: "24px" }}>
+                    No scenarios match "{scenarioSearch}"
+                  </td>
+                </tr>
               ) : (
-                scenarios.map((s, i) => (
+                filteredScenarios.map((s, i) => (
                   <tr key={s.name ?? i}>
                     <td style={{ fontFamily: "monospace", fontSize: "12px", fontWeight: 500 }}>
                       {s.name}
@@ -622,15 +773,38 @@ export default function CrowdSec() {
                         : "-"}
                     </td>
                     <td>
-                      <button
-                        className="btn btn-outline btn-sm"
-                        onClick={() => handleRemoveScenario(s.name)}
-                        disabled={actionLoading === `remove-${s.name}`}
-                        style={{ color: "var(--danger)", borderColor: "rgba(244,63,94,0.2)" }}
-                      >
-                        <Trash2 size={11} />
-                        Remove
-                      </button>
+                      <div style={{ display: "flex", gap: "6px" }}>
+                        <button
+                          className="btn btn-outline btn-sm"
+                          onClick={() => handleToggleScenario(s.name)}
+                          disabled={actionLoading === `toggle-${s.name}`}
+                          style={{
+                            color: s.loaded ? "var(--warning)" : "var(--success)",
+                            borderColor: s.loaded
+                              ? "rgba(245,158,11,0.3)"
+                              : "rgba(16,185,129,0.3)",
+                          }}
+                          title={s.loaded ? "Disable scenario" : "Enable scenario"}
+                        >
+                          {actionLoading === `toggle-${s.name}` ? (
+                            <RefreshCw size={11} style={{ animation: "spin 1s linear infinite" }} />
+                          ) : s.loaded ? (
+                            <ToggleRight size={11} />
+                          ) : (
+                            <ToggleLeft size={11} />
+                          )}
+                          {s.loaded ? "Disable" : "Enable"}
+                        </button>
+                        <button
+                          className="btn btn-outline btn-sm"
+                          onClick={() => handleRemoveScenario(s.name)}
+                          disabled={actionLoading === `remove-${s.name}`}
+                          style={{ color: "var(--danger)", borderColor: "rgba(244,63,94,0.2)" }}
+                        >
+                          <Trash2 size={11} />
+                          Remove
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 ))
@@ -642,52 +816,72 @@ export default function CrowdSec() {
         {/* Hub scenarios */}
         {hubScenarios.length > 0 && (
           <>
-            <div style={{ padding: "16px 20px 8px" }}>
-              <h4 style={{ fontSize: "13px", color: "var(--text-muted)", marginBottom: "8px", textTransform: "uppercase", letterSpacing: "0.05em" }}>
-                Available in Hub
+            <div
+              style={{
+                padding: "16px 20px 8px",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "space-between",
+                cursor: "pointer",
+              }}
+              onClick={() => setHubExpanded(!hubExpanded)}
+            >
+              <h4 style={{ fontSize: "13px", color: "var(--text-muted)", textTransform: "uppercase", letterSpacing: "0.05em", margin: 0 }}>
+                Available in Hub ({filteredHubScenarios.length})
               </h4>
+              {hubExpanded ? <ChevronUp size={14} style={{ color: "var(--text-muted)" }} /> : <ChevronDown size={14} style={{ color: "var(--text-muted)" }} />}
             </div>
-            <div className="table-wrapper">
-              <table className="table">
-                <thead>
-                  <tr>
-                    <th>Name</th>
-                    <th>Description</th>
-                    <th>Author</th>
-                    <th>Action</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {hubScenarios.map((s, i) => (
-                    <tr key={s.name ?? i}>
-                      <td style={{ fontFamily: "monospace", fontSize: "12px", fontWeight: 500 }}>
-                        {s.name}
-                      </td>
-                      <td style={{ fontSize: "12px", color: "var(--text-secondary)" }}>
-                        {s.description || "-"}
-                      </td>
-                      <td style={{ fontSize: "12px", color: "var(--text-muted)" }}>
-                        {s.author || "-"}
-                      </td>
-                      <td>
-                        {s.installed ? (
-                          <span className="badge badge-success">Installed</span>
-                        ) : (
-                          <button
-                            className="btn btn-outline btn-sm"
-                            onClick={() => handleInstallScenario(s.name)}
-                            disabled={actionLoading === `install-${s.name}`}
-                          >
-                            <Plus size={11} />
-                            Install
-                          </button>
-                        )}
-                      </td>
+            {hubExpanded && (
+              <div className="table-wrapper">
+                <table className="table">
+                  <thead>
+                    <tr>
+                      <th>Name</th>
+                      <th>Description</th>
+                      <th>Author</th>
+                      <th>Action</th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+                  </thead>
+                  <tbody>
+                    {filteredHubScenarios.length === 0 ? (
+                      <tr>
+                        <td colSpan={4} style={{ textAlign: "center", color: "var(--text-muted)", padding: "24px" }}>
+                          {scenarioSearch ? `No hub scenarios match "${scenarioSearch}"` : "No hub scenarios available"}
+                        </td>
+                      </tr>
+                    ) : (
+                      filteredHubScenarios.map((s, i) => (
+                        <tr key={s.name ?? i}>
+                          <td style={{ fontFamily: "monospace", fontSize: "12px", fontWeight: 500 }}>
+                            {s.name}
+                          </td>
+                          <td style={{ fontSize: "12px", color: "var(--text-secondary)" }}>
+                            {s.description || "-"}
+                          </td>
+                          <td style={{ fontSize: "12px", color: "var(--text-muted)" }}>
+                            {s.author || "-"}
+                          </td>
+                          <td>
+                            {s.installed ? (
+                              <span className="badge badge-success">Installed</span>
+                            ) : (
+                              <button
+                                className="btn btn-outline btn-sm"
+                                onClick={() => handleInstallScenario(s.name)}
+                                disabled={actionLoading === `install-${s.name}`}
+                              >
+                                <Plus size={11} />
+                                Install
+                              </button>
+                            )}
+                          </td>
+                        </tr>
+                      ))
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            )}
           </>
         )}
       </div>
