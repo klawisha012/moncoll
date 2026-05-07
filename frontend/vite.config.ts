@@ -14,6 +14,7 @@ export default defineConfig({
       "/grafana": {
         target: "http://localhost:3001",
         changeOrigin: true,
+        ws: true,
       },
     },
   },

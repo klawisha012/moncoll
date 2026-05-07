@@ -11,16 +11,20 @@ import {
 } from "lucide-react";
 import { useSettings } from "../context/SettingsContext";
 import SettingsPopover from "./SettingsPopover";
+import logoDark from "../assets/images/dark theme logo.png";
+import logoLight from "../assets/images/ligth theme logo.png";
 
 export default function Layout() {
-  const { t } = useSettings();
+  const { t, theme } = useSettings();
   const [popoverOpen, setPopoverOpen] = useState(false);
 
   return (
     <div className="layout">
       <aside className="sidebar">
         <div className="sidebar-brand">
-          <div className="brand-icon">⚔️</div>
+          <div className="brand-icon">
+            <img src={theme === "light" ? logoLight : logoDark} alt="WAF logo" />
+          </div>
           <div className="brand-text">
             <span className="brand-name">{t("brand.name")}</span>
             <span className="brand-sub">{t("brand.sub")}</span>
