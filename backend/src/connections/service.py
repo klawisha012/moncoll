@@ -1,4 +1,6 @@
 import json
+import logging
+import shutil
 import uuid
 from datetime import datetime
 from pathlib import Path
@@ -6,9 +8,14 @@ from pathlib import Path
 from .schemas import Connection, ConnectionCreate, ConnectionUpdate
 from ..certificates import service as cert_service
 
+logger = logging.getLogger(__name__)
+
 CONNECTIONS_DIR = Path("/var/lib/angie")
 CONNECTIONS_FILE = CONNECTIONS_DIR / "connections.json"
 CONNECTIONS_D_DIR = CONNECTIONS_DIR / "http.d"
+
+# ── Static site default source (backend container path) ──
+DEFAULT_STATIC_SOURCE = Path("/app/site-templates/examples")
 
 
 def _ensure_dirs():
@@ -55,17 +62,17 @@ def _generate_nginx_config(conn: dict) -> str:
     lines.append("")
 
     # ── Location block content (proxy or static) ──
+    conn_id = conn["id"]
+
     def _build_location_block(is_ssl: bool = False) -> list[str]:
         """Build the main location / block based on mode."""
         loc_lines = []
         loc_lines.append("    location / {")
 
         if is_static:
-            static_dir = conn.get("static_dir", "/usr/share/angie/html")
-            # Strip filename — nginx root directive needs a directory, not a file
-            if static_dir and "." in static_dir.rsplit("/", 1)[-1]:
-                static_dir = "/".join(static_dir.split("/")[:-1]) or "/usr/share/angie/html"
-            loc_lines.append(f"        root {static_dir};")
+            # Use the copied site inside the connection directory
+            static_root = f"/etc/angie/http.d/conn_{conn_id}/site"
+            loc_lines.append(f"        root {static_root};")
             loc_lines.append("        index index.html index.htm;")
             loc_lines.append("        try_files $uri $uri/ =404;")
         else:
@@ -140,6 +147,70 @@ def _conn_dir(conn_id: int) -> Path:
     return CONNECTIONS_D_DIR / f"conn_{conn_id}"
 
 
+def _site_dir(conn_id: int) -> Path:
+    """Get the static site subdirectory inside the connection directory."""
+    return _conn_dir(conn_id) / "site"
+
+
+def _resolve_static_source(source: str | Path | None) -> Path | None:
+    """Resolve *source* to an existing backend-accessible directory.
+
+    Rules (tried in order):
+    1. ``None`` or empty → DEFAULT_STATIC_SOURCE
+    2. Relative path → resolved against ``/app/site-templates/``
+    3. Absolute path that exists → used as-is
+    4. Absolute path that does NOT exist → take its leaf name and
+       try it relative to ``/app/site-templates/`` (this handles
+       legacy Angie-container paths like ``/var/www/examples``).
+    5. Fallback → DEFAULT_STATIC_SOURCE
+    """
+    if not source:
+        return _existing_or_none(DEFAULT_STATIC_SOURCE)
+
+    source_path = Path(source)
+    if not source_path.is_absolute():
+        resolved = DEFAULT_STATIC_SOURCE.parent / source_path
+        return _existing_or_none(resolved)
+
+    if source_path.is_dir():
+        return source_path
+
+    # Absolute but missing — try the leaf name under site-templates
+    leaf = source_path.name
+    if leaf:
+        resolved = DEFAULT_STATIC_SOURCE.parent / leaf
+        if resolved.is_dir():
+            logger.info("Mapped legacy static_dir %s → %s", source, resolved)
+            return resolved
+
+    logger.warning("Static source %s not found, falling back to %s", source, DEFAULT_STATIC_SOURCE)
+    return _existing_or_none(DEFAULT_STATIC_SOURCE)
+
+
+def _existing_or_none(path: Path) -> Path | None:
+    """Return *path* if it exists, otherwise ``None``."""
+    return path if path.is_dir() else None
+
+
+def _copy_static_site(conn_id: int, source: str | Path) -> Path | None:
+    """Copy static site files from *source* into http.d/conn_<id>/site/.
+
+    Returns the destination directory path, or ``None`` if the source
+    could not be found (in which case any existing site is left untouched).
+    """
+    source_path = _resolve_static_source(source)
+    if source_path is None:
+        logger.warning("Cannot copy static site for conn %s: no valid source", conn_id)
+        return None
+
+    dest = _site_dir(conn_id)
+    if dest.exists():
+        shutil.rmtree(dest)
+    shutil.copytree(source_path, dest)
+    logger.info("Copied static site %s → %s", source_path, dest)
+    return dest
+
+
 def _write_nginx_config(conn: dict):
     """Write Nginx config file for a connection."""
     config = _generate_nginx_config(conn)
@@ -150,11 +221,15 @@ def _write_nginx_config(conn: dict):
 
 
 def _delete_nginx_config(conn_id: int):
-    """Delete Nginx config file for a connection."""
+    """Delete Nginx config file and static site for a connection."""
     conn_dir = _conn_dir(conn_id)
     config_file = conn_dir / f"{conn_id}.conf"
     if config_file.exists():
         config_file.unlink()
+    # Remove static site
+    site_dir = _site_dir(conn_id)
+    if site_dir.exists():
+        shutil.rmtree(site_dir)
     # Remove connection directory if empty
     _rmdir_if_empty(conn_dir)
 
@@ -222,6 +297,11 @@ def create_connection(conn_in: ConnectionCreate) -> Connection:
     connections.append(new_conn)
     _save_connections(connections)
 
+    # Copy static site content into the connection directory
+    if new_conn["mode"] == "static":
+        source = new_conn.get("static_dir") or "examples"
+        _copy_static_site(new_id, source)
+
     # Generate Nginx config
     if new_conn["enabled"]:
         # Generate certificates first if SSL is enabled (so nginx config references them)
@@ -246,6 +326,12 @@ def update_connection(conn_id: int, conn_in: ConnectionUpdate) -> Connection | N
             conn["updated_at"] = datetime.utcnow().isoformat()
 
             _save_connections(connections)
+
+            # Re-copy static site if mode changed to static or static_dir updated
+            if conn.get("mode") == "static":
+                # Always re-copy on mode=static (idempotent)
+                source = conn.get("static_dir") or "examples"
+                _copy_static_site(conn_id, source)
 
             # Regenerate or delete Nginx config based on enabled status
             if conn.get("enabled"):
@@ -312,12 +398,14 @@ def reload_connections_config() -> dict:
         # Remove conn_* subdirectories
         for d in CONNECTIONS_D_DIR.glob("conn_*"):
             if d.is_dir():
-                import shutil
                 shutil.rmtree(d)
 
-        # Generate new configs for enabled connections
+        # Generate new configs for enabled connections & re-copy static sites
         for conn in connections:
             if conn.get("enabled"):
+                if conn.get("mode") == "static":
+                    source = conn.get("static_dir") or "examples"
+                    _copy_static_site(conn["id"], source)
                 _write_nginx_config(conn)
 
         return {"success": True, "message": f"Generated {len(connections)} connection configs"}

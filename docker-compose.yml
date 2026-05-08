@@ -23,7 +23,6 @@ services:
       - ./configs/angie/http.d/:/etc/angie/http.d/
       - ./configs/angie/modsecurity/:/etc/angie/modsecurity/
       - ./configs/angie/geoip2/:/etc/angie/geoip2/
-      - ./examples/:/var/www/examples/
     depends_on:
       - vector
       - crowdsec
@@ -83,6 +82,7 @@ services:
       - ./configs/angie/angie.conf:/app/etc/angie/angie.conf
       - ./configs/angie/connections.json:/var/lib/angie/connections.json
       - ./configs/angie/http.d/:/var/lib/angie/http.d/
+      - ./examples/:/app/site-templates/examples/:ro
       - /var/run/docker.sock:/var/run/docker.sock
     restart: unless-stopped
     env_file:

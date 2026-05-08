@@ -19,7 +19,7 @@ class ConnectionBase(BaseModel):
         default="", description="Backend target URL (proxy_pass destination) — required for proxy mode"
     )
     static_dir: Optional[str] = Field(
-        default=None, description="Directory path for static file serving (Angie container path)"
+        default=None, description="Source directory for static site (backend-accessible path, e.g. 'examples' → /app/site-templates/examples). Content is copied into http.d/conn_<id>/site/ on creation."
     )
     enabled: bool = Field(default=True, description="Whether this proxy rule is active")
     ssl_enabled: bool = Field(default=False, description="Enable SSL/TLS for this site")
