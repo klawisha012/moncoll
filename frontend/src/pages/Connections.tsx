@@ -202,21 +202,46 @@ export default function Connections() {
 
   async function handleGenerateCertificate() {
     if (editingId === null) return;
+    const certExists =
+      certStatuses[editingId]?.certificate_exists &&
+      certStatuses[editingId]?.key_exists;
+
+    // If a certificate already exists, replace it (requires confirmation)
+    if (certExists) {
+      if (
+        !confirm(
+          "A certificate already exists. Generate a new one to replace it?"
+        )
+      )
+        return;
+    }
+
     setGeneratingCert(true);
     try {
-      const result = await api.requestCertificate(editingId, formData.domains);
+      const result = certExists
+        ? await api.regenerateCertificate(editingId)
+        : await api.requestCertificate(editingId, formData.domains);
+
       if (result.success) {
-        // Auto-persist cert paths to the connection
-        const certPath = result.certificate_path || `/etc/angie/http.d/${editingId}.crt`;
-        const keyPath = result.key_path || `/etc/angie/http.d/${editingId}.key`;
+        const certPath =
+          result.certificate_path ||
+          `/etc/angie/http.d/conn_${editingId}/${editingId}.crt`;
+        const keyPath =
+          result.key_path ||
+          `/etc/angie/http.d/conn_${editingId}/${editingId}.key`;
         updateFormField("ssl_cert_path", certPath);
         updateFormField("ssl_key_path", keyPath);
-        // Save the connection with new cert paths
         await api.updateConnection(editingId, {
           ssl_cert_path: certPath,
           ssl_key_path: keyPath,
         });
-        showToast(result.message || "Certificate generated & saved", "success");
+        showToast(
+          result.message ||
+            (certExists
+              ? "Certificate replaced & saved"
+              : "Certificate generated & saved"),
+          "success"
+        );
         setTimeout(() => loadCertificateStatus(editingId), 1000);
       } else {
         showToast(`Certificate request failed: ${result.message}`, "error");
@@ -228,56 +253,37 @@ export default function Connections() {
     }
   }
 
-  async function handleRegenerateCertificate() {
-    if (editingId === null) return;
-    if (
-      !confirm(
-        "Regenerate certificate? This will invalidate the current certificate."
-      )
-    )
-      return;
-    setGeneratingCert(true);
-    try {
-      const result = await api.regenerateCertificate(editingId);
-      if (result.success) {
-        // Auto-persist new cert paths
-        const certPath = result.certificate_path || `/etc/angie/http.d/${editingId}.crt`;
-        const keyPath = result.key_path || `/etc/angie/http.d/${editingId}.key`;
-        updateFormField("ssl_cert_path", certPath);
-        updateFormField("ssl_key_path", keyPath);
-        await api.updateConnection(editingId, {
-          ssl_cert_path: certPath,
-          ssl_key_path: keyPath,
-        });
-        showToast(result.message || "Certificate regenerated & saved", "success");
-        setTimeout(() => loadCertificateStatus(editingId), 1000);
-      } else {
-        showToast(`Regeneration failed: ${result.message}`, "error");
-      }
-    } catch (err: any) {
-      showToast(`Regeneration error: ${err.message}`, "error");
-    } finally {
-      setGeneratingCert(false);
-    }
-  }
-
   async function handleQuickGenerate(conn: Connection) {
     if (!conn.ssl_enabled || !conn.domains.length) {
       showToast("SSL must be enabled and domains must be set", "error");
       return;
     }
+    const certExists =
+      certStatuses[conn.id]?.certificate_exists &&
+      certStatuses[conn.id]?.key_exists;
     setGeneratingCertId(conn.id);
     try {
-      const result = await api.requestCertificate(conn.id, conn.domains);
+      const result = certExists
+        ? await api.regenerateCertificate(conn.id)
+        : await api.requestCertificate(conn.id, conn.domains);
       if (result.success) {
-        // Auto-persist cert paths to the connection
-        const certPath = result.certificate_path || `/etc/angie/http.d/${conn.id}.crt`;
-        const keyPath = result.key_path || `/etc/angie/http.d/${conn.id}.key`;
+        const certPath =
+          result.certificate_path ||
+          `/etc/angie/http.d/conn_${conn.id}/${conn.id}.crt`;
+        const keyPath =
+          result.key_path ||
+          `/etc/angie/http.d/conn_${conn.id}/${conn.id}.key`;
         await api.updateConnection(conn.id, {
           ssl_cert_path: certPath,
           ssl_key_path: keyPath,
         });
-        showToast(result.message || "Certificate generated & saved", "success");
+        showToast(
+          result.message ||
+            (certExists
+              ? "Certificate replaced & saved"
+              : "Certificate generated & saved"),
+          "success"
+        );
         setTimeout(() => loadConnections(), 2000);
       } else {
         showToast(`Failed: ${result.message}`, "error");
@@ -533,15 +539,8 @@ export default function Connections() {
                       >
                         {generatingCertId === conn.id
                           ? "Generating…"
-                          : certStatuses[conn.id]?.certificate_exists
-                          ? "Regenerate"
                           : "Generate"}
                       </button>
-                      {conn.ssl_cert_path && (
-                        <span className="text-muted" style={{ fontSize: "11px" }}>
-                          {conn.ssl_cert_path}
-                        </span>
-                      )}
                     </div>
                   </div>
                 )}
@@ -779,7 +778,11 @@ export default function Connections() {
                       disabled={generatingCert}
                     >
                       <Shield size={16} />
-                      {generatingCert ? "Requesting…" : "Generate Certificate"}
+                      {generatingCert
+                        ? "Requesting…"
+                        : certStatuses[editingId]?.certificate_exists
+                        ? "Replace Certificate"
+                        : "Generate Certificate"}
                     </button>
                     {editingId && certStatuses[editingId] && (
                       <>
@@ -809,20 +812,12 @@ export default function Connections() {
                             Pending Generation
                           </span>
                         )}
-                        <button
-                          type="button"
-                          className="btn btn-outline btn-sm"
-                          onClick={handleRegenerateCertificate}
-                          disabled={generatingCert}
-                        >
-                          Regenerate
-                        </button>
                       </>
                     )}
                   </div>
                   <small>
                     Generates a self-signed certificate for testing. Certificate
-                    will be saved to /etc/angie/http.d/{editingId}.crt and .key
+                    will be saved to /etc/angie/http.d/conn_{editingId}/{editingId}.crt and .key
                   </small>
                 </div>
               )}
