@@ -7,29 +7,27 @@ from typing import Optional
 
 # Backend-container paths (for file operations — /var/lib/angie/http.d)
 BACKEND_HTTPD_DIR = Path("/var/lib/angie/http.d")
-ACME_DIR = Path("/var/lib/angie/acme")
 
 # Angie-container paths (for nginx config directives — /etc/angie/http.d)
 ANGIE_HTTPD_DIR = "/etc/angie/http.d"
 
 
 def _ensure_ssl_dirs():
-    """Ensure SSL and ACME directories exist."""
+    """Ensure SSL directory exists."""
     BACKEND_HTTPD_DIR.mkdir(parents=True, exist_ok=True)
-    ACME_DIR.mkdir(parents=True, exist_ok=True)
 
 
 def get_backend_ssl_paths(connection_id: int) -> tuple[str, str]:
     """Get certificate and key paths for backend file operations."""
-    cert_path = f"/var/lib/angie/http.d/{connection_id}.crt"
-    key_path = f"/var/lib/angie/http.d/{connection_id}.key"
+    cert_path = f"/var/lib/angie/http.d/conn_{connection_id}/{connection_id}.crt"
+    key_path = f"/var/lib/angie/http.d/conn_{connection_id}/{connection_id}.key"
     return cert_path, key_path
 
 
 def get_angie_ssl_paths(connection_id: int) -> tuple[str, str]:
     """Get certificate and key paths as seen from inside the Angie container."""
-    cert_path = f"{ANGIE_HTTPD_DIR}/{connection_id}.crt"
-    key_path = f"{ANGIE_HTTPD_DIR}/{connection_id}.key"
+    cert_path = f"{ANGIE_HTTPD_DIR}/conn_{connection_id}/{connection_id}.crt"
+    key_path = f"{ANGIE_HTTPD_DIR}/conn_{connection_id}/{connection_id}.key"
     return cert_path, key_path
 
 
@@ -49,6 +47,9 @@ def generate_self_signed_certificate(connection_id: int, domains: list[str]) -> 
 
     backend_cert, backend_key = get_backend_ssl_paths(connection_id)
     angie_cert, angie_key = get_angie_ssl_paths(connection_id)
+
+    # Ensure connection subdirectory exists
+    Path(backend_cert).parent.mkdir(parents=True, exist_ok=True)
 
     # Use openssl to generate self-signed cert
     try:
@@ -114,6 +115,9 @@ def regenerate_certificate(connection_id: int, domains: list[str]) -> dict:
     _ensure_ssl_dirs()
 
     cert_path, key_path = get_backend_ssl_paths(connection_id)
+
+    # Ensure connection subdirectory exists
+    Path(cert_path).parent.mkdir(parents=True, exist_ok=True)
 
     # Remove existing certificates
     cert_file = Path(cert_path)

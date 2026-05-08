@@ -36,8 +36,8 @@ def _save_connections(connections: list[dict]):
 
 def _get_ssl_paths(conn_id: int) -> tuple[str, str]:
     """Get certificate and key paths as seen from inside the Angie container."""
-    cert_path = f"/etc/angie/http.d/{conn_id}.crt"
-    key_path = f"/etc/angie/http.d/{conn_id}.key"
+    cert_path = f"/etc/angie/http.d/conn_{conn_id}/{conn_id}.crt"
+    key_path = f"/etc/angie/http.d/conn_{conn_id}/{conn_id}.key"
     return cert_path, key_path
 
 
@@ -92,19 +92,10 @@ def _generate_nginx_config(conn: dict) -> str:
     # ── HTTP server ──
     lines.append("server {")
     lines.append("    listen 80;")
-
-    if conn.get("ssl_enabled") and conn.get("domains"):
-        lines.append("    acme default;")
-
     lines.append(f"    server_name {domains};")
     lines.append("")
 
     if conn.get("ssl_enabled"):
-        # ACME challenge location
-        lines.append("    location /.well-known/acme-challenge/ {")
-        lines.append("        # ACME challenge handled by Angie ACME module")
-        lines.append("    }")
-        lines.append("")
         lines.append("    location / {")
         lines.append("        return 301 https://$host$request_uri;")
         lines.append("    }")
@@ -118,12 +109,10 @@ def _generate_nginx_config(conn: dict) -> str:
         lines.append(f"    server_name {domains};")
         lines.append("")
 
-        if conn.get("ssl_cert_path") and conn.get("ssl_key_path"):
-            lines.append(f"    ssl_certificate {conn['ssl_cert_path']};")
-            lines.append(f"    ssl_certificate_key {conn['ssl_key_path']};")
-        else:
-            lines.append("    ssl_certificate $acme_cert_default;")
-            lines.append("    ssl_certificate_key $acme_cert_key_default;")
+        ssl_cert_path = conn.get("ssl_cert_path") or cert_path
+        ssl_key_path = conn.get("ssl_key_path") or key_path
+        lines.append(f"    ssl_certificate {ssl_cert_path};")
+        lines.append(f"    ssl_certificate_key {ssl_key_path};")
 
         lines.append("")
         lines.append("    # ModSecurity integration")
@@ -146,18 +135,28 @@ def _generate_nginx_config(conn: dict) -> str:
     return "\n".join(lines)
 
 
+def _conn_dir(conn_id: int) -> Path:
+    """Get the connection-specific subdirectory path."""
+    return CONNECTIONS_D_DIR / f"conn_{conn_id}"
+
+
 def _write_nginx_config(conn: dict):
     """Write Nginx config file for a connection."""
     config = _generate_nginx_config(conn)
-    config_file = CONNECTIONS_D_DIR / f"{conn['id']}.conf"
+    conn_dir = _conn_dir(conn["id"])
+    conn_dir.mkdir(parents=True, exist_ok=True)
+    config_file = conn_dir / f"{conn['id']}.conf"
     config_file.write_text(config)
 
 
 def _delete_nginx_config(conn_id: int):
     """Delete Nginx config file for a connection."""
-    config_file = CONNECTIONS_D_DIR / f"{conn_id}.conf"
+    conn_dir = _conn_dir(conn_id)
+    config_file = conn_dir / f"{conn_id}.conf"
     if config_file.exists():
         config_file.unlink()
+    # Remove connection directory if empty
+    _rmdir_if_empty(conn_dir)
 
 
 def list_connections() -> list[Connection]:
@@ -265,13 +264,24 @@ def update_connection(conn_id: int, conn_in: ConnectionUpdate) -> Connection | N
 
 def _delete_ssl_certs(conn_id: int):
     """Delete SSL certificate and key files for a connection."""
-    # Backend paths (where files are stored)
-    cert_file = CONNECTIONS_D_DIR / f"{conn_id}.crt"
-    key_file = CONNECTIONS_D_DIR / f"{conn_id}.key"
+    conn_dir = _conn_dir(conn_id)
+    cert_file = conn_dir / f"{conn_id}.crt"
+    key_file = conn_dir / f"{conn_id}.key"
     if cert_file.exists():
         cert_file.unlink()
     if key_file.exists():
         key_file.unlink()
+    # Remove connection directory if empty
+    _rmdir_if_empty(conn_dir)
+
+
+def _rmdir_if_empty(dir_path: Path):
+    """Remove a directory if it exists and is empty."""
+    try:
+        if dir_path.exists():
+            dir_path.rmdir()  # only succeeds if empty
+    except OSError:
+        pass  # directory not empty, that's fine
 
 
 def delete_connection(conn_id: int) -> bool:
@@ -296,9 +306,14 @@ def reload_connections_config() -> dict:
         _ensure_dirs()
         connections = _load_connections()
 
-        # Clear existing config files
+        # Clear existing connection configs (both old top-level and new subdirectory patterns)
         for f in CONNECTIONS_D_DIR.glob("*.conf"):
             f.unlink()
+        # Remove conn_* subdirectories
+        for d in CONNECTIONS_D_DIR.glob("conn_*"):
+            if d.is_dir():
+                import shutil
+                shutil.rmtree(d)
 
         # Generate new configs for enabled connections
         for conn in connections:
