@@ -5,6 +5,7 @@ import {
   AngieSettings,
 } from "../api/client";
 import { Save, RefreshCw, Shield, Cog } from "lucide-react";
+import { useSettings } from "../context/SettingsContext";
 
 type TabType = "modsecurity" | "angie";
 
@@ -12,6 +13,64 @@ const COUNTRY_OPTIONS = [
   "RU", "CN", "US", "BR", "DE", "FR", "GB", "IN", "JP", "KR",
   "PL", "QA", "UA", "NL", "IR", "KP", "SY", "IQ", "AF", "PK",
 ];
+
+/* ══════════════════════════════════════════════════════════════════
+    Tooltip component — shows a ? icon that reveals a description
+    bubble on hover. Supports i18n via translation keys.
+    ══════════════════════════════════════════════════════════════════ */
+function Tooltip({ tooltipKey }: { tooltipKey: string }) {
+  const { t } = useSettings();
+  const text = t(tooltipKey);
+
+  // Don't render if there's no translation (e.g., key not defined)
+  if (text === tooltipKey) return null;
+
+  return (
+    <span className="tooltip-wrapper">
+      <span className="tooltip-trigger" tabIndex={0} aria-label={text}>
+        ?
+      </span>
+      <span className="tooltip-bubble">{text}</span>
+    </span>
+  );
+}
+
+/* ══════════════════════════════════════════════════════════════════
+    FieldLabel — renders a form label with an optional tooltip (?) icon.
+    Passing a tooltipKey will show the help bubble on hover.
+    ══════════════════════════════════════════════════════════════════ */
+function FieldLabel({
+  label,
+  tooltipKey,
+}: {
+  label: string;
+  tooltipKey?: string;
+}) {
+  return (
+    <label>
+      {label}
+      {tooltipKey ? <> <Tooltip tooltipKey={tooltipKey} /></> : null}
+    </label>
+  );
+}
+
+/* ══════════════════════════════════════════════════════════════════
+    CheckboxLabel — a checkbox-row label with optional tooltip.
+    ══════════════════════════════════════════════════════════════════ */
+function CheckboxLabel({
+  text,
+  tooltipKey,
+}: {
+  text: string;
+  tooltipKey?: string;
+}) {
+  return (
+    <span>
+      {text}
+      {tooltipKey ? <> <Tooltip tooltipKey={tooltipKey} /></> : null}
+    </span>
+  );
+}
 
 export default function ConfigEditor() {
   const [activeTab, setActiveTab] = useState<TabType>("modsecurity");
@@ -189,8 +248,8 @@ export default function ConfigEditor() {
 }
 
 /* ══════════════════════════════════════════════════════════════════
-   ModSecurity Tab
-   ══════════════════════════════════════════════════════════════════ */
+    ModSecurity Tab
+    ══════════════════════════════════════════════════════════════════ */
 function ModSecurityTab({
   settings,
   onChange,
@@ -214,7 +273,7 @@ function ModSecurityTab({
           <h3>Rule Engine</h3>
         </div>
         <div className="form-group">
-          <label>SecRuleEngine</label>
+          <FieldLabel label="SecRuleEngine" tooltipKey="tooltip.rule_engine" />
           <select
             value={settings.rule_engine}
             onChange={(e) => onChange("rule_engine", e.target.value)}
@@ -229,7 +288,10 @@ function ModSecurityTab({
           onClick={() => onChange("status_engine", !settings.status_engine)}
         >
           <input type="checkbox" checked={settings.status_engine} readOnly />
-          <span>SecStatusEngine — share version info</span>
+          <CheckboxLabel
+            text="SecStatusEngine — share version info"
+            tooltipKey="tooltip.status_engine"
+          />
         </label>
       </div>
 
@@ -248,10 +310,16 @@ function ModSecurityTab({
             checked={settings.request_body_access}
             readOnly
           />
-          <span>SecRequestBodyAccess — inspect request bodies</span>
+          <CheckboxLabel
+            text="SecRequestBodyAccess — inspect request bodies"
+            tooltipKey="tooltip.request_body_access"
+          />
         </label>
         <div className="form-group">
-          <label>SecRequestBodyLimit (bytes)</label>
+          <FieldLabel
+            label="SecRequestBodyLimit (bytes)"
+            tooltipKey="tooltip.request_body_limit"
+          />
           <input
             type="number"
             value={settings.request_body_limit}
@@ -261,7 +329,10 @@ function ModSecurityTab({
           />
         </div>
         <div className="form-group">
-          <label>SecRequestBodyNoFilesLimit (bytes)</label>
+          <FieldLabel
+            label="SecRequestBodyNoFilesLimit (bytes)"
+            tooltipKey="tooltip.request_body_no_files_limit"
+          />
           <input
             type="number"
             value={settings.request_body_no_files_limit}
@@ -271,7 +342,10 @@ function ModSecurityTab({
           />
         </div>
         <div className="form-group">
-          <label>SecRequestBodyLimitAction</label>
+          <FieldLabel
+            label="SecRequestBodyLimitAction"
+            tooltipKey="tooltip.request_body_limit_action"
+          />
           <select
             value={settings.request_body_limit_action}
             onChange={(e) =>
@@ -283,7 +357,10 @@ function ModSecurityTab({
           </select>
         </div>
         <div className="form-group">
-          <label>SecRequestBodyJsonDepthLimit</label>
+          <FieldLabel
+            label="SecRequestBodyJsonDepthLimit"
+            tooltipKey="tooltip.request_body_json_depth_limit"
+          />
           <input
             type="number"
             value={settings.request_body_json_depth_limit}
@@ -296,7 +373,10 @@ function ModSecurityTab({
           />
         </div>
         <div className="form-group">
-          <label>SecArgumentsLimit</label>
+          <FieldLabel
+            label="SecArgumentsLimit"
+            tooltipKey="tooltip.arguments_limit"
+          />
           <input
             type="number"
             value={settings.arguments_limit}
@@ -322,10 +402,16 @@ function ModSecurityTab({
             checked={settings.response_body_access}
             readOnly
           />
-          <span>SecResponseBodyAccess — inspect response bodies</span>
+          <CheckboxLabel
+            text="SecResponseBodyAccess — inspect response bodies"
+            tooltipKey="tooltip.response_body_access"
+          />
         </label>
         <div className="form-group">
-          <label>SecResponseBodyLimit (bytes)</label>
+          <FieldLabel
+            label="SecResponseBodyLimit (bytes)"
+            tooltipKey="tooltip.response_body_limit"
+          />
           <input
             type="number"
             value={settings.response_body_limit}
@@ -335,7 +421,10 @@ function ModSecurityTab({
           />
         </div>
         <div className="form-group">
-          <label>SecResponseBodyLimitAction</label>
+          <FieldLabel
+            label="SecResponseBodyLimitAction"
+            tooltipKey="tooltip.response_body_limit_action"
+          />
           <select
             value={settings.response_body_limit_action}
             onChange={(e) =>
@@ -353,7 +442,10 @@ function ModSecurityTab({
           <h3>Audit Log</h3>
         </div>
         <div className="form-group">
-          <label>SecAuditEngine</label>
+          <FieldLabel
+            label="SecAuditEngine"
+            tooltipKey="tooltip.audit_engine"
+          />
           <select
             value={settings.audit_engine}
             onChange={(e) => onChange("audit_engine", e.target.value)}
@@ -364,7 +456,10 @@ function ModSecurityTab({
           </select>
         </div>
         <div className="form-group">
-          <label>SecAuditLogType</label>
+          <FieldLabel
+            label="SecAuditLogType"
+            tooltipKey="tooltip.audit_log_type"
+          />
           <select
             value={settings.audit_log_type}
             onChange={(e) => onChange("audit_log_type", e.target.value)}
@@ -374,7 +469,10 @@ function ModSecurityTab({
           </select>
         </div>
         <div className="form-group">
-          <label>SecAuditLogFormat</label>
+          <FieldLabel
+            label="SecAuditLogFormat"
+            tooltipKey="tooltip.audit_log_format"
+          />
           <select
             value={settings.audit_log_format}
             onChange={(e) => onChange("audit_log_format", e.target.value)}
@@ -384,7 +482,10 @@ function ModSecurityTab({
           </select>
         </div>
         <div className="form-group">
-          <label>SecAuditLogParts</label>
+          <FieldLabel
+            label="SecAuditLogParts"
+            tooltipKey="tooltip.audit_log_parts"
+          />
           <input
             type="text"
             value={settings.audit_log_parts}
@@ -392,7 +493,10 @@ function ModSecurityTab({
           />
         </div>
         <div className="form-group">
-          <label>SecAuditLogRelevantStatus (regex)</label>
+          <FieldLabel
+            label="SecAuditLogRelevantStatus (regex)"
+            tooltipKey="tooltip.audit_log_relevant_status"
+          />
           <input
             type="text"
             value={settings.audit_log_relevant_status}
@@ -402,7 +506,10 @@ function ModSecurityTab({
           />
         </div>
         <div className="form-group">
-          <label>SecAuditLog path</label>
+          <FieldLabel
+            label="SecAuditLog path"
+            tooltipKey="tooltip.audit_log_path"
+          />
           <input
             type="text"
             value={settings.audit_log_path}
@@ -416,7 +523,10 @@ function ModSecurityTab({
           <h3>PCRE & Filesystem</h3>
         </div>
         <div className="form-group">
-          <label>SecPcreMatchLimit</label>
+          <FieldLabel
+            label="SecPcreMatchLimit"
+            tooltipKey="tooltip.pcre_match_limit"
+          />
           <input
             type="number"
             value={settings.pcre_match_limit}
@@ -426,7 +536,10 @@ function ModSecurityTab({
           />
         </div>
         <div className="form-group">
-          <label>SecPcreMatchLimitRecursion</label>
+          <FieldLabel
+            label="SecPcreMatchLimitRecursion"
+            tooltipKey="tooltip.pcre_match_limit_recursion"
+          />
           <input
             type="number"
             value={settings.pcre_match_limit_recursion}
@@ -436,7 +549,7 @@ function ModSecurityTab({
           />
         </div>
         <div className="form-group">
-          <label>SecTmpDir</label>
+          <FieldLabel label="SecTmpDir" tooltipKey="tooltip.tmp_dir" />
           <input
             type="text"
             value={settings.tmp_dir}
@@ -444,7 +557,7 @@ function ModSecurityTab({
           />
         </div>
         <div className="form-group">
-          <label>SecDataDir</label>
+          <FieldLabel label="SecDataDir" tooltipKey="tooltip.data_dir" />
           <input
             type="text"
             value={settings.data_dir}
@@ -472,8 +585,8 @@ function ModSecurityTab({
 }
 
 /* ══════════════════════════════════════════════════════════════════
-   Angie Tab
-   ══════════════════════════════════════════════════════════════════ */
+    Angie Tab
+    ══════════════════════════════════════════════════════════════════ */
 function AngieTab({
   settings,
   onChange,
@@ -508,7 +621,10 @@ function AngieTab({
           <h3>Worker</h3>
         </div>
         <div className="form-group">
-          <label>worker_processes</label>
+          <FieldLabel
+            label="worker_processes"
+            tooltipKey="tooltip.worker_processes"
+          />
           <select
             value={settings.worker_processes}
             onChange={(e) => onChange("worker_processes", e.target.value)}
@@ -521,7 +637,10 @@ function AngieTab({
           </select>
         </div>
         <div className="form-group">
-          <label>worker_rlimit_nofile</label>
+          <FieldLabel
+            label="worker_rlimit_nofile"
+            tooltipKey="tooltip.worker_rlimit_nofile"
+          />
           <input
             type="number"
             value={settings.worker_rlimit_nofile}
@@ -531,7 +650,10 @@ function AngieTab({
           />
         </div>
         <div className="form-group">
-          <label>worker_connections</label>
+          <FieldLabel
+            label="worker_connections"
+            tooltipKey="tooltip.worker_connections"
+          />
           <input
             type="number"
             value={settings.worker_connections}
@@ -547,7 +669,10 @@ function AngieTab({
           <h3>HTTP</h3>
         </div>
         <div className="form-group">
-          <label>keepalive_timeout (seconds)</label>
+          <FieldLabel
+            label="keepalive_timeout (seconds)"
+            tooltipKey="tooltip.keepalive_timeout"
+          />
           <input
             type="number"
             value={settings.keepalive_timeout}
@@ -561,13 +686,17 @@ function AngieTab({
           onClick={() => onChange("sendfile", !settings.sendfile)}
         >
           <input type="checkbox" checked={settings.sendfile} readOnly />
-          <span>sendfile — use kernel sendfile for static files</span>
+          <CheckboxLabel
+            text="sendfile — use kernel sendfile for static files"
+            tooltipKey="tooltip.sendfile"
+          />
         </label>
       </div>
 
       <div className="card">
         <div className="card-header">
           <h3>GeoIP Blocked Countries</h3>
+          <Tooltip tooltipKey="tooltip.geoip_countries" />
         </div>
         <div className="checkbox-grid">
           {COUNTRY_OPTIONS.map((code) => (

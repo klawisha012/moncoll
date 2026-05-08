@@ -1068,8 +1068,115 @@ tr:hover td {
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════
-   ANIMATIONS
-   ═══════════════════════════════════════════════════════════════════════════ */
+    TOOLTIP
+    ═══════════════════════════════════════════════════════════════════════════ */
+.tooltip-wrapper {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.tooltip-trigger {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: var(--border-strong);
+  color: var(--text-muted);
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 1;
+  cursor: help;
+  transition: all var(--duration-fast) var(--ease-out);
+  flex-shrink: 0;
+  user-select: none;
+}
+
+.tooltip-trigger:hover {
+  background: var(--accent-1);
+  color: #fff;
+  box-shadow: 0 0 10px rgba(99, 102, 241, 0.4);
+}
+
+.tooltip-bubble {
+  position: absolute;
+  bottom: calc(100% + 10px);
+  left: 50%;
+  transform: translateX(-50%);
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
+  padding: 12px 16px;
+  max-width: 340px;
+  width: max-content;
+  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.5), 0 0 0 1px var(--border-subtle);
+  z-index: 100;
+  font-size: 12.5px;
+  line-height: 1.55;
+  color: var(--text-secondary);
+  font-weight: 400;
+  pointer-events: none;
+  /* Hidden by default — shown only on hover/focus of the trigger */
+  opacity: 0;
+  visibility: hidden;
+  transition: opacity var(--duration-fast) var(--ease-out), visibility var(--duration-fast);
+}
+
+/* Show bubble when hovering the trigger or when trigger is focused (keyboard) */
+.tooltip-trigger:hover + .tooltip-bubble,
+.tooltip-trigger:focus + .tooltip-bubble,
+.tooltip-trigger:focus-visible + .tooltip-bubble {
+  opacity: 1;
+  visibility: visible;
+  animation: tooltipFadeIn var(--duration-fast) var(--ease-out);
+}
+
+/* Also keep bubble visible when hovering the bubble itself */
+.tooltip-bubble:hover {
+  opacity: 1;
+  visibility: visible;
+}
+
+.tooltip-bubble::after {
+  content: "";
+  position: absolute;
+  top: 100%;
+  left: 50%;
+  transform: translateX(-50%);
+  border: 6px solid transparent;
+  border-top-color: var(--border-default);
+}
+
+/* Flip tooltip when near bottom edge — use class on parent */
+.tooltip-wrapper.flip-up .tooltip-bubble {
+  bottom: auto;
+  top: calc(100% + 10px);
+}
+
+.tooltip-wrapper.flip-up .tooltip-bubble::after {
+  top: auto;
+  bottom: 100%;
+  border-top-color: transparent;
+  border-bottom-color: var(--border-default);
+}
+
+@keyframes tooltipFadeIn {
+  from {
+    opacity: 0;
+    transform: translateX(-50%) translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(-50%) translateY(0);
+  }
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+    ANIMATIONS
+    ═══════════════════════════════════════════════════════════════════════════ */
 @keyframes spin {
   to {
     transform: rotate(360deg);
