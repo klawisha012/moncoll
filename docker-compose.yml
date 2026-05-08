@@ -73,6 +73,7 @@ services:
       - GF_PROVISIONING_ENABLED=true
       - GF_SERVER_ROOT_URL=/grafana/
       - GF_SERVER_SERVE_FROM_SUB_PATH=true
+      - GF_LIVE_ALLOWED_ORIGINS=*
 
   backend:
     build: ./backend
