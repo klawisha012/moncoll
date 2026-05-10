@@ -30,6 +30,9 @@ configs:
     external: true
   vector_yaml:
     external: true
+  # пока что тут заглушка для crowdsec, поскольку не настроен
+  crowdsec_conf:
+    external: true
 
 networks:
   waf_net:
@@ -73,6 +76,10 @@ services:
         mode: 0444
       - source: modsecurity_rules
         target: /etc/angie/modsecurity/rules.conf
+        mode: 0444
+        # заглушка для crowdsec, поскольку не настроен
+      - source: crowdsec_conf
+        target: /etc/angie/http.d/crowdsec.conf
         mode: 0444
     networks:
       - waf_net
@@ -219,6 +226,8 @@ services:
       - GF_USERS_ALLOW_SIGN_UP=false
       - GF_INSTALL_PLUGINS=grafana-clickhouse-datasource
       - GF_AUTH_ANONYMOUS_ENABLED=false
+    env_file:
+      - ./envs/grafana.env
     deploy:
       replicas: 1
       placement:

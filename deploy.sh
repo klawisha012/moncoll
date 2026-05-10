@@ -26,9 +26,9 @@ if [ ! -f "scripts/.env" ]; then
     error "Файл .env не найден. Запустите: bash scripts/generate-env.sh"
 fi
 mkdir -p envs
-grep '^ANGIE_'      scripts/.env > envs/angie.env
-grep '^VECTOR_'     scripts/.env > envs/vector.env
-grep '^CLICKHOUSE_' scripts/.env > envs/clickhouse.env
+grep '^ANGIE_'      .env > envs/angie.env
+{ grep '^VECTOR_' .env; grep '^CLICKHOUSE_' .env; } > envs/vector.env
+grep '^CLICKHOUSE_' .env > envs/grafana.env
 info "env-файлы созданы из .env"
 
 # --- 3. Создание Docker Secrets (если не существуют) ---
@@ -77,6 +77,10 @@ create_or_update_config "modsecurity_conf"  "./configs/angie/modsecurity/modsecu
 create_or_update_config "modsecurity_rules" "./configs/angie/modsecurity/rules.conf"
 create_or_update_config "vector_yaml"       "./configs/vector/vector.yaml"
 
+# Пока что заглушка для crowdsec, поскольку не настроен.
+echo "# crowdsec disabled" > /tmp/crowdsec_empty.conf
+create_or_update_config "crowdsec_conf"     "/tmp/crowdsec_empty.conf"
+
 # --- 6. Сборка образа Angie ---
 info "Сборка angie-modsec-crs:${IMAGE_TAG}..."
 docker build -t "${REGISTRY}/angie-modsec-crs:${IMAGE_TAG}" -f ./configs/angie/Dockerfile .
@@ -87,13 +91,30 @@ if [ "${REGISTRY}" != "localhost:5000" ]; then
     docker push "${REGISTRY}/angie-modsec-crs:${IMAGE_TAG}"
 fi
 
-# --- 8. Деплой стека ---
+# --- 7. Деплой стека ---
 info "Деплоим стек '${STACK_NAME}'..."
 REGISTRY="${REGISTRY}" docker stack deploy \
     --compose-file "${COMPOSE_FILE}" \
     --with-registry-auth \
     --prune \
     "${STACK_NAME}"
+
+# Заплатка против datetime64 в init.sql --- 9. Создание таблиц в ClickHouse ---
+info "Ожидаю запуска ClickHouse..."
+sleep 20
+CLICKHOUSE_USER=$(grep '^CLICKHOUSE_USER=' .env | cut -d'=' -f2)
+CLICKHOUSE_PASSWORD=$(grep '^CLICKHOUSE_PASSWORD=' .env | cut -d'=' -f2)
+
+sed 's/TTL timestamp + INTERVAL/TTL toDateTime(timestamp) + INTERVAL/g;
+     s/TTL time_local + INTERVAL/TTL toDateTime(time_local) + INTERVAL/g' \
+  configs/clickhouse/init.sql | \
+  docker exec -i $(docker ps -q -f name=waf_clickhouse) \
+    clickhouse-client \
+    --user "$CLICKHOUSE_USER" \
+    --password "$CLICKHOUSE_PASSWORD" \
+    --multiline --multiquery 2>&1 | grep -v jemalloc || true
+
+info "Таблицы ClickHouse созданы"
 
 echo ""
 echo "=== Стек '${STACK_NAME}' задеплоен ==="
