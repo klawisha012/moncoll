@@ -78,6 +78,12 @@ const en: TranslationDict = {
   "crowdsec.installed": "Installed",
   "crowdsec.active": "active",
   "crowdsec.inactive": "inactive",
+  "crowdsec.timeRange": "Time Range",
+  "crowdsec.panels.title": "Panels",
+  "crowdsec.panel.status": "Status",
+  "crowdsec.panel.blocks": "Active Blocks",
+  "crowdsec.panel.scenarios": "Scenarios",
+  "crowdsec.panel.alerts": "Alerts",
 
   // Configuration Tooltips — ModSecurity
   "tooltip.rule_engine": "Controls the ModSecurity rule engine mode. \"On\" actively blocks malicious requests, \"DetectionOnly\" only logs threats without blocking, and \"Off\" disables the WAF entirely.",
@@ -197,6 +203,12 @@ const ru: TranslationDict = {
   "crowdsec.installed": "Установлен",
   "crowdsec.active": "активен",
   "crowdsec.inactive": "неактивен",
+  "crowdsec.timeRange": "Временной диапазон",
+  "crowdsec.panels.title": "Панели",
+  "crowdsec.panel.status": "Статус",
+  "crowdsec.panel.blocks": "Активные блокировки",
+  "crowdsec.panel.scenarios": "Сценарии",
+  "crowdsec.panel.alerts": "Оповещения",
 
   // Configuration Tooltips — ModSecurity
   "tooltip.rule_engine": "Режим работы движка правил ModSecurity. \"Вкл\" активно блокирует вредоносные запросы, \"DetectionOnly\" только логирует угрозы без блокировки, \"Выкл\" полностью отключает WAF.",

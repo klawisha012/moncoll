@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useMemo } from "react";
+import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import {
   Shield,
   Ban,
@@ -21,8 +21,10 @@ import {
   ChevronDown,
   ChevronUp,
   X,
+  Cog,
 } from "lucide-react";
 import { api, CrowdSecStatus, DecisionItem, ScenarioInfo, AlertItem } from "../api/client";
+import { useSettings } from "../context/SettingsContext";
 
 interface ManualBlockLog {
   timestamp: string;
@@ -41,7 +43,19 @@ interface HubScenario {
   installed: boolean;
 }
 
+type TimeUnit = "minutes" | "hours" | "days";
+type PanelKey = "status" | "blocks" | "scenarios" | "alerts";
+
+const UNITS: { value: TimeUnit; label: string; multiplier: number }[] = [
+  { value: "minutes", label: "Minutes", multiplier: 1 / 60 },
+  { value: "hours", label: "Hours", multiplier: 1 },
+  { value: "days", label: "Days", multiplier: 24 },
+];
+
+const ALL_PANELS: PanelKey[] = ["status", "blocks", "scenarios", "alerts"];
+
 export default function CrowdSec() {
+  const { t } = useSettings();
   const [status, setStatus] = useState<CrowdSecStatus | null>(null);
   const [decisions, setDecisions] = useState<DecisionItem[]>([]);
   const [scenarios, setScenarios] = useState<ScenarioInfo[]>([]);
@@ -54,6 +68,10 @@ export default function CrowdSec() {
   const [scenarioSearch, setScenarioSearch] = useState("");
   const [hubExpanded, setHubExpanded] = useState(false);
   const [expandedCards, setExpandedCards] = useState<Set<string>>(new Set());
+  const [timeValue, setTimeValue] = useState(24);
+  const [timeUnit, setTimeUnit] = useState<TimeUnit>("hours");
+  const [visiblePanels, setVisiblePanels] = useState<Set<PanelKey>>(new Set(ALL_PANELS));
+  const [gearOpen, setGearOpen] = useState(false);
 
   // Block form state
   const [blockIp, setBlockIp] = useState("");
@@ -333,6 +351,48 @@ export default function CrowdSec() {
     );
   }
 
+  // ── Gear popover ref + outside-click ──
+  const gearPopoverRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!gearOpen) return;
+    function handleClick(e: MouseEvent) {
+      if (gearPopoverRef.current && !gearPopoverRef.current.contains(e.target as Node)) {
+        setGearOpen(false);
+      }
+    }
+    document.addEventListener("mousedown", handleClick);
+    return () => document.removeEventListener("mousedown", handleClick);
+  }, [gearOpen]);
+
+  useEffect(() => {
+    if (!gearOpen) return;
+    function handleKey(e: KeyboardEvent) {
+      if (e.key === "Escape") setGearOpen(false);
+    }
+    document.addEventListener("keydown", handleKey);
+    return () => document.removeEventListener("keydown", handleKey);
+  }, [gearOpen]);
+
+  function togglePanel(key: PanelKey) {
+    setVisiblePanels((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) {
+        next.delete(key);
+      } else {
+        next.add(key);
+      }
+      return next;
+    });
+  }
+
+  const PANEL_META: { key: PanelKey; icon: React.ReactNode; labelKey: string }[] = [
+    { key: "status", icon: <Shield size={14} />, labelKey: "crowdsec.panel.status" },
+    { key: "blocks", icon: <Ban size={14} />, labelKey: "crowdsec.panel.blocks" },
+    { key: "scenarios", icon: <Package size={14} />, labelKey: "crowdsec.panel.scenarios" },
+    { key: "alerts", icon: <HardDrive size={14} />, labelKey: "crowdsec.panel.alerts" },
+  ];
+
   return (
     <div className="page-wrapper" style={{ padding: "24px 32px" }}>
       {/* Toast */}
@@ -391,10 +451,164 @@ export default function CrowdSec() {
         </div>
       </div>
 
+      {/* ── Time Range + Gear ── */}
+      <div
+        style={{
+          display: "flex",
+          alignItems: "center",
+          gap: "10px",
+          marginBottom: "16px",
+          padding: "10px 16px",
+          background: "var(--card-bg, #1a1a2e)",
+          borderRadius: "var(--radius-md, 8px)",
+          border: "1px solid var(--border-color, #2a2a2a)",
+          flexWrap: "wrap",
+        }}
+      >
+        <span style={{ fontSize: "13px", color: "var(--text-secondary, #888)", fontWeight: 500 }}>
+          {t("crowdsec.timeRange")}:
+        </span>
+        <input
+          type="number"
+          min={1}
+          max={8760}
+          value={timeValue}
+          onChange={(e) => {
+            const v = parseInt(e.target.value, 10);
+            if (!isNaN(v) && v >= 1 && v <= 8760) setTimeValue(v);
+          }}
+          style={{
+            width: "80px",
+            padding: "6px 10px",
+            fontSize: "13px",
+            border: "1px solid var(--border-color, #2a2a2a)",
+            borderRadius: "var(--radius-sm, 6px)",
+            background: "var(--input-bg, #0d0d1a)",
+            color: "var(--text-primary, #e0e0e0)",
+            outline: "none",
+          }}
+        />
+        <select
+          value={timeUnit}
+          onChange={(e) => setTimeUnit(e.target.value as TimeUnit)}
+          style={{
+            padding: "6px 10px",
+            fontSize: "13px",
+            border: "1px solid var(--border-color, #2a2a2a)",
+            borderRadius: "var(--radius-sm, 6px)",
+            background: "var(--input-bg, #0d0d1a)",
+            color: "var(--text-primary, #e0e0e0)",
+            outline: "none",
+            cursor: "pointer",
+          }}
+        >
+          {UNITS.map((unit) => (
+            <option key={unit.value} value={unit.value}>
+              {unit.label}
+            </option>
+          ))}
+        </select>
+        <span style={{ fontSize: "12px", color: "var(--text-secondary, #666)" }}>
+          (stats for the last {timeValue} {timeUnit === "minutes" ? "min" : timeUnit === "hours" ? "hr" : "day"}
+          {timeValue !== 1 ? "s" : ""})
+        </span>
+
+        {/* Gear button */}
+        <div style={{ position: "relative", marginLeft: "auto" }}>
+          <button
+            className="settings-gear-btn"
+            onClick={() => setGearOpen(!gearOpen)}
+            title={t("crowdsec.panels.title")}
+            style={{ width: "32px", height: "32px" }}
+          >
+            <Cog size={16} />
+          </button>
+
+          {/* Gear popover */}
+          {gearOpen && (
+            <div
+              ref={gearPopoverRef}
+              style={{
+                position: "absolute",
+                top: "calc(100% + 8px)",
+                right: "0",
+                background: "var(--bg-elevated)",
+                border: "1px solid var(--border-default)",
+                borderRadius: "var(--radius-md)",
+                padding: "6px",
+                boxShadow: "0 16px 48px rgba(0, 0, 0, 0.5), 0 0 0 1px var(--border-subtle)",
+                zIndex: 50,
+                minWidth: "220px",
+                animation: "scaleIn var(--duration-fast) var(--ease-out)",
+              }}
+            >
+              <div
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: "8px",
+                  padding: "10px 10px 8px",
+                  fontSize: "13px",
+                  fontWeight: 600,
+                  color: "var(--text-primary)",
+                  borderBottom: "1px solid var(--border-subtle)",
+                  marginBottom: "4px",
+                }}
+              >
+                <Cog size={14} style={{ color: "var(--accent-1)" }} />
+                {t("crowdsec.panels.title")}
+              </div>
+              {PANEL_META.map((p) => (
+                <div
+                  key={p.key}
+                  className="checkbox-row"
+                  onClick={() => togglePanel(p.key)}
+                  style={{ padding: "8px 10px" }}
+                >
+                  <div
+                    style={{
+                      width: "32px",
+                      height: "24px",
+                      borderRadius: "12px",
+                      background: visiblePanels.has(p.key)
+                        ? "var(--accent-1)"
+                        : "var(--border-strong)",
+                      position: "relative",
+                      transition: "background var(--duration-fast) var(--ease-out)",
+                      cursor: "pointer",
+                      flexShrink: 0,
+                    }}
+                  >
+                    <div
+                      style={{
+                        position: "absolute",
+                        top: "2px",
+                        left: visiblePanels.has(p.key) ? "10px" : "2px",
+                        width: "20px",
+                        height: "20px",
+                        borderRadius: "50%",
+                        background: "#fff",
+                        transition: "left var(--duration-fast) var(--ease-out)",
+                        boxShadow: "0 1px 3px rgba(0,0,0,0.3)",
+                      }}
+                    />
+                  </div>
+                  <span style={{ display: "flex", alignItems: "center", gap: "8px", fontSize: "13px" }}>
+                    {p.icon}
+                    {t(p.labelKey)}
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+
       {/* ── Expandable Metric Cards ── */}
       <div style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
 
         {/* ── Card 1: Status ── */}
+        {visiblePanels.has("status") && (
         <div
           className="card"
           style={{ cursor: "pointer" }}
@@ -461,8 +675,10 @@ export default function CrowdSec() {
             </div>
           )}
         </div>
+        )}
 
         {/* ── Card 2: Active Blocks ── */}
+        {visiblePanels.has("blocks") && (
         <div className="card" style={{ cursor: "pointer" }}>
           <div
             className="card-header"
@@ -671,8 +887,10 @@ export default function CrowdSec() {
             </div>
           )}
         </div>
+        )}
 
         {/* ── Card 3: Scenarios ── */}
+        {visiblePanels.has("scenarios") && (
         <div className="card" style={{ cursor: "pointer" }}>
           <div
             className="card-header"
@@ -935,8 +1153,10 @@ export default function CrowdSec() {
             </div>
           )}
         </div>
+        )}
 
         {/* ── Card 4: Alerts ── */}
+        {visiblePanels.has("alerts") && (
         <div className="card" style={{ cursor: "pointer" }}>
           <div
             className="card-header"
@@ -1005,6 +1225,7 @@ export default function CrowdSec() {
             </div>
           )}
         </div>
+        )}
 
       </div>
     </div>

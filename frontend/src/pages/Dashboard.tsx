@@ -1,10 +1,28 @@
-import { useEffect, useState, useMemo } from "react";
+import { useEffect, useState, useMemo, useRef } from "react";
+import { Cog, BarChart3, Globe, ShieldAlert, Map, Gauge, ShieldOff, Clock, ScrollText } from "lucide-react";
 import type { Metrics, TrafficDataPoint, ThreatOrigin, SecurityEvent, GeoipMapPoint } from "../api/client";
 import { MapContainer, TileLayer, CircleMarker, Popup } from "react-leaflet";
 import "leaflet/dist/leaflet.css";
 
 type Tab = "grafana" | "native";
 type TimeUnit = "minutes" | "hours" | "days";
+type PanelKey = "trafficChart" | "threatOrigins" | "securityEvents" | "geoipMap" | "metricTotalRequests" | "metricBlockedThreats" | "metricAvgLatency" | "metricActiveRules";
+
+const ALL_PANELS: PanelKey[] = ["trafficChart", "threatOrigins", "securityEvents", "geoipMap", "metricTotalRequests", "metricBlockedThreats", "metricAvgLatency", "metricActiveRules"];
+
+const PANEL_ITEMS: { key: PanelKey; icon: React.ReactNode; label: string }[] = [
+  { key: "trafficChart", icon: <BarChart3 size={14} />, label: "Traffic Chart" },
+  { key: "threatOrigins", icon: <Globe size={14} />, label: "Threat Origins" },
+  { key: "securityEvents", icon: <ShieldAlert size={14} />, label: "Security Events" },
+  { key: "geoipMap", icon: <Map size={14} />, label: "GeoIP Map" },
+];
+
+const METRIC_ITEMS: { key: PanelKey; icon: React.ReactNode; label: string }[] = [
+  { key: "metricTotalRequests", icon: <Gauge size={14} />, label: "Total Requests" },
+  { key: "metricBlockedThreats", icon: <ShieldOff size={14} />, label: "Blocked Threats" },
+  { key: "metricAvgLatency", icon: <Clock size={14} />, label: "Avg Latency" },
+  { key: "metricActiveRules", icon: <ScrollText size={14} />, label: "Active Rules" },
+];
 
 function formatNumber(n: number): string {
   if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
@@ -372,6 +390,38 @@ export default function Dashboard() {
   const [geoipData, setGeoipData] = useState<GeoipMapPoint[] | null>(null);
   const [geoipLoading, setGeoipLoading] = useState(false);
 
+  // Panel visibility & gear popover
+  const [visiblePanels, setVisiblePanels] = useState<Set<PanelKey>>(new Set(ALL_PANELS));
+  const [gearOpen, setGearOpen] = useState(false);
+  const gearPopoverRef = useRef<HTMLDivElement>(null);
+
+  function togglePanel(key: PanelKey) {
+    setVisiblePanels((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key); else next.add(key);
+      return next;
+    });
+  }
+
+  // Close gear popover on outside click / Escape
+  useEffect(() => {
+    if (!gearOpen) return;
+    function handleClick(e: MouseEvent) {
+      if (gearPopoverRef.current && !gearPopoverRef.current.contains(e.target as Node)) {
+        setGearOpen(false);
+      }
+    }
+    function handleKey(e: KeyboardEvent) {
+      if (e.key === "Escape") setGearOpen(false);
+    }
+    document.addEventListener("mousedown", handleClick);
+    document.addEventListener("keydown", handleKey);
+    return () => {
+      document.removeEventListener("mousedown", handleClick);
+      document.removeEventListener("keydown", handleKey);
+    };
+  }, [gearOpen]);
+
   // Compute total hours from value + unit — round to integer for API
   const unitMultiplier = UNITS.find((u) => u.value === timeUnit)?.multiplier ?? 1;
   const selectedHours = Math.max(1, Math.round(timeValue * unitMultiplier));
@@ -614,10 +664,156 @@ export default function Dashboard() {
               (stats for the last {timeValue} {timeUnit === "minutes" ? "min" : timeUnit === "hours" ? "hr" : "day"}
               {timeValue !== 1 ? "s" : ""})
             </span>
+
+            {/* Gear button */}
+            <div style={{ position: "relative", marginLeft: "auto" }}>
+              <button
+                className="settings-gear-btn"
+                onClick={() => setGearOpen(!gearOpen)}
+                title="Panel Visibility"
+                style={{ width: "32px", height: "32px" }}
+              >
+                <Cog size={16} />
+              </button>
+
+              {/* Gear popover */}
+              {gearOpen && (
+                <div
+                  ref={gearPopoverRef}
+                  style={{
+                    position: "absolute",
+                    top: "calc(100% + 8px)",
+                    right: "0",
+                    background: "var(--bg-elevated)",
+                    border: "1px solid var(--border-default)",
+                    borderRadius: "var(--radius-md)",
+                    padding: "6px",
+                    boxShadow: "0 16px 48px rgba(0, 0, 0, 0.5), 0 0 0 1px var(--border-subtle)",
+                    zIndex: 50,
+                    minWidth: "220px",
+                    animation: "scaleIn var(--duration-fast) var(--ease-out)",
+                  }}
+                >
+                  {/* ── Panels group ── */}
+                  <div
+                    style={{
+                      fontSize: "10px",
+                      fontWeight: 700,
+                      textTransform: "uppercase",
+                      letterSpacing: "0.06em",
+                      color: "var(--text-muted)",
+                      padding: "8px 10px 4px",
+                    }}
+                  >
+                    Panels
+                  </div>
+                  {PANEL_ITEMS.map((p) => (
+                    <div
+                      key={p.key}
+                      className="checkbox-row"
+                      onClick={() => togglePanel(p.key)}
+                      style={{ padding: "8px 10px" }}
+                    >
+                      <div
+                        style={{
+                          width: "32px",
+                          height: "24px",
+                          borderRadius: "12px",
+                          background: visiblePanels.has(p.key)
+                            ? "var(--accent-1)"
+                            : "var(--border-strong)",
+                          position: "relative",
+                          transition: "background var(--duration-fast) var(--ease-out)",
+                          cursor: "pointer",
+                          flexShrink: 0,
+                        }}
+                      >
+                        <div
+                          style={{
+                            position: "absolute",
+                            top: "2px",
+                            left: visiblePanels.has(p.key) ? "10px" : "2px",
+                            width: "20px",
+                            height: "20px",
+                            borderRadius: "50%",
+                            background: "#fff",
+                            transition: "left var(--duration-fast) var(--ease-out)",
+                            boxShadow: "0 1px 3px rgba(0,0,0,0.3)",
+                          }}
+                        />
+                      </div>
+                      <span style={{ display: "flex", alignItems: "center", gap: "8px", fontSize: "13px" }}>
+                        {p.icon}
+                        {p.label}
+                      </span>
+                    </div>
+                  ))}
+
+                  {/* ── Metrics group ── */}
+                  <div
+                    style={{
+                      fontSize: "10px",
+                      fontWeight: 700,
+                      textTransform: "uppercase",
+                      letterSpacing: "0.06em",
+                      color: "var(--text-muted)",
+                      padding: "12px 10px 4px",
+                      borderTop: "1px solid var(--border-subtle)",
+                      marginTop: "2px",
+                    }}
+                  >
+                    Metrics
+                  </div>
+                  {METRIC_ITEMS.map((p) => (
+                    <div
+                      key={p.key}
+                      className="checkbox-row"
+                      onClick={() => togglePanel(p.key)}
+                      style={{ padding: "8px 10px" }}
+                    >
+                      <div
+                        style={{
+                          width: "32px",
+                          height: "24px",
+                          borderRadius: "12px",
+                          background: visiblePanels.has(p.key)
+                            ? "var(--accent-1)"
+                            : "var(--border-strong)",
+                          position: "relative",
+                          transition: "background var(--duration-fast) var(--ease-out)",
+                          cursor: "pointer",
+                          flexShrink: 0,
+                        }}
+                      >
+                        <div
+                          style={{
+                            position: "absolute",
+                            top: "2px",
+                            left: visiblePanels.has(p.key) ? "10px" : "2px",
+                            width: "20px",
+                            height: "20px",
+                            borderRadius: "50%",
+                            background: "#fff",
+                            transition: "left var(--duration-fast) var(--ease-out)",
+                            boxShadow: "0 1px 3px rgba(0,0,0,0.3)",
+                          }}
+                        />
+                      </div>
+                      <span style={{ display: "flex", alignItems: "center", gap: "8px", fontSize: "13px" }}>
+                        {p.icon}
+                        {p.label}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
           </div>
 
-          {/* Stat cards row */}
+          {/* Stat cards row — individual visibility */}
+          {(visiblePanels.has("metricTotalRequests") || visiblePanels.has("metricBlockedThreats") || visiblePanels.has("metricAvgLatency") || visiblePanels.has("metricActiveRules")) && (
           <div className="metrics-grid">
+            {visiblePanels.has("metricTotalRequests") && (
             <div className="metric-card">
               <div className="metric-icon indigo">
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -632,7 +828,9 @@ export default function Dashboard() {
                 {metricsLoading ? "Loading…" : metrics ? `${metrics.total_requests_change >= 0 ? "+" : ""}${metrics.total_requests_change}% vs previous` : "—"}
               </div>
             </div>
+            )}
 
+            {visiblePanels.has("metricBlockedThreats") && (
             <div className="metric-card">
               <div className="metric-icon rose">
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -647,7 +845,9 @@ export default function Dashboard() {
                 {metricsLoading ? "Loading…" : metrics ? `${metrics.high_severity_count} high severity` : "Monitored by WAF"}
               </div>
             </div>
+            )}
 
+            {visiblePanels.has("metricAvgLatency") && (
             <div className="metric-card">
               <div className="metric-icon violet">
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -662,7 +862,9 @@ export default function Dashboard() {
                 {metricsLoading ? "Loading…" : metrics ? `Health ${metrics.system_health}%` : "Performance metrics"}
               </div>
             </div>
+            )}
 
+            {visiblePanels.has("metricActiveRules") && (
             <div className="metric-card">
               <div className="metric-icon emerald">
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -675,39 +877,51 @@ export default function Dashboard() {
               </div>
               <div className="metric-change up">{metricsLoading ? "Loading…" : "CRS Protection"}</div>
             </div>
+            )}
           </div>
+          )}
 
           {/* Traffic chart */}
+          {visiblePanels.has("trafficChart") && (
           <div className="card" style={{ marginBottom: "16px" }}>
             <div className="card-header">
               <h2>Traffic Overview (Clean vs Malicious)</h2>
             </div>
             <TrafficChart data={trafficData} loading={trafficLoading} />
           </div>
+          )}
 
           {/* Two-column: Threat Origins + Security Events */}
+          {(visiblePanels.has("threatOrigins") || visiblePanels.has("securityEvents")) && (
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "16px", marginBottom: "16px" }}>
+            {visiblePanels.has("threatOrigins") && (
             <div className="card">
               <div className="card-header">
                 <h2>Threat Origins by Country</h2>
               </div>
               <ThreatOriginsChart data={threatOrigins} loading={threatLoading} />
             </div>
+            )}
+            {visiblePanels.has("securityEvents") && (
             <div className="card">
               <div className="card-header">
                 <h2>Recent Security Events</h2>
               </div>
               <EventsTable data={events} loading={eventsLoading} />
             </div>
+            )}
           </div>
+          )}
 
           {/* GeoIP World Map */}
+          {visiblePanels.has("geoipMap") && (
           <div className="card" style={{ marginBottom: "16px" }}>
             <div className="card-header">
               <h2>GeoIP Attack Origins Map</h2>
             </div>
             <GeoipMap data={geoipData} loading={geoipLoading} />
           </div>
+          )}
         </>
       )}
 
