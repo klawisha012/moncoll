@@ -29,21 +29,26 @@ def _get_client() -> ClickHouseClient:
     )
 
 
-def get_dashboard_metrics() -> dict[str, Any]:
-    """Fetch summary metrics for the dashboard stat cards."""
-    client = _get_client()
+def get_dashboard_metrics(hours: int = 24) -> dict[str, Any]:
+    """Fetch summary metrics for the dashboard stat cards.
 
-    # Total requests (last 24h from nginx access log)
+    Args:
+        hours: Time window in hours for metric aggregation (default: 24).
+    """
+    client = _get_client()
+    hours = max(1, min(hours, 8760))  # clamp between 1 hour and 1 year
+
+    # Total requests (last N hours from nginx access log)
     total_requests = client.execute(
-        "SELECT count() FROM logs.nginx_access_log "
-        "WHERE time_local >= now() - INTERVAL 24 HOUR"
+        f"SELECT count() FROM logs.nginx_access_log "
+        f"WHERE time_local >= now() - INTERVAL {hours} HOUR"
     )[0][0]
 
-    # Previous 24h for change calculation
+    # Previous period for change calculation
     prev_total = client.execute(
-        "SELECT count() FROM logs.nginx_access_log "
-        "WHERE time_local >= now() - INTERVAL 48 HOUR "
-        "AND time_local < now() - INTERVAL 24 HOUR"
+        f"SELECT count() FROM logs.nginx_access_log "
+        f"WHERE time_local >= now() - INTERVAL {hours * 2} HOUR "
+        f"AND time_local < now() - INTERVAL {hours} HOUR"
     )[0][0]
 
     total_requests_change = 0.0
@@ -54,36 +59,36 @@ def get_dashboard_metrics() -> dict[str, Any]:
 
     # Blocked threats (WAF events with anomaly_score > 0)
     blocked_threats = client.execute(
-        "SELECT count() FROM logs.waf_audit_log "
-        "WHERE timestamp >= now() - INTERVAL 24 HOUR"
+        f"SELECT count() FROM logs.waf_audit_log "
+        f"WHERE timestamp >= now() - INTERVAL {hours} HOUR"
     )[0][0]
 
     # High severity count (severity >= 2 in messages)
     high_severity = client.execute(
-        "SELECT count() FROM logs.waf_audit_log "
-        "ARRAY JOIN messages AS m "
-        "WHERE timestamp >= now() - INTERVAL 24 HOUR "
-        "AND m.severity >= 2"
+        f"SELECT count() FROM logs.waf_audit_log "
+        f"ARRAY JOIN messages AS m "
+        f"WHERE timestamp >= now() - INTERVAL {hours} HOUR "
+        f"AND m.severity >= 2"
     )[0][0]
 
-    # Active rules (distinct ruleIds triggered in last 24h)
+    # Active rules (distinct ruleIds triggered in last N hours)
     active_rules_result = client.execute(
-        "SELECT count(DISTINCT m.ruleId) FROM logs.waf_audit_log "
-        "ARRAY JOIN messages AS m "
-        "WHERE timestamp >= now() - INTERVAL 24 HOUR"
+        f"SELECT count(DISTINCT m.ruleId) FROM logs.waf_audit_log "
+        f"ARRAY JOIN messages AS m "
+        f"WHERE timestamp >= now() - INTERVAL {hours} HOUR"
     )
     active_rules = active_rules_result[0][0] if active_rules_result else 0
 
-    # System health: percentage of non-5xx responses in last hour
+    # System health: percentage of non-5xx responses in the time window
     total_responses = client.execute(
-        "SELECT count() FROM logs.nginx_access_log "
-        "WHERE time_local >= now() - INTERVAL 1 HOUR"
+        f"SELECT count() FROM logs.nginx_access_log "
+        f"WHERE time_local >= now() - INTERVAL {hours} HOUR"
     )[0][0]
 
     error_responses = client.execute(
-        "SELECT count() FROM logs.nginx_access_log "
-        "WHERE time_local >= now() - INTERVAL 1 HOUR "
-        "AND status >= 500"
+        f"SELECT count() FROM logs.nginx_access_log "
+        f"WHERE time_local >= now() - INTERVAL {hours} HOUR "
+        f"AND status >= 500"
     )[0][0]
 
     system_health = 100.0
@@ -107,24 +112,29 @@ def get_dashboard_metrics() -> dict[str, Any]:
     }
 
 
-def get_traffic_data() -> list[dict[str, Any]]:
-    """Get traffic data points for the last 24 hours, aggregated by hour."""
+def get_traffic_data(hours: int = 24) -> list[dict[str, Any]]:
+    """Get traffic data points for the last N hours, aggregated by hour.
+
+    Args:
+        hours: Time window in hours for metric aggregation (default: 24).
+    """
     client = _get_client()
+    hours = max(1, min(hours, 8760))  # clamp between 1 hour and 1 year
 
     # Total traffic per hour
     rows = client.execute(
-        "SELECT toStartOfHour(time_local) AS hour, count() AS total "
-        "FROM logs.nginx_access_log "
-        "WHERE time_local >= now() - INTERVAL 24 HOUR "
-        "GROUP BY hour ORDER BY hour"
+        f"SELECT toStartOfHour(time_local) AS hour, count() AS total "
+        f"FROM logs.nginx_access_log "
+        f"WHERE time_local >= now() - INTERVAL {hours} HOUR "
+        f"GROUP BY hour ORDER BY hour"
     )
 
     # Malicious traffic per hour (from WAF logs)
     malicious_rows = client.execute(
-        "SELECT toStartOfHour(timestamp) AS hour, count() AS total "
-        "FROM logs.waf_audit_log "
-        "WHERE timestamp >= now() - INTERVAL 24 HOUR "
-        "GROUP BY hour ORDER BY hour"
+        f"SELECT toStartOfHour(timestamp) AS hour, count() AS total "
+        f"FROM logs.waf_audit_log "
+        f"WHERE timestamp >= now() - INTERVAL {hours} HOUR "
+        f"GROUP BY hour ORDER BY hour"
     )
     malicious_map = {row[0]: row[1] for row in malicious_rows}
 
@@ -174,6 +184,41 @@ def get_threat_origins() -> list[dict[str, Any]]:
                 "country": country_code,
                 "country_code": country_code,
                 "blocks_percent": round((cnt / total_blocks) * 100, 1),
+            }
+        )
+    return result
+
+
+def get_geoip_map_data(hours: int = 24) -> list[dict[str, Any]]:
+    """Get GeoIP coordinates with hit counts for world map visualization.
+
+    Args:
+        hours: Time window in hours (default: 24).
+    """
+    client = _get_client()
+    hours = max(1, min(hours, 8760))
+
+    rows = client.execute(
+        f"SELECT geoip_longitude, geoip_latitude, geoip_country_code, "
+        f"geoip_city_name, count() AS cnt "
+        f"FROM logs.nginx_access_log "
+        f"WHERE time_local >= now() - INTERVAL {hours} HOUR "
+        f"AND geoip_latitude != 0 AND geoip_longitude != 0 "
+        f"AND geoip_country_code != '' "
+        f"GROUP BY geoip_longitude, geoip_latitude, geoip_country_code, geoip_city_name "
+        f"ORDER BY cnt DESC "
+        f"LIMIT 500"
+    )
+
+    result = []
+    for lng, lat, country_code, city_name, cnt in rows:
+        result.append(
+            {
+                "longitude": float(lng),
+                "latitude": float(lat),
+                "country_code": country_code or "UNKNOWN",
+                "city_name": city_name or "",
+                "hits": int(cnt),
             }
         )
     return result

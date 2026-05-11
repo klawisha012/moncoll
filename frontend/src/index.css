@@ -1334,3 +1334,85 @@ tr:hover td {
 .settings-toggle-btn svg {
   flex-shrink: 0;
 }
+
+/* ── Remove number input spinners/arrows ── */
+input[type="number"]::-webkit-inner-spin-button,
+input[type="number"]::-webkit-outer-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+
+input[type="number"] {
+  -moz-appearance: textfield;
+}
+
+/* ── GeoIP Leaflet World Map ── */
+.world-map-container {
+  position: relative;
+  width: 100%;
+}
+
+.world-map-container .leaflet-container {
+  background: #0b0f1e;
+  font-family: inherit;
+}
+
+.world-map-container .leaflet-control-zoom {
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+}
+
+.world-map-container .leaflet-control-zoom a {
+  background: rgba(11, 15, 30, 0.85);
+  color: var(--text-secondary);
+  border-bottom: 1px solid var(--border-subtle);
+  width: 28px;
+  height: 28px;
+  line-height: 28px;
+  font-size: 14px;
+  backdrop-filter: blur(6px);
+}
+
+.world-map-container .leaflet-control-zoom a:hover {
+  background: var(--bg-surface);
+  color: var(--text-primary);
+}
+
+.world-map-container .leaflet-popup-content-wrapper {
+  background: var(--bg-elevated);
+  color: var(--text-primary);
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-strong);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.5);
+}
+
+.world-map-container .leaflet-popup-tip {
+  background: var(--bg-elevated);
+}
+
+.world-map-container .leaflet-popup-close-button {
+  color: var(--text-muted) !important;
+}
+
+.map-legend {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.map-legend-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.map-legend-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+}
+

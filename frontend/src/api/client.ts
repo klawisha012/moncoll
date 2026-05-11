@@ -203,6 +203,14 @@ export interface SecurityEvent {
   severity: string;
 }
 
+export interface GeoipMapPoint {
+  longitude: number;
+  latitude: number;
+  country_code: string;
+  city_name: string;
+  hits: number;
+}
+
 async function fetchApi<T>(url: string, options?: RequestInit): Promise<T> {
   const headers: Record<string, string> = {
     ...(options?.headers
@@ -277,6 +285,10 @@ export const api = {
   getTraffic: () => fetchApi<TrafficDataPoint[]>("/api/dashboard/traffic"),
   getThreatOrigins: () =>
     fetchApi<ThreatOrigin[]>("/api/dashboard/threat-origins"),
+  getGeoipMap: (hours?: number) =>
+    fetchApi<GeoipMapPoint[]>(
+      `/api/dashboard/geoip-map${hours ? `?hours=${hours}` : ""}`
+    ),
   getEvents: (limit = 50, severity = "all") =>
     fetchApi<SecurityEvent[]>(
       `/api/dashboard/events?limit=${limit}&severity=${severity}`
