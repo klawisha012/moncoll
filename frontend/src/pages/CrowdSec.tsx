@@ -334,23 +334,6 @@ export default function CrowdSec() {
     );
   }, [hubScenarios, scenarioSearch]);
 
-  if (loading) {
-    return (
-      <div className="page-wrapper" style={{ padding: "32px" }}>
-        <div className="loading-spinner">Loading CrowdSec data...</div>
-      </div>
-    );
-  }
-
-  // ── Reusable Card Header ──
-  function CardChevron({ card }: { card: string }) {
-    return isExpanded(card) ? (
-      <ChevronUp size={14} style={{ color: "var(--text-muted)", flexShrink: 0 }} />
-    ) : (
-      <ChevronDown size={14} style={{ color: "var(--text-muted)", flexShrink: 0 }} />
-    );
-  }
-
   // ── Gear popover ref + outside-click ──
   const gearPopoverRef = useRef<HTMLDivElement>(null);
 
@@ -373,6 +356,23 @@ export default function CrowdSec() {
     document.addEventListener("keydown", handleKey);
     return () => document.removeEventListener("keydown", handleKey);
   }, [gearOpen]);
+
+  if (loading) {
+    return (
+      <div className="page-wrapper" style={{ padding: "32px" }}>
+        <div className="loading-spinner">Loading CrowdSec data...</div>
+      </div>
+    );
+  }
+
+  // ── Reusable Card Header ──
+  function CardChevron({ card }: { card: string }) {
+    return isExpanded(card) ? (
+      <ChevronUp size={14} style={{ color: "var(--text-muted)", flexShrink: 0 }} />
+    ) : (
+      <ChevronDown size={14} style={{ color: "var(--text-muted)", flexShrink: 0 }} />
+    );
+  }
 
   function togglePanel(key: PanelKey) {
     setVisiblePanels((prev) => {
