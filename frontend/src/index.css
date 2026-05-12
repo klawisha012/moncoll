@@ -39,6 +39,13 @@
   --info: #38bdf8;
   --info-glow: rgba(56, 189, 248, 0.3);
 
+  /* ── Inputs / Cards ── */
+  --input-bg: #0d0d1a;
+  --border-color: #2a2a2a;
+  --card-bg: #1a1a2e;
+  --accent: #6366f1;
+  --danger-bg: rgba(239, 68, 68, 0.1);
+
   /* ── Sizing ── */
   --sidebar-width: 260px;
   --sidebar-collapsed: 72px;
@@ -87,6 +94,13 @@
   --glow-button: 0 0 16px rgba(99, 102, 241, 0.2);
   --glow-danger: 0 0 16px rgba(244, 63, 94, 0.15);
   --glow-success: 0 0 16px rgba(16, 185, 129, 0.15);
+
+  /* ── Inputs / Cards ── */
+  --input-bg: #ffffff;
+  --border-color: #d0d4e0;
+  --card-bg: #ffffff;
+  --accent: #4f52d1;
+  --danger-bg: rgba(239, 68, 68, 0.08);
 
   --accent-1: #4f52d1;
   --accent-2: #7c3aed;

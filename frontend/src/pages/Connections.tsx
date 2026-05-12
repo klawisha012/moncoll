@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import {
   api,
   Connection,
@@ -301,7 +301,18 @@ export default function Connections() {
       {showForm && (
         <div
           className="modal-overlay"
-          onClick={(e) => e.target === e.currentTarget && resetForm()}
+          onMouseDown={(e) => {
+            if (e.target === e.currentTarget) {
+              (e.currentTarget as HTMLElement).dataset.mousedownTarget = "overlay";
+            }
+          }}
+          onMouseUp={(e) => {
+            const overlay = e.currentTarget as HTMLElement;
+            if (overlay.dataset.mousedownTarget === "overlay" && e.target === e.currentTarget) {
+              resetForm();
+            }
+            delete overlay.dataset.mousedownTarget;
+          }}
         >
           <div className="modal">
             <div className="modal-header">
