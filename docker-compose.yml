@@ -80,6 +80,7 @@ services:
     ports:
       - "8000:8000"
     volumes:
+      - ./backend/src/:/app/src/
       - ./configs/angie/angie.conf:/app/etc/angie/angie.conf
       - ./configs/angie/connections.json:/var/lib/angie/connections.json
       - ./configs/angie/http.d/:/var/lib/angie/http.d/

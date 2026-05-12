@@ -91,6 +91,54 @@ def _find_site_server_blocks(site_dir: Path) -> list[str]:
     return bodies
 
 
+def _extract_server_names_from_body(body: str) -> list[str]:
+    """Extract ``server_name`` values from a single server-block body.
+
+    Returns a list of domain names (e.g. ``["example.com", "www.example.com"]``).
+    If no ``server_name`` directive is found the list is empty.
+    """
+    for line in body.splitlines():
+        stripped = line.strip()
+        # Match "server_name value1 value2 …;" possibly with leading whitespace
+        if re.match(r'\bserver_name\b', stripped):
+            parts = stripped.split()
+            # parts[0] = "server_name", parts[1:] = domain names (last one may end with ';')
+            names: list[str] = []
+            for token in parts[1:]:
+                name = token.rstrip(';')
+                if name:
+                    names.append(name)
+            return names
+    return []
+
+
+def _parse_domains_from_site(site_dir: Path) -> list[str]:
+    """Recursively walk *site_dir*, find every ``server { … }`` block in
+    ``*.conf`` files and collect all ``server_name`` values.
+
+    Returns a deduplicated list (order preserved — first occurrence wins).
+    If no site directory or no configs are found, returns an empty list.
+    """
+    if not site_dir.is_dir():
+        return []
+    domains: list[str] = []
+    for conf_file in sorted(site_dir.rglob("*.conf")):
+        try:
+            text = conf_file.read_text()
+        except (OSError, UnicodeDecodeError):
+            continue
+        for body in _extract_nginx_server_blocks(text):
+            domains.extend(_extract_server_names_from_body(body))
+    # Deduplicate while preserving order
+    seen: set[str] = set()
+    unique: list[str] = []
+    for d in domains:
+        if d not in seen:
+            seen.add(d)
+            unique.append(d)
+    return unique
+
+
 def _clean_server_block_body(body: str, conn_id: int) -> str:
     """Strip directives that the WAF connection manages itself
     (``listen``, ``server_name``, SSL paths) and adjust any ``root``
@@ -287,23 +335,46 @@ def _resolve_static_source(source: str | Path | None) -> Path | None:
 
     Rules (tried in order):
     1. ``None`` or empty → DEFAULT_STATIC_SOURCE
-    2. Relative path → resolved against ``/app/site-templates/``
-    3. Absolute path that exists → used as-is
-    4. Absolute path that does NOT exist → take its leaf name and
+    2. If *source* points to a file (e.g. from a file-picker), take its parent directory
+    3. Relative path → resolved against ``/app/site-templates/``
+    4. Absolute path that exists as a directory → used as-is
+    5. Absolute path that does NOT exist → take its leaf name and
        try it relative to ``/app/site-templates/`` (this handles
        legacy Angie-container paths like ``/var/www/examples``).
-    5. Fallback → DEFAULT_STATIC_SOURCE
+    6. Fallback → DEFAULT_STATIC_SOURCE
     """
     if not source:
         return _existing_or_none(DEFAULT_STATIC_SOURCE)
 
     source_path = Path(source)
+
+    # If the source itself is a file, use its parent directory
+    if source_path.is_file():
+        parent = source_path.parent
+        if parent.is_dir():
+            logger.info("Static source is a file (%s) — using parent directory %s", source_path, parent)
+            return parent
+        # If parent doesn't exist, fall through
+
     if not source_path.is_absolute():
         resolved = DEFAULT_STATIC_SOURCE.parent / source_path
+        # If resolved is a file, use its parent
+        if resolved.is_file():
+            parent = resolved.parent
+            if parent.is_dir():
+                logger.info("Static source resolved to file (%s) — using parent directory %s", resolved, parent)
+                return parent
         return _existing_or_none(resolved)
 
     if source_path.is_dir():
         return source_path
+
+    # Absolute path that is a file — use parent
+    if source_path.is_file():
+        parent = source_path.parent
+        if parent.is_dir():
+            logger.info("Static source is a file (%s) — using parent directory %s", source_path, parent)
+            return parent
 
     # Absolute but missing — try the leaf name under site-templates
     leaf = source_path.name
@@ -445,6 +516,18 @@ def create_connection(conn_in: ConnectionCreate) -> Connection:
     if new_conn["mode"] == "static":
         source = new_conn.get("static_dir") or "examples"
         _copy_static_site(new_id, source)
+
+        # Auto-populate domains from site configs if not explicitly provided
+        if not new_conn["domains"]:
+            site_dir = _site_dir(new_id)
+            parsed_domains = _parse_domains_from_site(site_dir)
+            if parsed_domains:
+                new_conn["domains"] = parsed_domains
+                _save_connections(connections)
+                logger.info(
+                    "Conn %d: auto-populated domains from site configs: %s",
+                    new_id, parsed_domains,
+                )
 
     # Generate Nginx config
     if new_conn["enabled"]:

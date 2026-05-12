@@ -54,7 +54,7 @@ export interface Connection {
 
 export interface ConnectionCreate {
   name: string;
-  domains: string[];
+  domains?: string[];
   mode?: "proxy" | "static";
   backend_url?: string;
   static_dir?: string | null;

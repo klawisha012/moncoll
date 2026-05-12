@@ -31,6 +31,7 @@ export default function Connections() {
     preserve_host: true,
     custom_nginx_config: null,
   });
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     loadConnections();
@@ -72,8 +73,7 @@ export default function Connections() {
     });
     setEditingId(null);
     setShowForm(false);
-    const dirInput = document.getElementById("dirInputHidden") as HTMLInputElement;
-    if (dirInput) dirInput.value = "";
+    if (fileInputRef.current) fileInputRef.current.value = "";
   }
 
   function handleEdit(conn: Connection) {
@@ -352,22 +352,6 @@ export default function Connections() {
               </div>
 
               <div className="form-group">
-                <label>Domain Names (one per line)</label>
-                <textarea
-                  className="normal-font"
-                  value={formData.domains.join("\n")}
-                  onChange={(e) =>
-                    updateFormField(
-                      "domains",
-                      e.target.value.split("\n").filter(Boolean)
-                    )
-                  }
-                  placeholder="example.com&#10;www.example.com"
-                  rows={3}
-                />
-              </div>
-
-              <div className="form-group">
                 <label>Static Files Directory (Angie container path)</label>
                 <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
                   <input
@@ -382,43 +366,46 @@ export default function Connections() {
                   <button
                     type="button"
                     className="btn btn-outline btn-sm"
-                    onClick={() => {
-                      const input = document.getElementById("dirInputHidden") as HTMLInputElement;
-                      input?.click();
-                    }}
+                    onClick={() => fileInputRef.current?.click()}
                     title="Browse for index.html — the directory will be used"
                   >
                     Browse index.html
                   </button>
                   <input
                     type="file"
-                    id="dirInputHidden"
+                    ref={fileInputRef}
                     style={{ display: "none" }}
                     accept=".html,.htm"
                     onChange={(e) => {
                       const file = e.target.files?.[0];
-                      if (file) {
-                        const fileName = file.name;
-                        if ((file as any).path) {
-                          const rawPath = (file as any).path;
-                          if (/^[A-Za-z]:[\\/]/.test(rawPath) || rawPath.includes("\\")) {
-                            showToast(
-                              `⚠️ Selected "${fileName}" from local disk. Mount this directory into Angie via docker-compose volumes, then enter the container path above.`,
-                              "error"
-                            );
-                          } else {
-                            const dirPath = rawPath.replace(/\/[^/]+$/, "");
-                            updateFormField("static_dir", dirPath);
-                            showToast(`📁 Directory: ${dirPath}`, "info");
-                          }
-                        } else {
+                      if (!file) return;
+                      const fileName = file.name;
+                      const filePath = (file as any).path as string | undefined;
+                      if (filePath) {
+                        // Electron / Tauri: real filesystem path available
+                        const lastSlash = filePath.lastIndexOf("/");
+                        const lastBackslash = filePath.lastIndexOf("\\");
+                        const lastSep = Math.max(lastSlash, lastBackslash);
+                        const dirPath = lastSep >= 0 ? filePath.substring(0, lastSep) : filePath;
+                        updateFormField("static_dir", dirPath);
+                        if (/^[A-Za-z]:[/\\]/.test(filePath) || filePath.includes("\\")) {
                           showToast(
-                            `📄 Selected "${fileName}". Enter the container directory path above (e.g. /usr/share/angie/html).`,
-                            "info"
+                            `⚠️ "${dirPath}" — это Windows-путь. Смонтируйте эту папку в Angie через docker-compose volumes и укажите контейнерный путь (например, /usr/share/angie/html).`,
+                            "error"
                           );
+                        } else {
+                          showToast(`📁 Directory: ${dirPath}`, "info");
                         }
-                        e.target.value = "";
+                      } else {
+                        // Browser: full path not available — clear field, guide user
+                        updateFormField("static_dir", null);
+                        showToast(
+                          `📄 Selected "${fileName}". Enter the container directory path manually (e.g. /usr/share/angie/html).`,
+                          "info"
+                        );
                       }
+                      // Reset so the same file can be re-selected
+                      e.target.value = "";
                     }}
                   />
                 </div>
