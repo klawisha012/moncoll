@@ -38,7 +38,7 @@ def get_connection_ssl_paths(connection_id: int) -> tuple[str, str]:
 
 
 def generate_self_signed_certificate(connection_id: int, domains: list[str]) -> dict:
-    """Generate self-signed certificate for testing.
+    """Generate certificate signed by the local CA (or self-signed as fallback).
 
     Writes files using backend-container paths, but returns Angie-container
     paths so they can be used directly in nginx config directives.
@@ -48,28 +48,69 @@ def generate_self_signed_certificate(connection_id: int, domains: list[str]) -> 
     backend_cert, backend_key = get_backend_ssl_paths(connection_id)
     angie_cert, angie_key = get_angie_ssl_paths(connection_id)
 
+    # CA paths (backend-container view)
+    ca_cert_path = "/var/lib/angie/http.d/ca.crt"
+    ca_key_path = "/var/lib/angie/http.d/ca.key"
+
     # Ensure connection subdirectory exists
     Path(backend_cert).parent.mkdir(parents=True, exist_ok=True)
 
-    # Use openssl to generate self-signed cert
     try:
-        # Generate private key (genrsa for broader OpenSSL compatibility)
+        # Generate private key
         subprocess.run([
             "openssl", "genrsa", "-out", backend_key, "2048"
-        ], check=True)
+        ], check=True, capture_output=True)
 
-        # Generate certificate
-        subj = f"/C=US/ST=State/L=City/O=Organization/CN={domains[0]}"
-        alt_names = "subjectAltName=" + ",".join(f"DNS:{domain}" for domain in domains)
+        if Path(ca_cert_path).exists() and Path(ca_key_path).exists():
+            # Sign with local CA
+            import tempfile
+            with tempfile.NamedTemporaryFile(
+                mode="w", suffix=".cnf", delete=False
+            ) as cnf:
+                cnf.write("[req]\n")
+                cnf.write("distinguished_name = req_distinguished_name\n")
+                cnf.write("req_extensions = v3_req\n")
+                cnf.write("prompt = no\n")
+                cnf.write("[req_distinguished_name]\n")
+                cnf.write(f"CN = {domains[0]}\n")
+                cnf.write("[v3_req]\n")
+                cnf.write("subjectAltName = " + ",".join(f"DNS:{d}" for d in domains) + "\n")
+                san_cnf = cnf.name
 
-        subprocess.run([
-            "openssl", "req", "-new", "-x509", "-key", backend_key, "-out", backend_cert,
-            "-days", "365", "-subj", subj, "-addext", alt_names
-        ], check=True)
+            csr_path = f"/tmp/conn_{connection_id}.csr"
+            subprocess.run([
+                "openssl", "req", "-new",
+                "-key", backend_key,
+                "-out", csr_path,
+                "-config", san_cnf,
+            ], check=True, capture_output=True)
+
+            subprocess.run([
+                "openssl", "x509", "-req", "-days", "365",
+                "-in", csr_path,
+                "-CA", ca_cert_path,
+                "-CAkey", ca_key_path,
+                "-CAcreateserial",
+                "-out", backend_cert,
+                "-extfile", san_cnf,
+                "-extensions", "v3_req",
+            ], check=True, capture_output=True)
+
+            # Cleanup
+            Path(csr_path).unlink(missing_ok=True)
+            Path(san_cnf).unlink(missing_ok=True)
+        else:
+            # Fallback: self-signed
+            subj = f"/C=US/ST=State/L=City/O=Organization/CN={domains[0]}"
+            alt_names = "subjectAltName=" + ",".join(f"DNS:{domain}" for domain in domains)
+            subprocess.run([
+                "openssl", "req", "-new", "-x509", "-key", backend_key, "-out", backend_cert,
+                "-days", "365", "-subj", subj, "-addext", alt_names
+            ], check=True, capture_output=True)
 
         return {
             "success": True,
-            "message": f"Self-signed certificate generated for domains: {', '.join(domains)}",
+            "message": f"Certificate generated for domains: {', '.join(domains)}",
             "certificate_path": angie_cert,
             "key_path": angie_key,
             "backend_cert_path": backend_cert,

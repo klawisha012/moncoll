@@ -110,6 +110,7 @@ export interface DecisionItem {
   duration: string;
   until: string;
   alert_id?: number;
+  blocked_on: string[];
 }
 
 export interface DecisionCreate {
@@ -117,6 +118,7 @@ export interface DecisionCreate {
   duration?: string;
   reason?: string;
   type?: string;
+  connection_ids?: number[];
 }
 
 export interface DecisionResponse {

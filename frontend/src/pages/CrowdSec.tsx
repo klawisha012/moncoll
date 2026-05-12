@@ -23,7 +23,7 @@ import {
   X,
   Cog,
 } from "lucide-react";
-import { api, CrowdSecStatus, DecisionItem, ScenarioInfo, AlertItem } from "../api/client";
+import { api, CrowdSecStatus, DecisionItem, ScenarioInfo, AlertItem, Connection } from "../api/client";
 import { useSettings } from "../context/SettingsContext";
 
 interface ManualBlockLog {
@@ -77,6 +77,10 @@ export default function CrowdSec() {
   const [blockIp, setBlockIp] = useState("");
   const [blockDuration, setBlockDuration] = useState("4h");
   const [blockReason, setBlockReason] = useState("manual block");
+  const [blockConnectionIds, setBlockConnectionIds] = useState<number[]>([]);
+  const [connections, setConnections] = useState<Connection[]>([]);
+  const [domainDropdownOpen, setDomainDropdownOpen] = useState(false);
+  const domainDropdownRef = useRef<HTMLDivElement>(null);
 
   const [toast, setToast] = useState<{
     message: string;
@@ -116,18 +120,20 @@ export default function CrowdSec() {
   const loadData = useCallback(async () => {
     setLoading(true);
     try {
-      const [s, d, sc, ml, svc] = await Promise.all([
+      const [s, d, sc, ml, svc, conns] = await Promise.all([
         api.getCrowdSecStatus(),
         api.getCrowdSecDecisions(),
         api.getCrowdSecScenarios(),
         api.getCrowdSecManualBlocks(50),
         api.getCrowdSecServiceStatus().catch(() => ({ enabled: true })),
+        api.getConnections().catch(() => [] as Connection[]),
       ]);
       setStatus(s);
       setDecisions(d);
       setScenarios(sc);
       setManualLog(ml);
       setServiceEnabled(svc.enabled);
+      setConnections(conns);
     } catch {
       showToast("Failed to load CrowdSec data", "error");
     } finally {
@@ -155,16 +161,24 @@ export default function CrowdSec() {
     }
     setActionLoading("block");
     try {
-      const result = await api.addCrowdSecDecision({
+      const payload: any = {
         ip: blockIp.trim(),
         duration: blockDuration,
         reason: blockReason,
         type: "ban",
-      });
+      };
+      if (blockConnectionIds.length > 0) {
+        payload.connection_ids = blockConnectionIds;
+      }
+      const result = await api.addCrowdSecDecision(payload);
       if (result.success) {
-        showToast(`IP ${blockIp} blocked successfully`, "success");
+        const domainInfo = blockConnectionIds.length > 0
+          ? ` on ${blockConnectionIds.length} domain(s)`
+          : " on all domains";
+        showToast(`IP ${blockIp} blocked successfully${domainInfo}`, "success");
         setBlockIp("");
         setBlockReason("manual block");
+        setBlockConnectionIds([]);
         loadData();
       } else {
         showToast(result.message || "Failed to block IP", "error");
@@ -356,6 +370,18 @@ export default function CrowdSec() {
     document.addEventListener("keydown", handleKey);
     return () => document.removeEventListener("keydown", handleKey);
   }, [gearOpen]);
+
+  // Close domain dropdown on outside click
+  useEffect(() => {
+    if (!domainDropdownOpen) return;
+    function handleClick(e: MouseEvent) {
+      if (domainDropdownRef.current && !domainDropdownRef.current.contains(e.target as Node)) {
+        setDomainDropdownOpen(false);
+      }
+    }
+    document.addEventListener("mousedown", handleClick);
+    return () => document.removeEventListener("mousedown", handleClick);
+  }, [domainDropdownOpen]);
 
   if (loading) {
     return (
@@ -749,6 +775,127 @@ export default function CrowdSec() {
                       style={{ height: "34px", fontSize: "13px", width: "160px" }}
                     />
                   </div>
+                  {/* Domain selector */}
+                  <div className="form-group" style={{ marginBottom: 0, position: "relative" }} ref={domainDropdownRef}>
+                    <label className="label" style={{ fontSize: "11px" }}>Domains</label>
+                    <button
+                      type="button"
+                      className="input"
+                      onClick={(e) => { e.stopPropagation(); setDomainDropdownOpen(!domainDropdownOpen); }}
+                      style={{
+                        height: "34px",
+                        fontSize: "13px",
+                        width: "200px",
+                        textAlign: "left",
+                        cursor: "pointer",
+                        background: "var(--input-bg, #0d0d1a)",
+                        border: "1px solid var(--border-color, #2a2a2a)",
+                        borderRadius: "var(--radius-sm, 6px)",
+                        color: "var(--text-primary, #e0e0e0)",
+                        padding: "0 10px",
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "space-between",
+                      }}
+                    >
+                      <span style={{
+                        overflow: "hidden",
+                        textOverflow: "ellipsis",
+                        whiteSpace: "nowrap",
+                        color: blockConnectionIds.length === 0 ? "var(--text-muted)" : "var(--text-primary)",
+                      }}>
+                        {blockConnectionIds.length === 0
+                          ? "All domains"
+                          : `${blockConnectionIds.length} domain(s)`}
+                      </span>
+                      <span style={{ color: "var(--text-muted)", fontSize: "10px" }}>
+                        {domainDropdownOpen ? "▲" : "▼"}
+                      </span>
+                    </button>
+                    {domainDropdownOpen && (
+                      <div
+                        style={{
+                          position: "absolute",
+                          top: "100%",
+                          left: 0,
+                          zIndex: 100,
+                          minWidth: "260px",
+                          background: "var(--bg-elevated, #1a1a2e)",
+                          border: "1px solid var(--border-color, #2a2a2a)",
+                          borderRadius: "var(--radius-md, 8px)",
+                          boxShadow: "0 8px 24px rgba(0,0,0,0.4)",
+                          marginTop: "4px",
+                          padding: "6px",
+                          maxHeight: "240px",
+                          overflowY: "auto",
+                        }}
+                      >
+                        <div
+                          className="checkbox-row"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            const enabledConns = connections.filter(c => c.enabled);
+                            if (blockConnectionIds.length === enabledConns.length) {
+                              setBlockConnectionIds([]);
+                            } else {
+                              setBlockConnectionIds(enabledConns.map(c => c.id));
+                            }
+                          }}
+                          style={{
+                            padding: "8px 10px",
+                            borderBottom: "1px solid var(--border-subtle, #2a2a2a)",
+                            fontWeight: 600,
+                            fontSize: "12px",
+                          }}
+                        >
+                          <input
+                            type="checkbox"
+                            checked={
+                              blockConnectionIds.length > 0 &&
+                              blockConnectionIds.length === connections.filter(c => c.enabled).length
+                            }
+                            readOnly
+                            style={{ marginRight: "8px", accentColor: "var(--accent-1)" }}
+                          />
+                          {blockConnectionIds.length === connections.filter(c => c.enabled).length
+                            ? "Deselect All"
+                            : "Select All"}
+                        </div>
+                        {connections.length === 0 ? (
+                          <div style={{ padding: "12px", fontSize: "12px", color: "var(--text-muted)", textAlign: "center" }}>
+                            No connections configured
+                          </div>
+                        ) : (
+                          connections.filter(c => c.enabled).map(conn => (
+                            <div
+                              key={conn.id}
+                              className="checkbox-row"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setBlockConnectionIds(prev =>
+                                  prev.includes(conn.id)
+                                    ? prev.filter(id => id !== conn.id)
+                                    : [...prev, conn.id]
+                                );
+                              }}
+                              style={{ padding: "6px 10px", fontSize: "12px" }}
+                            >
+                              <input
+                                type="checkbox"
+                                checked={blockConnectionIds.includes(conn.id)}
+                                readOnly
+                                style={{ marginRight: "8px", accentColor: "var(--accent-1)" }}
+                              />
+                              <span style={{ fontWeight: 500 }}>{conn.name}</span>
+                              <span style={{ color: "var(--text-muted)", marginLeft: "6px", fontSize: "11px" }}>
+                                ({conn.domains?.join(", ") || "no domains"})
+                              </span>
+                            </div>
+                          ))
+                        )}
+                      </div>
+                    )}
+                  </div>
                   <button
                     className="btn btn-danger"
                     onClick={(e) => { e.stopPropagation(); handleBlock(); }}
@@ -788,6 +935,7 @@ export default function CrowdSec() {
                         <th>IP</th>
                         <th>Type</th>
                         <th>Reason</th>
+                        <th>Blocked On</th>
                         <th>Expires</th>
                         <th>Action</th>
                       </tr>
@@ -795,7 +943,7 @@ export default function CrowdSec() {
                     <tbody>
                       {decisions.length === 0 ? (
                         <tr>
-                          <td colSpan={5} style={{ textAlign: "center", color: "var(--text-muted)", padding: "16px" }}>
+                          <td colSpan={6} style={{ textAlign: "center", color: "var(--text-muted)", padding: "16px" }}>
                             No active decisions
                           </td>
                         </tr>
@@ -812,6 +960,27 @@ export default function CrowdSec() {
                             </td>
                             <td style={{ fontSize: "12px", color: "var(--text-secondary)" }}>
                               {d.reason || "-"}
+                            </td>
+                            <td style={{ fontSize: "11px", color: "var(--text-secondary)", maxWidth: "180px" }}>
+                              {d.blocked_on?.length > 0
+                                ? d.blocked_on.map((name, idx) => {
+                                    const conn = connections.find(c => c.name === name);
+                                    const domains = conn?.domains?.join(", ") || "";
+                                    return (
+                                      <span key={name}>
+                                        <span
+                                          className="badge badge-primary"
+                                          style={{ fontSize: "10px", cursor: "help" }}
+                                          title={domains || name}
+                                        >
+                                          {name}
+                                        </span>
+                                        {idx < d.blocked_on.length - 1 ? " " : null}
+                                      </span>
+                                    );
+                                  })
+                                : <span style={{ color: "var(--text-muted)", fontStyle: "italic" }}>all</span>
+                              }
                             </td>
                             <td style={{ fontSize: "11px", color: "var(--text-muted)" }}>
                               {d.until || d.duration || "-"}

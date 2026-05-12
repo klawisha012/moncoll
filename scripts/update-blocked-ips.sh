@@ -33,16 +33,43 @@ docker exec "$CROWDSEC_CONTAINER" cscli decisions list -o json 2>/dev/null | \
   sort -u | \
   awk '{print "deny " $0 ";"}' > "$TMP_FILE"
 
+# Helper: write blocked IPs to a target file (only if changed)
+write_blocked_ips() {
+    local target="$1"
+    if [ -s "$TMP_FILE" ]; then
+        if ! diff -q "$TMP_FILE" "$target" > /dev/null 2>&1; then
+            cp "$TMP_FILE" "$target"
+            return 0
+        fi
+    fi
+    return 1
+}
+
 # Only update if there are changes
+UPDATED=0
 if [ -s "$TMP_FILE" ]; then
-    if ! diff -q "$TMP_FILE" "$OUTPUT_FILE" > /dev/null 2>&1; then
-        mv "$TMP_FILE" "$OUTPUT_FILE"
+    # ── Global blocked_ips.conf (for default.conf) ──
+    if write_blocked_ips "$OUTPUT_FILE"; then
+        UPDATED=1
+    fi
+
+    # ── Per-connection blocked_ips.conf ──
+    CONFIG_DIR=$(dirname "$OUTPUT_FILE")
+    for conn_dir in "$CONFIG_DIR"/conn_*; do
+        if [ -d "$conn_dir" ]; then
+            if write_blocked_ips "$conn_dir/blocked_ips.conf"; then
+                UPDATED=1
+            fi
+        fi
+    done
+
+    if [ "$UPDATED" -eq 1 ]; then
         echo "Updated blocked IPs list ($(wc -l < "$OUTPUT_FILE") IPs blocked)"
         # Reload Angie to apply new deny rules
         docker exec "$ANGIE_CONTAINER" angie -s reload 2>/dev/null || true
-    else
-        rm "$TMP_FILE"
     fi
+
+    rm -f "$TMP_FILE"
 else
     # If TMP_FILE is empty, it means something went wrong (docker exec failed, no decisions, etc.)
     # DO NOT clear the existing file — keep the last known good state
