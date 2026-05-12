@@ -1,39 +1,20 @@
 [
   {
-    "id": 3,
-    "name": "demo-site",
+    "id": 1,
+    "name": "zwarder test",
     "domains": [
-      "demo.waf.local",
-      "www.demo.waf.local"
-    ],
-    "backend_url": "frontend:3000",
-    "enabled": false,
-    "ssl_enabled": true,
-    "ssl_cert_path": "/etc/angie/http.d/conn_3/3.crt",
-    "ssl_key_path": "/etc/angie/http.d/conn_3/3.key",
-    "preserve_host": true,
-    "custom_nginx_config": null,
-    "created_at": "2026-05-07T22:30:00.000000",
-    "updated_at": "2026-05-08T00:17:59.221637",
-    "mode": "proxy",
-    "static_dir": null
-  },
-  {
-    "id": 4,
-    "name": "test",
-    "domains": [
-      "demo.waf.local"
+      "zwarder.ru"
     ],
     "mode": "static",
     "backend_url": "",
-    "static_dir": "/var/www/examples",
+    "static_dir": null,
     "enabled": true,
     "ssl_enabled": true,
-    "ssl_cert_path": "/etc/angie/http.d/conn_4/4.crt",
-    "ssl_key_path": "/etc/angie/http.d/conn_4/4.key",
+    "ssl_cert_path": "/etc/angie/http.d/conn_1/1.crt",
+    "ssl_key_path": "/etc/angie/http.d/conn_1/1.key",
     "preserve_host": true,
     "custom_nginx_config": null,
-    "created_at": "2026-05-07T22:58:06.256617",
-    "updated_at": "2026-05-12T12:25:55.946476"
+    "created_at": "2026-05-12T16:49:36.535643",
+    "updated_at": "2026-05-12T16:49:36.583872"
   }
 ]

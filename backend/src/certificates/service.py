@@ -1,15 +1,23 @@
 import json
-import uuid
+import logging
+import os
+import shutil
 import subprocess
+import uuid
 from datetime import datetime
 from pathlib import Path
 from typing import Optional
+
+logger = logging.getLogger(__name__)
 
 # Backend-container paths (for file operations — /var/lib/angie/http.d)
 BACKEND_HTTPD_DIR = Path("/var/lib/angie/http.d")
 
 # Angie-container paths (for nginx config directives — /etc/angie/http.d)
 ANGIE_HTTPD_DIR = "/etc/angie/http.d"
+
+# Default ACME registration email (fallback when none configured)
+_ACME_EMAIL = os.getenv("ACME_EMAIL", "admin@localhost")
 
 
 def _ensure_ssl_dirs():
@@ -123,14 +131,115 @@ def generate_self_signed_certificate(connection_id: int, domains: list[str]) -> 
         }
 
 
-def trigger_acme_request(connection_id: int, domains: list[str]) -> dict:
-    """Trigger ACME certificate request for domains.
+def _ensure_acme_challenge_dir(conn_id: int):
+    """Create the ACME challenge directory inside the site folder
+    so certbot can write HTTP-01 challenge tokens."""
+    challenge_dir = BACKEND_HTTPD_DIR / f"conn_{conn_id}" / "site" / ".well-known" / "acme-challenge"
+    challenge_dir.mkdir(parents=True, exist_ok=True)
 
-    For testing, generate self-signed certificate instead.
-    Returns Angie-container paths suitable for nginx config.
+
+def trigger_acme_request(connection_id: int, domains: list[str]) -> dict:
+    """Request a real Let's Encrypt certificate via certbot (webroot mode).
+
+    If a valid certificate already exists on disk this function simply
+    re-copies it from the certbot live directory (idempotent).  A new
+    certificate is only requested when none exists yet.
     """
-    # For testing purposes, generate self-signed certificate
-    return generate_self_signed_certificate(connection_id, domains)
+    _ensure_ssl_dirs()
+    _ensure_acme_challenge_dir(connection_id)
+
+    backend_cert, backend_key = get_backend_ssl_paths(connection_id)
+    angie_cert, angie_key = get_angie_ssl_paths(connection_id)
+
+    # Ensure connection subdirectory exists
+    Path(backend_cert).parent.mkdir(parents=True, exist_ok=True)
+
+    cert_name = f"conn_{connection_id}"
+    live_dir = Path(f"/etc/letsencrypt/live/{cert_name}")
+
+    # ── Already have a cert from a previous run? → re-copy it ──
+    if live_dir.is_dir() and (live_dir / "fullchain.pem").exists():
+        logger.info("Conn %d: cert already exists, re-copying from %s", connection_id, live_dir)
+        shutil.copy2(str(live_dir / "fullchain.pem"), backend_cert)
+        shutil.copy2(str(live_dir / "privkey.pem"), backend_key)
+        os.chmod(backend_key, 0o600)
+        return {
+            "success": True,
+            "message": f"Let's Encrypt certificate reused for {', '.join(domains)}",
+            "certificate_path": angie_cert,
+            "key_path": angie_key,
+            "backend_cert_path": backend_cert,
+            "backend_key_path": backend_key,
+        }
+
+    # ── No cert yet → request a new one ──
+    webroot = str(BACKEND_HTTPD_DIR / f"conn_{connection_id}" / "site")
+    email = _ACME_EMAIL
+    domain_args: list[str] = []
+    for d in domains:
+        domain_args.extend(["-d", d])
+
+    try:
+        logger.info(
+            "Requesting Let's Encrypt cert for conn %d: domains=%s, webroot=%s",
+            connection_id, domains, webroot,
+        )
+        result = subprocess.run(
+            [
+                "certbot", "certonly",
+                "--webroot",
+                "-w", webroot,
+                *domain_args,
+                "--non-interactive",
+                "--agree-tos",
+                "-m", email,
+                "--cert-name", cert_name,
+                "--key-type", "rsa",
+                "--preferred-challenges", "http",
+            ],
+            capture_output=True,
+            text=True,
+            timeout=120,
+        )
+
+        if result.returncode != 0:
+            logger.error("certbot failed for conn %d:\n%s", connection_id, result.stderr)
+            return {
+                "success": False,
+                "message": f"certbot failed: {result.stderr.strip().splitlines()[-1]}",
+            }
+
+        logger.info("certbot success for conn %d:\n%s", connection_id, result.stdout)
+
+        if not live_dir.is_dir():
+            return {
+                "success": False,
+                "message": f"certbot output missing: {live_dir}",
+            }
+
+        shutil.copy2(str(live_dir / "fullchain.pem"), backend_cert)
+        shutil.copy2(str(live_dir / "privkey.pem"), backend_key)
+        os.chmod(backend_key, 0o600)
+
+        return {
+            "success": True,
+            "message": f"Let's Encrypt certificate issued for {', '.join(domains)}",
+            "certificate_path": angie_cert,
+            "key_path": angie_key,
+            "backend_cert_path": backend_cert,
+            "backend_key_path": backend_key,
+        }
+
+    except subprocess.TimeoutExpired:
+        return {
+            "success": False,
+            "message": "certbot timed out after 120 seconds",
+        }
+    except FileNotFoundError:
+        return {
+            "success": False,
+            "message": "certbot is not installed in the backend container",
+        }
 
 
 def check_certificate_status(connection_id: int) -> dict:

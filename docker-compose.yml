@@ -85,6 +85,7 @@ services:
       - ./configs/angie/http.d/:/var/lib/angie/http.d/
       - ./examples/:/app/site-templates/examples/:ro
       - /var/run/docker.sock:/var/run/docker.sock
+      - letsencrypt:/etc/letsencrypt
     restart: unless-stopped
     env_file:
       - .env
@@ -190,3 +191,4 @@ volumes:
   grafana-storage:
   crowdsec-db:
   prometheus-storage:
+  letsencrypt:

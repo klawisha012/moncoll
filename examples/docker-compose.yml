@@ -16,7 +16,7 @@ services:
   nginx:
     image: nginx:alpine
     ports:
-      - "8080:80"
+      - "80:80"
     volumes:
       - ./nginx.conf:/etc/nginx/conf.d/default.conf
       - ../frontend/dist:/usr/share/nginx/html  # Assuming frontend build is in dist

@@ -6,7 +6,7 @@ This demonstrates a backend service that can be proxied through Angie WAF.
 Run: python3 test_backend.py
 Then connect to it via the WAF Connections tab with:
 - Backend URL: http://host.docker.internal:5000 (Mac/Windows) or http://172.17.0.1:5000 (Linux)
-- Domains: local.waf.test, test.waf.local
+- Domains: waf.zwarder.ru, test.zwarder.ru
 """
 
 from http.server import HTTPServer, BaseHTTPRequestHandler
@@ -95,6 +95,6 @@ if __name__ == "__main__":
     print(
         "   Backend URL: http://host.docker.internal:5000 (or http://172.17.0.1:5000 on Linux)"
     )
-    print("   Domains: local.waf.test, test.waf.local")
+    print("   Domains: waf.zwarder.ru, test.zwarder.ru")
     print("   Don't forget to add entries to your /etc/hosts file!")
     server.serve_forever()

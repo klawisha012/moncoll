@@ -5,7 +5,7 @@ WORKDIR /app
 COPY src/ ./src/
 COPY requirements.txt .
 
-RUN apt-get update && apt-get install -y openssl \
+RUN apt-get update && apt-get install -y openssl certbot \
     && pip install --upgrade pip --no-cache-dir \
     && pip install --no-cache-dir -r requirements.txt
 

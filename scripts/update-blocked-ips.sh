@@ -65,8 +65,20 @@ if [ -s "$TMP_FILE" ]; then
 
     if [ "$UPDATED" -eq 1 ]; then
         echo "Updated blocked IPs list ($(wc -l < "$OUTPUT_FILE") IPs blocked)"
-        # Reload Angie to apply new deny rules
-        docker exec "$ANGIE_CONTAINER" angie -s reload 2>/dev/null || true
+        # Reload Angie to apply new deny rules — but debounce to avoid
+        # rapid successive reloads that can cause ModSecurity to lose
+        # its rules (0/0/0) which then drops port bindings.
+        RELOAD_STAMP="/tmp/angie-last-reload"
+        NOW=$(date +%s)
+        if [ -f "$RELOAD_STAMP" ]; then
+            LAST=$(cat "$RELOAD_STAMP" 2>/dev/null || echo 0)
+        else
+            LAST=0
+        fi
+        if [ $((NOW - LAST)) -ge 5 ]; then
+            docker exec "$ANGIE_CONTAINER" angie -s reload 2>/dev/null || true
+            echo "$NOW" > "$RELOAD_STAMP"
+        fi
     fi
 
     rm -f "$TMP_FILE"

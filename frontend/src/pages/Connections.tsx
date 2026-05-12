@@ -1,48 +1,31 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect } from "react";
 import {
   api,
   Connection,
   ConnectionCreate,
   ConnectionUpdate,
-  CertificateStatus,
 } from "../api/client";
-import {
-  Plus,
-  Edit2,
-  Trash2,
-  RefreshCw,
-  X,
-  Shield,
-  CheckCircle,
-  XCircle,
-} from "lucide-react";
+import { Plus, Edit2, Trash2, RefreshCw, X, Shield } from "lucide-react";
 
 export default function Connections() {
   const [connections, setConnections] = useState<Connection[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [reloading, setReloading] = useState(false);
-  const [generatingCert, setGeneratingCert] = useState(false);
-  const [generatingCertId, setGeneratingCertId] = useState<number | null>(null);
-  const [certStatuses, setCertStatuses] = useState<
-    Record<number, CertificateStatus>
-  >({});
   const [toast, setToast] = useState<{
     message: string;
     type: "success" | "error" | "info";
   } | null>(null);
   const [showForm, setShowForm] = useState(false);
   const [editingId, setEditingId] = useState<number | null>(null);
-  const fileInputRef = useRef<HTMLInputElement>(null);
-  const dirInputRef = useRef<HTMLInputElement>(null);
   const [formData, setFormData] = useState<ConnectionCreate>({
     name: "",
     domains: [],
-    mode: "proxy",
+    mode: "static",
     backend_url: "",
     static_dir: null,
     enabled: true,
-    ssl_enabled: false,
+    ssl_enabled: true,
     ssl_cert_path: null,
     ssl_key_path: null,
     preserve_host: true,
@@ -58,20 +41,6 @@ export default function Connections() {
     try {
       const data = await api.getConnections();
       setConnections(data);
-      const statuses: Record<number, CertificateStatus> = {};
-      await Promise.all(
-        data
-          .filter((c) => c.ssl_enabled)
-          .map(async (c) => {
-            try {
-              const status = await api.getCertificateStatus(c.id);
-              statuses[c.id] = status;
-            } catch {
-              // ignore
-            }
-          })
-      );
-      setCertStatuses(statuses);
     } catch {
       showToast("Failed to load connections", "error");
     } finally {
@@ -91,11 +60,11 @@ export default function Connections() {
     setFormData({
       name: "",
       domains: [],
-      mode: "proxy",
+      mode: "static",
       backend_url: "",
       static_dir: null,
       enabled: true,
-      ssl_enabled: false,
+      ssl_enabled: true,
       ssl_cert_path: null,
       ssl_key_path: null,
       preserve_host: true,
@@ -103,13 +72,8 @@ export default function Connections() {
     });
     setEditingId(null);
     setShowForm(false);
-    setCertStatuses({});
-    if (fileInputRef.current) {
-      fileInputRef.current.value = "";
-    }
-    if (dirInputRef.current) {
-      dirInputRef.current.value = "";
-    }
+    const dirInput = document.getElementById("dirInputHidden") as HTMLInputElement;
+    if (dirInput) dirInput.value = "";
   }
 
   function handleEdit(conn: Connection) {
@@ -117,18 +81,17 @@ export default function Connections() {
     setFormData({
       name: conn.name,
       domains: conn.domains,
-      mode: conn.mode || "proxy",
+      mode: conn.mode || "static",
       backend_url: conn.backend_url || "",
       static_dir: conn.static_dir,
       enabled: conn.enabled,
-      ssl_enabled: conn.ssl_enabled,
-      ssl_cert_path: conn.ssl_cert_path,
-      ssl_key_path: conn.ssl_key_path,
-      preserve_host: conn.preserve_host,
-      custom_nginx_config: conn.custom_nginx_config,
+      ssl_enabled: true,
+      ssl_cert_path: null,
+      ssl_key_path: null,
+      preserve_host: true,
+      custom_nginx_config: null,
     });
     setShowForm(true);
-    loadCertificateStatus(conn.id);
   }
 
   async function handleSubmit(e: React.FormEvent) {
@@ -138,19 +101,12 @@ export default function Connections() {
       if (editingId !== null) {
         await api.updateConnection(editingId, formData);
         showToast("Connection updated successfully", "success");
-        resetForm();
-        loadConnections();
       } else {
-        const newConnection = await api.createConnection(formData);
+        await api.createConnection(formData);
         showToast("Connection created successfully", "success");
-        if (formData.ssl_enabled) {
-          setEditingId(newConnection.id);
-          loadCertificateStatus(newConnection.id);
-        } else {
-          resetForm();
-        }
-        loadConnections();
       }
+      resetForm();
+      loadConnections();
     } catch {
       showToast("Failed to save connection", "error");
     } finally {
@@ -166,6 +122,19 @@ export default function Connections() {
       loadConnections();
     } catch {
       showToast("Failed to delete connection", "error");
+    }
+  }
+
+  async function handleToggleEnabled(conn: Connection) {
+    try {
+      await api.updateConnection(conn.id, { enabled: !conn.enabled });
+      loadConnections();
+      showToast(
+        conn.enabled ? "Connection disabled" : "Connection enabled",
+        "success"
+      );
+    } catch {
+      showToast("Failed to toggle connection", "error");
     }
   }
 
@@ -185,185 +154,11 @@ export default function Connections() {
     }
   }
 
-  async function loadCertificateStatus(connectionId: number) {
-    try {
-      const status = await api.getCertificateStatus(connectionId);
-      setCertStatuses((prev) => ({ ...prev, [connectionId]: status }));
-      return status;
-    } catch {
-      setCertStatuses((prev) => {
-        const next = { ...prev };
-        delete next[connectionId];
-        return next;
-      });
-      return null;
-    }
-  }
-
-  async function handleGenerateCertificate() {
-    if (editingId === null) return;
-    const certExists =
-      certStatuses[editingId]?.certificate_exists &&
-      certStatuses[editingId]?.key_exists;
-
-    // If a certificate already exists, replace it (requires confirmation)
-    if (certExists) {
-      if (
-        !confirm(
-          "A certificate already exists. Generate a new one to replace it?"
-        )
-      )
-        return;
-    }
-
-    setGeneratingCert(true);
-    try {
-      const result = certExists
-        ? await api.regenerateCertificate(editingId)
-        : await api.requestCertificate(editingId, formData.domains);
-
-      if (result.success) {
-        const certPath =
-          result.certificate_path ||
-          `/etc/angie/http.d/conn_${editingId}/${editingId}.crt`;
-        const keyPath =
-          result.key_path ||
-          `/etc/angie/http.d/conn_${editingId}/${editingId}.key`;
-        updateFormField("ssl_cert_path", certPath);
-        updateFormField("ssl_key_path", keyPath);
-        await api.updateConnection(editingId, {
-          ssl_cert_path: certPath,
-          ssl_key_path: keyPath,
-        });
-        showToast(
-          result.message ||
-            (certExists
-              ? "Certificate replaced & saved"
-              : "Certificate generated & saved"),
-          "success"
-        );
-        setTimeout(() => loadCertificateStatus(editingId), 1000);
-      } else {
-        showToast(`Certificate request failed: ${result.message}`, "error");
-      }
-    } catch (err: any) {
-      showToast(`Certificate request error: ${err.message}`, "error");
-    } finally {
-      setGeneratingCert(false);
-    }
-  }
-
-  async function handleQuickGenerate(conn: Connection) {
-    if (!conn.ssl_enabled || !conn.domains.length) {
-      showToast("SSL must be enabled and domains must be set", "error");
-      return;
-    }
-    const certExists =
-      certStatuses[conn.id]?.certificate_exists &&
-      certStatuses[conn.id]?.key_exists;
-    setGeneratingCertId(conn.id);
-    try {
-      const result = certExists
-        ? await api.regenerateCertificate(conn.id)
-        : await api.requestCertificate(conn.id, conn.domains);
-      if (result.success) {
-        const certPath =
-          result.certificate_path ||
-          `/etc/angie/http.d/conn_${conn.id}/${conn.id}.crt`;
-        const keyPath =
-          result.key_path ||
-          `/etc/angie/http.d/conn_${conn.id}/${conn.id}.key`;
-        await api.updateConnection(conn.id, {
-          ssl_cert_path: certPath,
-          ssl_key_path: keyPath,
-        });
-        showToast(
-          result.message ||
-            (certExists
-              ? "Certificate replaced & saved"
-              : "Certificate generated & saved"),
-          "success"
-        );
-        setTimeout(() => loadConnections(), 2000);
-      } else {
-        showToast(`Failed: ${result.message}`, "error");
-      }
-    } catch (err: any) {
-      showToast(`Error: ${err.message}`, "error");
-    } finally {
-      setGeneratingCertId(null);
-    }
-  }
-
   function updateFormField<K extends keyof ConnectionCreate>(
     key: K,
     value: ConnectionCreate[K]
   ) {
     setFormData((prev) => ({ ...prev, [key]: value }));
-  }
-
-  function handleFileChange(event: React.ChangeEvent<HTMLInputElement>) {
-    const file = event.target.files?.[0];
-    if (!file) return;
-    const reader = new FileReader();
-    reader.onload = (e) => {
-      const content = e.target?.result as string;
-      updateFormField("custom_nginx_config", content);
-      event.target.value = "";
-    };
-    reader.onerror = () => {
-      showToast("Failed to read file", "error");
-    };
-    reader.readAsText(file);
-  }
-
-  // Arrow key navigation between form fields (Up/Down)
-  function handleFormKeyDown(e: React.KeyboardEvent<HTMLFormElement>) {
-    if (e.key !== "ArrowUp" && e.key !== "ArrowDown") return;
-
-    const target = e.target as HTMLElement;
-    const tag = target.tagName;
-
-    // For textareas: only navigate when at the start (ArrowUp) or end (ArrowDown)
-    if (tag === "TEXTAREA") {
-      const ta = target as HTMLTextAreaElement;
-      const atStart = ta.selectionStart === 0;
-      const atEnd = ta.selectionStart === ta.value.length;
-      if (e.key === "ArrowUp" && !atStart) return;   // let cursor move
-      if (e.key === "ArrowDown" && !atEnd) return;    // let cursor move
-      // If at boundary, fall through to navigate between fields
-    }
-
-    // Don't intercept arrows inside select (option navigation)
-    if (tag === "SELECT") return;
-
-    const form = e.currentTarget;
-    const focusable = Array.from(
-      form.querySelectorAll<HTMLElement>(
-        'input:not([type="hidden"]):not([type="file"]), textarea, select, button:not([type="button"]), [tabindex]:not([tabindex="-1"])'
-      )
-    ).filter((el) => {
-      const rect = el.getBoundingClientRect();
-      return rect.width > 0 && rect.height > 0 && !(el as HTMLInputElement).disabled;
-    });
-
-    if (focusable.length === 0) return;
-
-    const currentIdx = focusable.findIndex((el) => el === document.activeElement);
-    if (currentIdx === -1) return;
-
-    e.preventDefault();
-    const nextIdx = e.key === "ArrowDown"
-      ? (currentIdx + 1) % focusable.length
-      : (currentIdx - 1 + focusable.length) % focusable.length;
-
-    focusable[nextIdx].focus();
-    
-    // For textareas, place cursor at start (when moving up) or end (when moving down)
-    if (focusable[nextIdx].tagName === "TEXTAREA") {
-      const ta = focusable[nextIdx] as HTMLTextAreaElement;
-      ta.selectionStart = ta.selectionEnd = e.key === "ArrowDown" ? 0 : ta.value.length;
-    }
   }
 
   if (loading) {
@@ -379,8 +174,8 @@ export default function Connections() {
     <div>
       <div className="page-header">
         <div>
-          <h1>Connections / Proxy</h1>
-          <p>Manage site connections and reverse proxy rules for the WAF</p>
+          <h1>Connections</h1>
+          <p>Manage site connections proxied through the WAF</p>
         </div>
         <div className="header-actions">
           <button
@@ -428,13 +223,21 @@ export default function Connections() {
               <div className="card-header">
                 <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
                   <h3>{conn.name}</h3>
-                  <span
-                    className={`badge ${
-                      conn.enabled ? "badge-success" : "badge-secondary"
-                    }`}
+                  <button
+                    type="button"
+                    className={`btn btn-sm ${conn.enabled ? "btn-success" : "btn-secondary"}`}
+                    onClick={() => handleToggleEnabled(conn)}
+                    title={conn.enabled ? "Click to disable" : "Click to enable"}
+                    style={{
+                      padding: "4px 12px",
+                      fontSize: "12px",
+                      fontWeight: 600,
+                      borderRadius: "var(--radius-sm)",
+                      transition: "all 0.2s",
+                    }}
                   >
-                    {conn.enabled ? "Enabled" : "Disabled"}
-                  </span>
+                    {conn.enabled ? "ON" : "OFF"}
+                  </button>
                 </div>
                 <div style={{ display: "flex", gap: "4px" }}>
                   <button
@@ -470,80 +273,17 @@ export default function Connections() {
                   </div>
                 </div>
 
-                <div className="detail-row">
-                  <strong>Mode</strong>
-                  <span className={`badge ${conn.mode === "static" ? "badge-info" : "badge-secondary"}`}>
-                    {conn.mode === "static" ? "📁 Static Files" : "🔄 Proxy"}
-                  </span>
-                </div>
-
-                {conn.mode === "proxy" ? (
-                  <div className="detail-row">
-                    <strong>Backend</strong>
-                    <code className="codeblock">{conn.backend_url}</code>
-                  </div>
-                ) : (
+                {conn.static_dir && (
                   <div className="detail-row">
                     <strong>Static Dir</strong>
-                    <code className="codeblock">{conn.static_dir || "/usr/share/angie/html"}</code>
+                    <code className="codeblock">{conn.static_dir}</code>
                   </div>
                 )}
 
-                {conn.ssl_enabled && (
-                  <div className="detail-row">
-                    <strong>SSL</strong>
-                    <div
-                      style={{
-                        display: "flex",
-                        alignItems: "center",
-                        gap: "8px",
-                        flexWrap: "wrap",
-                      }}
-                    >
-                      <span className="badge badge-primary">Enabled</span>
-                      {certStatuses[conn.id] ? (
-                        certStatuses[conn.id].certificate_exists &&
-                        certStatuses[conn.id].key_exists ? (
-                          <span
-                            className="badge badge-success"
-                            style={{
-                              display: "inline-flex",
-                              alignItems: "center",
-                              gap: "4px",
-                            }}
-                          >
-                            <Shield size={12} /> Certificate Ready
-                          </span>
-                        ) : (
-                          <span
-                            className="badge badge-warning"
-                            style={{
-                              display: "inline-flex",
-                              alignItems: "center",
-                              gap: "4px",
-                            }}
-                          >
-                            <XCircle size={12} /> Pending
-                          </span>
-                        )
-                      ) : (
-                        <span className="badge badge-secondary">
-                          Not Checked
-                        </span>
-                      )}
-                      <button
-                        type="button"
-                        className="btn btn-outline btn-sm"
-                        onClick={() => handleQuickGenerate(conn)}
-                        disabled={generatingCertId === conn.id}
-                      >
-                        {generatingCertId === conn.id
-                          ? "Generating…"
-                          : "Generate"}
-                      </button>
-                    </div>
-                  </div>
-                )}
+                <div className="detail-row">
+                  <strong>SSL</strong>
+                  <span className="badge badge-primary">Auto</span>
+                </div>
 
                 <div className="detail-row">
                   <strong>Updated</strong>
@@ -571,16 +311,33 @@ export default function Connections() {
               </button>
             </div>
 
-            <form onSubmit={handleSubmit} onKeyDown={handleFormKeyDown}>
+            <form onSubmit={handleSubmit}>
+              {/* ── Name + Enabled toggle in one row ── */}
               <div className="form-group">
                 <label>Name *</label>
-                <input
-                  type="text"
-                  value={formData.name}
-                  onChange={(e) => updateFormField("name", e.target.value)}
-                  placeholder="My Web App"
-                  required
-                />
+                <div style={{ display: "flex", gap: "12px", alignItems: "center" }}>
+                  <input
+                    type="text"
+                    value={formData.name}
+                    onChange={(e) => updateFormField("name", e.target.value)}
+                    placeholder="My Web App"
+                    required
+                    style={{ flex: 1 }}
+                  />
+                  <button
+                    type="button"
+                    className={`toggle-btn ${formData.enabled ? "active" : ""}`}
+                    onClick={() => updateFormField("enabled", !formData.enabled)}
+                    title={formData.enabled ? "Enabled — click to disable" : "Disabled — click to enable"}
+                  >
+                    <span className="toggle-track">
+                      <span className="toggle-thumb" />
+                    </span>
+                    <span className="toggle-label">
+                      {formData.enabled ? "ON" : "OFF"}
+                    </span>
+                  </button>
+                </div>
               </div>
 
               <div className="form-group">
@@ -600,257 +357,67 @@ export default function Connections() {
               </div>
 
               <div className="form-group">
-                <label>Connection Mode</label>
-                <div style={{ display: "flex", gap: "16px", flexWrap: "wrap" }}>
-                  <label className="checkbox-row">
-                    <input
-                      type="radio"
-                      name="mode"
-                      checked={formData.mode === "proxy"}
-                      onChange={() => updateFormField("mode", "proxy")}
-                    />
-                    <span>Proxy to Backend</span>
-                  </label>
-                  <label className="checkbox-row">
-                    <input
-                      type="radio"
-                      name="mode"
-                      checked={formData.mode === "static"}
-                      onChange={() => updateFormField("mode", "static")}
-                    />
-                    <span>Serve Static Files</span>
-                  </label>
-                </div>
-              </div>
-
-              {formData.mode === "proxy" ? (
-                <div className="form-group">
-                  <label>Backend URL *</label>
+                <label>Static Files Directory (Angie container path)</label>
+                <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
                   <input
                     type="text"
-                    value={formData.backend_url}
+                    value={formData.static_dir || ""}
                     onChange={(e) =>
-                      updateFormField("backend_url", e.target.value)
+                      updateFormField("static_dir", e.target.value || null)
                     }
-                    placeholder="http://backend:3000"
-                    required={formData.mode === "proxy"}
-                  />
-                </div>
-              ) : (
-                <div className="form-group">
-                  <label>Static Files Directory (Angie container path)</label>
-                  <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
-                    <input
-                      type="text"
-                      value={formData.static_dir || ""}
-                      onChange={(e) =>
-                        updateFormField("static_dir", e.target.value || null)
-                      }
-                      placeholder="/usr/share/angie/html"
-                      style={{ flex: 1, minWidth: "200px" }}
-                    />
-                    <button
-                      type="button"
-                      className="btn btn-outline btn-sm"
-                      onClick={() => dirInputRef.current?.click()}
-                      title="Browse for index.html — the directory will be used"
-                    >
-                      Browse index.html
-                    </button>
-                    <input
-                      type="file"
-                      ref={dirInputRef}
-                      style={{ display: "none" }}
-                      accept=".html,.htm"
-                      onChange={(e) => {
-                        const file = e.target.files?.[0];
-                        if (file) {
-                          const fileName = file.name;
-                          if ((file as any).path) {
-                            // Chromium browsers provide the full local path
-                            const rawPath = (file as any).path;
-                            // Detect Windows-style path (contains backslash or drive letter)
-                            if (/^[A-Za-z]:[\\/]/.test(rawPath) || rawPath.includes("\\")) {
-                              showToast(
-                                `⚠️ Selected "${fileName}" from local disk. Mount this directory into Angie via docker-compose volumes, then enter the container path above.`,
-                                "error"
-                              );
-                            } else {
-                              // Unix-style path — extract directory
-                              const dirPath = rawPath.replace(/\/[^/]+$/, "");
-                              updateFormField("static_dir", dirPath);
-                              showToast(`📁 Directory: ${dirPath}`, "info");
-                            }
-                          } else {
-                            showToast(
-                              `📄 Selected "${fileName}". Enter the container directory path above (e.g. /usr/share/angie/html).`,
-                              "info"
-                            );
-                          }
-                          // Reset so the same file can be selected again
-                          e.target.value = "";
-                        }
-                      }}
-                    />
-                  </div>
-                  <small>
-                    Container path inside Angie (e.g. <code>/usr/share/angie/html</code>).
-                    Mount host files via <code>docker-compose.yml volumes:</code>, then use the
-                    container path here.
-                    <br />
-                    <strong>Not a Windows path!</strong> Use <code>/var/www/...</code> style paths.
-                  </small>
-                </div>
-              )}
-
-              <div className="form-group">
-                <label className="checkbox-row">
-                  <input
-                    type="checkbox"
-                    checked={formData.enabled}
-                    onChange={(e) => updateFormField("enabled", e.target.checked)}
-                  />
-                  <span>Enabled</span>
-                </label>
-                <label className="checkbox-row">
-                  <input
-                    type="checkbox"
-                    checked={formData.ssl_enabled}
-                    onChange={(e) => updateFormField("ssl_enabled", e.target.checked)}
-                  />
-                  <span>Enable SSL / TLS</span>
-                </label>
-                {formData.mode === "proxy" && (
-                  <label className="checkbox-row">
-                    <input
-                      type="checkbox"
-                      checked={formData.preserve_host}
-                      onChange={(e) => updateFormField("preserve_host", e.target.checked)}
-                    />
-                    <span>Preserve Host Header</span>
-                  </label>
-                )}
-              </div>
-
-              {formData.ssl_enabled && (
-                <div className="form-group">
-                  <label>SSL Certificate Path</label>
-                  <input
-                    type="text"
-                    value={formData.ssl_cert_path || ""}
-                    onChange={(e) =>
-                      updateFormField("ssl_cert_path", e.target.value || null)
-                    }
-                    placeholder="/etc/angie/http.d/cert.pem"
-                  />
-                </div>
-              )}
-
-              {formData.ssl_enabled && (
-                <div className="form-group">
-                  <label>SSL Key Path</label>
-                  <input
-                    type="text"
-                    value={formData.ssl_key_path || ""}
-                    onChange={(e) =>
-                      updateFormField("ssl_key_path", e.target.value || null)
-                    }
-                    placeholder="/etc/angie/http.d/key.pem"
-                  />
-                </div>
-              )}
-
-              {formData.ssl_enabled && editingId && (
-                <div className="form-group">
-                  <label>SSL Certificate Management</label>
-                  <div
-                    style={{
-                      display: "flex",
-                      gap: "10px",
-                      flexWrap: "wrap",
-                      alignItems: "center",
-                    }}
-                  >
-                    <button
-                      type="button"
-                      className="btn btn-primary"
-                      onClick={handleGenerateCertificate}
-                      disabled={generatingCert}
-                    >
-                      <Shield size={16} />
-                      {generatingCert
-                        ? "Requesting…"
-                        : certStatuses[editingId]?.certificate_exists
-                        ? "Replace Certificate"
-                        : "Generate Certificate"}
-                    </button>
-                    {editingId && certStatuses[editingId] && (
-                      <>
-                        {certStatuses[editingId].certificate_exists &&
-                        certStatuses[editingId].key_exists ? (
-                          <span
-                            className="badge badge-success"
-                            style={{
-                              display: "inline-flex",
-                              alignItems: "center",
-                              gap: "4px",
-                            }}
-                          >
-                            <CheckCircle size={14} />
-                            Certificate Ready
-                          </span>
-                        ) : (
-                          <span
-                            className="badge badge-warning"
-                            style={{
-                              display: "inline-flex",
-                              alignItems: "center",
-                              gap: "4px",
-                            }}
-                          >
-                            <XCircle size={14} />
-                            Pending Generation
-                          </span>
-                        )}
-                      </>
-                    )}
-                  </div>
-                  <small>
-                    Generates a self-signed certificate for testing. Certificate
-                    will be saved to /etc/angie/http.d/conn_{editingId}/{editingId}.crt and .key
-                  </small>
-                </div>
-              )}
-
-              <div className="form-group">
-                <label>Custom Nginx Configuration (optional)</label>
-                <textarea
-                  value={formData.custom_nginx_config || ""}
-                  onChange={(e) =>
-                    updateFormField(
-                      "custom_nginx_config",
-                      e.target.value || null
-                    )
-                  }
-                  placeholder="proxy_buffering off;&#10;proxy_cache off;"
-                  rows={4}
-                />
-                <div style={{ marginTop: "8px" }}>
-                  <input
-                    type="file"
-                    ref={fileInputRef}
-                    onChange={handleFileChange}
-                    style={{ display: "none" }}
-                    accept=".html,.htm,.conf,.txt,.nginx,.cfg"
+                    placeholder="/usr/share/angie/html"
+                    style={{ flex: 1, minWidth: "200px" }}
                   />
                   <button
                     type="button"
                     className="btn btn-outline btn-sm"
-                    onClick={() => fileInputRef.current?.click()}
+                    onClick={() => {
+                      const input = document.getElementById("dirInputHidden") as HTMLInputElement;
+                      input?.click();
+                    }}
+                    title="Browse for index.html — the directory will be used"
                   >
-                    Upload config file
+                    Browse index.html
                   </button>
+                  <input
+                    type="file"
+                    id="dirInputHidden"
+                    style={{ display: "none" }}
+                    accept=".html,.htm"
+                    onChange={(e) => {
+                      const file = e.target.files?.[0];
+                      if (file) {
+                        const fileName = file.name;
+                        if ((file as any).path) {
+                          const rawPath = (file as any).path;
+                          if (/^[A-Za-z]:[\\/]/.test(rawPath) || rawPath.includes("\\")) {
+                            showToast(
+                              `⚠️ Selected "${fileName}" from local disk. Mount this directory into Angie via docker-compose volumes, then enter the container path above.`,
+                              "error"
+                            );
+                          } else {
+                            const dirPath = rawPath.replace(/\/[^/]+$/, "");
+                            updateFormField("static_dir", dirPath);
+                            showToast(`📁 Directory: ${dirPath}`, "info");
+                          }
+                        } else {
+                          showToast(
+                            `📄 Selected "${fileName}". Enter the container directory path above (e.g. /usr/share/angie/html).`,
+                            "info"
+                          );
+                        }
+                        e.target.value = "";
+                      }
+                    }}
+                  />
                 </div>
+                <small>
+                  Container path inside Angie (e.g. <code>/usr/share/angie/html</code>).
+                  Mount host files via <code>docker-compose.yml volumes:</code>, then use the
+                  container path here.
+                  <br />
+                  <strong>Not a Windows path!</strong> Use <code>/var/www/...</code> style paths.
+                </small>
               </div>
 
               <div className="modal-actions">

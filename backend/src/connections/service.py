@@ -1,5 +1,6 @@
 import json
 import logging
+import re
 import shutil
 import uuid
 from datetime import datetime
@@ -16,6 +17,9 @@ CONNECTIONS_D_DIR = CONNECTIONS_DIR / "http.d"
 
 # ── Static site default source (backend container path) ──
 DEFAULT_STATIC_SOURCE = Path("/app/site-templates/examples")
+
+# ── Directives to strip from extracted server blocks (we supply our own) ──
+_STRIP_DIRECTIVES = {"listen", "server_name", "ssl_certificate", "ssl_certificate_key"}
 
 
 def _ensure_dirs():
@@ -48,57 +52,176 @@ def _get_ssl_paths(conn_id: int) -> tuple[str, str]:
     return cert_path, key_path
 
 
+def _extract_nginx_server_blocks(config_text: str) -> list[str]:
+    """Extract the *body* (content between braces) of every ``server { … }``
+    block found in *config_text*.  Returns a list of server-block-body strings
+    (whitespace-trimmed).  If no blocks are found the list is empty.
+    """
+    blocks: list[str] = []
+    for match in re.finditer(r'\bserver\s*\{', config_text):
+        start = match.end()
+        depth = 1
+        i = start
+        while i < len(config_text) and depth > 0:
+            ch = config_text[i]
+            if ch == '{':
+                depth += 1
+            elif ch == '}':
+                depth -= 1
+            i += 1
+        body = config_text[start:i - 1].strip()
+        if body:
+            blocks.append(body)
+    return blocks
+
+
+def _find_site_server_blocks(site_dir: Path) -> list[str]:
+    """Recursively walk *site_dir*, read every ``*.conf`` file and collect
+    all server-block bodies found in them.  Returns a (possibly empty) list.
+    """
+    if not site_dir.is_dir():
+        return []
+    bodies: list[str] = []
+    for conf_file in sorted(site_dir.rglob("*.conf")):
+        try:
+            text = conf_file.read_text()
+        except (OSError, UnicodeDecodeError):
+            continue
+        bodies.extend(_extract_nginx_server_blocks(text))
+    return bodies
+
+
+def _clean_server_block_body(body: str, conn_id: int) -> str:
+    """Strip directives that the WAF connection manages itself
+    (``listen``, ``server_name``, SSL paths) and adjust any ``root``
+    directive to point inside the connection's static site directory.
+
+    Returns a multi-line string ready to drop into a generated
+    ``server {}`` block.  Original indentation is preserved so that
+    nested ``location`` / ``if`` blocks stay correctly aligned.
+    """
+    conn_site_root = f"/etc/angie/http.d/conn_{conn_id}/site"
+    out_lines: list[str] = []
+    for raw_line in body.splitlines():
+        stripped = raw_line.strip()
+        if not stripped or stripped.startswith('#'):
+            # empty / comment — keep the line as-is
+            out_lines.append(raw_line)
+            continue
+
+        # Detect directive name (first token, trailing ';' optional for matching)
+        tokens = stripped.split()
+        directive = tokens[0].rstrip(';') if tokens else ''
+
+        if directive in _STRIP_DIRECTIVES:
+            continue  # drop the line entirely
+
+        # Rewrite 'root' to the connection's static site directory
+        if directive == 'root' and len(tokens) >= 2:
+            # Preserve the original indentation of the root line
+            leading = raw_line[: len(raw_line) - len(raw_line.lstrip())]
+            out_lines.append(f"{leading}root {conn_site_root};")
+            continue
+
+        # All other lines — keep exactly as they were (indentation preserved)
+        out_lines.append(raw_line)
+
+    return "\n".join(out_lines)
+
+
 def _generate_nginx_config(conn: dict) -> str:
-    """Generate Nginx server block configuration for a connection."""
+    """Generate Angie server-block configuration for a connection.
+
+    For *static* mode the site directory is scanned recursively for
+    ``*.conf`` files containing ``server { … }`` blocks.  If any are found
+    their bodies (minus listen / server_name / ssl_* directives) are
+    embedded directly inside the generated server blocks — so the site's
+    own nginx routing is preserved and the WAF only adds its security
+    wrapper (ModSecurity, CrowdSec blocked-IPs, SSL).
+
+    For *proxy* mode, or when no site-side server blocks exist, a sensible
+    default ``location / { proxy_pass … }`` or ``root …`` block is generated.
+    """
     domains = " ".join(conn["domains"]) if conn["domains"] else "_"
     mode = conn.get("mode", "proxy")
     is_static = mode == "static"
-
-    # Build server block
-    lines = []
-    lines.append(f"## Connection: {conn['name']} (ID: {conn['id']})")
-    lines.append(f"## Mode: {mode}")
-    lines.append(f"## Generated at: {datetime.utcnow().isoformat()}Z")
-    lines.append("")
-
-    # ── Location block content (proxy or static) ──
     conn_id = conn["id"]
 
-    def _build_location_block(is_ssl: bool = False) -> list[str]:
-        """Build the main location / block based on mode."""
-        loc_lines = []
-        loc_lines.append("    location / {")
+    # ── Try to discover server-block bodies from the copied site ──
+    site_server_bodies: list[str] = []
+    if is_static:
+        site_dir = _site_dir(conn_id)
+        if site_dir.is_dir():
+            site_server_bodies = _find_site_server_blocks(site_dir)
+            if site_server_bodies:
+                logger.info(
+                    "Conn %d: found %d server block(s) in %s — using site config",
+                    conn_id, len(site_server_bodies), site_dir,
+                )
 
-        if is_static:
-            # Use the copied site inside the connection directory
-            static_root = f"/etc/angie/http.d/conn_{conn_id}/site"
-            loc_lines.append(f"        root {static_root};")
-            loc_lines.append("        index index.html index.htm;")
-            loc_lines.append("        try_files $uri $uri/ =404;")
-        else:
-            backend_url = conn.get("backend_url", "")
-            if backend_url and not backend_url.startswith(("http://", "https://")):
-                backend_url = f"http://{backend_url}"
-            loc_lines.append(f"        proxy_pass {backend_url};")
-            if conn.get("preserve_host", True):
-                loc_lines.append("        proxy_set_header Host $host;")
-            else:
-                loc_lines.append("        proxy_set_header Host $proxy_host;")
-            loc_lines.append("        proxy_set_header X-Real-IP $remote_addr;")
-            loc_lines.append("        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;")
-            loc_lines.append("        proxy_set_header X-Forwarded-Proto $scheme;")
-            loc_lines.append("        proxy_http_version 1.1;")
-            loc_lines.append("        proxy_set_header Connection '';")
-            loc_lines.append("        proxy_buffering off;")
-            loc_lines.append("        proxy_request_buffering off;")
-            loc_lines.append("        proxy_redirect off;")
+    # ── Build the output ──
+    lines: list[str] = []
+    lines.append(f"## Connection: {conn['name']} (ID: {conn_id})")
+    lines.append(f"## Mode: {mode}")
+    lines.append(f"## Generated at: {datetime.utcnow().isoformat()}Z")
+    if site_server_bodies:
+        lines.append(
+            f"## Server blocks sourced from site/{len(site_server_bodies)} conf file(s)"
+        )
+    lines.append("")
 
-        loc_lines.append("    }")
-        return loc_lines
-
+    # ── helpers ──
     blocked_ips_include = f"    include http.d/conn_{conn_id}/blocked_ips.conf;"
 
-    # ── HTTP server ──
+    def _emit_server_body_for_proxy() -> list[str]:
+        """Fallback proxy location block (used when no site server blocks exist)."""
+        backend_url = conn.get("backend_url", "")
+        if backend_url and not backend_url.startswith(("http://", "https://")):
+            backend_url = f"http://{backend_url}"
+        preserve = conn.get("preserve_host", True)
+        host_directive = "$host" if preserve else "$proxy_host"
+        return [
+            "    location / {",
+            f"        proxy_pass {backend_url};",
+            f"        proxy_set_header Host {host_directive};",
+            "        proxy_set_header X-Real-IP $remote_addr;",
+            "        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;",
+            "        proxy_set_header X-Forwarded-Proto $scheme;",
+            "        proxy_http_version 1.1;",
+            "        proxy_set_header Connection '';",
+            "        proxy_buffering off;",
+            "        proxy_request_buffering off;",
+            "        proxy_redirect off;",
+            "    }",
+        ]
+
+    def _emit_server_body_for_static() -> list[str]:
+        """Fallback static root/index block."""
+        root = f"/etc/angie/http.d/conn_{conn_id}/site"
+        return [
+            f"    root {root};",
+            "    index index.html index.htm;",
+            "    try_files $uri $uri/ =404;",
+        ]
+
+    def _append_modsecurity(target: list[str]):
+        target.append("")
+        target.append("    # ModSecurity integration")
+        target.append("    modsecurity on;")
+        target.append("    modsecurity_rules_file /etc/angie/modsecurity/rules.conf;")
+
+    def _build_server_body() -> list[str]:
+        """Return the inner lines (already 4-space indented) for the server block."""
+        if site_server_bodies:
+            # Use the first discovered server block (most sites define one)
+            body = _clean_server_block_body(site_server_bodies[0], conn_id)
+            return body.splitlines()
+
+        if is_static:
+            return _emit_server_body_for_static()
+        return _emit_server_body_for_proxy()
+
+    # ── HTTP server (always present) ──
     lines.append("server {")
     lines.append("    listen 80;")
     lines.append(f"    server_name {domains};")
@@ -106,44 +229,43 @@ def _generate_nginx_config(conn: dict) -> str:
     lines.append(blocked_ips_include)
     lines.append("")
 
+    # ACME challenge for Let's Encrypt (served from site/ before any redirect)
+    lines.append("    # Let's Encrypt HTTP-01 challenge")
+    lines.append("    location ^~ /.well-known/acme-challenge/ {")
+    lines.append(f"        root /etc/angie/http.d/conn_{conn_id}/site;")
+    lines.append("        try_files $uri =404;")
+    lines.append("    }")
+    lines.append("")
+
     if conn.get("ssl_enabled"):
+        # HTTP → HTTPS redirect
         lines.append("    location / {")
         lines.append("        return 301 https://$host$request_uri;")
         lines.append("    }")
         lines.append("}")
         lines.append("")
 
-        # ── HTTPS server block ──
+        # ── HTTPS server ──
         cert_path, key_path = _get_ssl_paths(conn["id"])
         lines.append("server {")
         lines.append("    listen 443 ssl;")
         lines.append(f"    server_name {domains};")
         lines.append("")
         lines.append(blocked_ips_include)
-        lines.append("")
-
         ssl_cert_path = conn.get("ssl_cert_path") or cert_path
         ssl_key_path = conn.get("ssl_key_path") or key_path
         lines.append(f"    ssl_certificate {ssl_cert_path};")
         lines.append(f"    ssl_certificate_key {ssl_key_path};")
-
         lines.append("")
-        lines.append("    # ModSecurity integration")
-        lines.append("    modsecurity on;")
-        lines.append("    modsecurity_rules_file /etc/angie/modsecurity/rules.conf;")
+        lines.append("    # HSTS (force HTTPS, prevent downgrade attacks)")
+        lines.append("    add_header Strict-Transport-Security \"max-age=31536000; includeSubDomains\" always;")
+        _append_modsecurity(lines)
         lines.append("")
-
-        lines.extend(_build_location_block(is_ssl=True))
+        lines.extend(_build_server_body())
     else:
-        # Non-SSL
-        lines.append(blocked_ips_include)
+        _append_modsecurity(lines)
         lines.append("")
-        lines.append("    # ModSecurity integration")
-        lines.append("    modsecurity on;")
-        lines.append("    modsecurity_rules_file /etc/angie/modsecurity/rules.conf;")
-        lines.append("")
-
-        lines.extend(_build_location_block())
+        lines.extend(_build_server_body())
 
     lines.append("}")
 
@@ -267,10 +389,14 @@ def get_connection(conn_id: int) -> Connection | None:
 
 
 def _generate_certs_and_update_connection(conn: dict, connections: list[dict]):
-    """Generate SSL certificates and persist paths back to the connection JSON."""
+    """Generate SSL certificates and persist paths back to the connection JSON.
+    
+    Always writes the nginx config afterwards (even if cert generation fails)
+    so the site stays reachable with whatever cert is on disk."""
     conn_id = conn["id"]
     domains = conn.get("domains", [])
     if not domains:
+        _write_nginx_config(conn)
         return
 
     result = cert_service.trigger_acme_request(conn_id, domains)
@@ -282,8 +408,9 @@ def _generate_certs_and_update_connection(conn: dict, connections: list[dict]):
             conn["ssl_key_path"] = key_path
             conn["updated_at"] = datetime.utcnow().isoformat()
             _save_connections(connections)
-            # Regenerate nginx config with the new cert paths
-            _write_nginx_config(conn)
+
+    # Always write config — the existing cert on disk (if any) will be used
+    _write_nginx_config(conn)
 
 
 def create_connection(conn_in: ConnectionCreate) -> Connection:
@@ -423,7 +550,11 @@ def reload_connections_config() -> dict:
                 if conn.get("mode") == "static":
                     source = conn.get("static_dir") or "examples"
                     _copy_static_site(conn["id"], source)
-                _write_nginx_config(conn)
+                # Re-generate SSL certs if enabled (they were deleted above)
+                if conn.get("ssl_enabled") and conn.get("domains"):
+                    _generate_certs_and_update_connection(conn, connections)
+                else:
+                    _write_nginx_config(conn)
 
         return {"success": True, "message": f"Generated {len(connections)} connection configs"}
     except Exception as e:
