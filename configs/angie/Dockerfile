@@ -24,12 +24,14 @@ COPY --from=crs /crs /var/lib/angie/modsecurity/coreruleset
 
 # Установка CrowdSec Bouncer
 RUN curl -L -o /tmp/bouncer.tgz "https://github.com/crowdsecurity/cs-nginx-bouncer/releases/download/v1.1.5/crowdsec-nginx-bouncer.tgz" \
-    && mkdir -p /tmp/bouncer-extract \
+    && mkdir -p /tmp/bouncer-extract /usr/local/lua/crowdsec \
     && tar xzf /tmp/bouncer.tgz -C /tmp/bouncer-extract --strip-components=1 \
-    && mkdir -p /usr/local/lua/crowdsec \
-    && find /tmp/bouncer-extract -type f -name "*.lua" -exec cp {} /usr/local/lua/crowdsec/ \; \
+    && (cd /tmp/bouncer-extract && find . -type f -name "*.lua" | while read -r f; do \
+         mkdir -p "/usr/local/lua/crowdsec/$(dirname "$f")"; \
+         cp "$f" "/usr/local/lua/crowdsec/$f"; \
+       done) \
     && mkdir -p /etc/crowdsec/bouncers/ \
-    && find /tmp/bouncer-extract -type f -name "*bouncer*.conf" -exec cp {} /etc/crowdsec/bouncers/crowdsec-nginx-bouncer.conf \; \
+    && find /tmp/bouncer-extract -type f -name "*bouncer*.conf" | head -1 | xargs -I{} cp {} /etc/crowdsec/bouncers/crowdsec-nginx-bouncer.conf \
     && rm -rf /tmp/bouncer.tgz /tmp/bouncer-extract
 
 # Активируем динамические модули (acme здесь НЕ нужен, он встроен)
@@ -37,7 +39,7 @@ ENV ANGIE_LOAD_MODULES="modsecurity,geoip2,echo,zip,zstd,ndk,lua"
 
 # Конфигурация Lua для CrowdSec
 RUN mkdir -p /etc/angie/http.d/ \
-    && printf 'lua_package_path "/usr/local/lua/crowdsec/?.lua;;";\n' > /etc/angie/http.d/crowdsec.conf \
+    && printf 'lua_package_path "/usr/local/lua/crowdsec/?.lua;/usr/local/lua/crowdsec/?/init.lua;;";\n' > /etc/angie/http.d/crowdsec.conf \
     && printf 'lua_shared_dict crowdsec_cache 50m;\n' >> /etc/angie/http.d/crowdsec.conf \
     && printf 'init_by_lua_block {\n' >> /etc/angie/http.d/crowdsec.conf \
     && printf '    local cs = require "crowdsec"\n' >> /etc/angie/http.d/crowdsec.conf \
