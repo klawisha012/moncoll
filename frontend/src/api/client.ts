@@ -35,13 +35,16 @@ export interface ModuleInfo {
   loaded: boolean;
 }
 
+export type SourceType = "nginx_config" | "static_generate" | "container";
+
 export interface Connection {
   id: number;
   name: string;
   domains: string[];
-  mode: "proxy" | "static";
-  backend_url: string;
+  source_type: SourceType;
+  nginx_config_path: string | null;
   static_dir: string | null;
+  backend_url: string;
   enabled: boolean;
   ssl_enabled: boolean;
   ssl_cert_path: string | null;
@@ -55,9 +58,10 @@ export interface Connection {
 export interface ConnectionCreate {
   name: string;
   domains?: string[];
-  mode?: "proxy" | "static";
-  backend_url?: string;
+  source_type?: SourceType;
+  nginx_config_path?: string | null;
   static_dir?: string | null;
+  backend_url?: string;
   enabled?: boolean;
   ssl_enabled?: boolean;
   ssl_cert_path?: string | null;
@@ -69,9 +73,10 @@ export interface ConnectionCreate {
 export interface ConnectionUpdate {
   name?: string;
   domains?: string[];
-  mode?: "proxy" | "static";
-  backend_url?: string;
+  source_type?: SourceType;
+  nginx_config_path?: string | null;
   static_dir?: string | null;
+  backend_url?: string;
   enabled?: boolean;
   ssl_enabled?: boolean;
   ssl_cert_path?: string | null;
@@ -353,6 +358,26 @@ export const api = {
     const formData = new FormData();
     formData.append("file", file);
     const response = await fetch(`${API_BASE}/api/connections/upload-static`, {
+      method: "POST",
+      body: formData,
+      credentials: "include",
+    });
+    if (!response.ok) {
+      if (response.status === 401) {
+        window.dispatchEvent(new CustomEvent("auth:unauthorized"));
+      }
+      const error = await response.json().catch(() => ({ detail: response.statusText }));
+      throw new Error(error.detail || "Upload failed");
+    }
+    return response.json();
+  },
+
+  // Upload an nginx .conf file — returns the absolute backend path that can
+  // be used as nginx_config_path when creating/updating a connection.
+  uploadNginxConfig: async (file: File): Promise<{ path: string; filename: string }> => {
+    const formData = new FormData();
+    formData.append("file", file);
+    const response = await fetch(`${API_BASE}/api/connections/upload-nginx-config`, {
       method: "POST",
       body: formData,
       credentials: "include",

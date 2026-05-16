@@ -27,11 +27,11 @@ async def get_current_user(
         )
     try:
         user_id = int(payload.get("sub", "0"))
-    except (TypeError, ValueError):
+    except (TypeError, ValueError) as exc:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="invalid session",
-        )
+        ) from exc
     user = await auth_service.get_user(session, user_id)
     if not user:
         raise HTTPException(

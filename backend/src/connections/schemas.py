@@ -3,6 +3,8 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
+SourceType = Literal["nginx_config", "static_generate", "container"]
+
 
 class ConnectionBase(BaseModel):
     """Base connection model with common fields."""
@@ -13,16 +15,32 @@ class ConnectionBase(BaseModel):
     domains: list[str] = Field(
         default_factory=list, description="List of domain names (server_name directives)"
     )
-    mode: Literal["proxy", "static"] = Field(
-        default="proxy", description="Connection mode: proxy to backend or serve static files"
+    source_type: SourceType = Field(
+        default="static_generate",
+        description=(
+            "How this connection is sourced: "
+            "'nginx_config' = deploy an existing nginx config (with includes); "
+            "'static_generate' = generate config from index.html + domains; "
+            "'container' = reverse-proxy to a container/service host:port."
+        ),
     )
-    backend_url: str = Field(
-        default="", description="Backend target URL (proxy_pass destination) — required for proxy mode"
+    nginx_config_path: str | None = Field(
+        default=None,
+        description="Path inside the backend container to an existing nginx .conf file. "
+        "Used only when source_type='nginx_config'. Includes are resolved recursively "
+        "relative to the config's directory.",
     )
     static_dir: str | None = Field(
-        default=None, description="Source directory for static site (backend-accessible path, e.g. 'examples' → /app/site-templates/examples). Content is copied into http.d/conn_<id>/site/ on creation."
+        default=None,
+        description="Path to a directory (or index.html) used to generate a static site. "
+        "Used only when source_type='static_generate'.",
     )
-    enabled: bool = Field(default=True, description="Whether this proxy rule is active")
+    backend_url: str = Field(
+        default="",
+        description="Backend target (e.g. 'myservice:8080' or 'http://myservice:8080'). "
+        "Used only when source_type='container'.",
+    )
+    enabled: bool = Field(default=True, description="Whether this connection is active")
     ssl_enabled: bool = Field(default=False, description="Enable SSL/TLS for this site")
     ssl_cert_path: str | None = Field(default=None, description="Path to SSL certificate file")
     ssl_key_path: str | None = Field(default=None, description="Path to SSL private key file")
@@ -45,9 +63,10 @@ class ConnectionUpdate(BaseModel):
 
     name: str | None = Field(None, min_length=1, max_length=128)
     domains: list[str] | None = None
-    mode: Literal["proxy", "static"] | None = None
-    backend_url: str | None = None
+    source_type: SourceType | None = None
+    nginx_config_path: str | None = None
     static_dir: str | None = None
+    backend_url: str | None = None
     enabled: bool | None = None
     ssl_enabled: bool | None = None
     ssl_cert_path: str | None = None

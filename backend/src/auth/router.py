@@ -115,7 +115,7 @@ async def create_user(
     try:
         user = await auth_service.create_user(session, payload)
     except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc))
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     return UserPublic.model_validate(user)
 
 
@@ -129,7 +129,7 @@ async def update_user(
     try:
         result = await auth_service.update_user(session, user_id, payload)
     except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc))
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     if result is None:
         raise HTTPException(status_code=404, detail="user not found")
     return UserPublic.model_validate(result)
@@ -144,7 +144,7 @@ async def delete_user(
     try:
         ok = await auth_service.delete_user(session, user_id)
     except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc))
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     if not ok:
         raise HTTPException(status_code=404, detail="user not found")
     return None

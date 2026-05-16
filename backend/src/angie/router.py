@@ -1,8 +1,12 @@
+import logging
+
 import docker
 from fastapi import APIRouter
 
 from . import service as angie_service
 from .schemas import AngieSettingsResponse, AngieSettingsUpdate
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/angie", tags=["angie"])
 
@@ -45,4 +49,5 @@ async def reload_angie():
     except docker.errors.NotFound:
         return {"success": False, "message": f"Container '{CONTAINER_NAME}' not found"}
     except Exception as e:
+        logger.exception("Failed to reload Angie")
         return {"success": False, "message": str(e)}

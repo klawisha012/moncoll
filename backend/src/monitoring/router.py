@@ -1,8 +1,11 @@
 import asyncio
+import logging
 
 import docker
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/monitoring", tags=["monitoring"])
 
@@ -72,9 +75,9 @@ def _get_compose_project(client: docker.DockerClient) -> str | None:
                 own_container = client.containers.get(own_id)
                 return own_container.labels.get("com.docker.compose.project")
             except Exception:
-                pass
+                logger.debug("Failed to read compose project label", exc_info=True)
     except Exception:
-        pass
+        logger.debug("Failed to detect compose project name", exc_info=True)
     return None
 
 

@@ -74,6 +74,23 @@ async def upload_static_file(
     return result
 
 
+@connections_router.post("/upload-nginx-config")
+async def upload_nginx_config(
+    file: UploadFile = File(...),
+):
+    """Upload an nginx ``.conf`` file via the browser file picker.
+
+    Returns the absolute backend-container path that can be used as
+    ``nginx_config_path`` when creating or updating a connection.
+    """
+    content = await file.read()
+    result = connection_service.save_uploaded_nginx_config(
+        content,
+        file.filename or "nginx.conf",
+    )
+    return result
+
+
 @connections_router.post("/reload")
 async def reload_connections(session: AsyncSession = Depends(get_session)):
     """Regenerate Nginx config files for all connections."""

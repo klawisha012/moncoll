@@ -1,3 +1,5 @@
+import logging
+
 import docker
 from fastapi import APIRouter, HTTPException, status
 
@@ -13,6 +15,8 @@ from .schemas import (
     RuleResponse,
 )
 from .settings_schemas import ModSecuritySettingsResponse, ModSecuritySettingsUpdate
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/modsecurity", tags=["modsecurity"])
 
@@ -103,6 +107,7 @@ async def reload_angie():
     except docker.errors.NotFound:
         return ReloadResponse(success=False, message=f"Container '{CONTAINER_NAME}' not found")
     except Exception as e:
+        logger.exception("Failed to reload Angie (ModSecurity router)")
         return ReloadResponse(success=False, message=str(e))
 
 

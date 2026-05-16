@@ -10,10 +10,6 @@ class InvalidRuleError(Exception):
     pass
 
 
-class ModSecurityConfigError(Exception):
-    pass
-
-
 MODSECURITY_CONFIG_DIR = Path("/app/etc/angie/modsecurity")
 MODSECURITY_CONFIG_FILE = MODSECURITY_CONFIG_DIR / "modsecurity.conf"
 MODSECURITY_RULES_FILE = MODSECURITY_CONFIG_DIR / "rules.conf"

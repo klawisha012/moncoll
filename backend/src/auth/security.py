@@ -1,7 +1,7 @@
 import logging
 import os
 import secrets
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 from jose import JWTError, jwt
@@ -68,7 +68,7 @@ def verify_password(plain: str, hashed: str) -> bool:
 
 
 def create_access_token(*, user_id: int, username: str, role: str) -> str:
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     payload = {
         "sub": str(user_id),
         "username": username,

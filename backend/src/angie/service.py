@@ -139,14 +139,14 @@ def generate_angie_config(settings: AngieSettings) -> str:
  user  angie;
  worker_processes  {settings.worker_processes};
  worker_rlimit_nofile {settings.worker_rlimit_nofile};
- 
+
  pid        /run/angie/angie.pid;
- 
+
  events {{
      worker_connections  {settings.worker_connections};
  }}
- 
- 
+
+
  http {{
      # Real IP from X-Forwarded-For (Docker / reverse proxy)
      set_real_ip_from 10.0.0.0/8;

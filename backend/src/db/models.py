@@ -1,4 +1,4 @@
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from sqlalchemy import JSON, Boolean, DateTime, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
@@ -7,7 +7,7 @@ from .base import Base
 
 
 def _utcnow() -> datetime:
-    return datetime.now(timezone.utc)
+    return datetime.now(UTC)
 
 
 class User(Base):
@@ -32,7 +32,13 @@ class Connection(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     name: Mapped[str] = mapped_column(String(128), nullable=False)
     domains: Mapped[list[str]] = mapped_column(JSON, nullable=False, default=list)
-    mode: Mapped[str] = mapped_column(String(16), nullable=False, default="proxy")
+    # One of: "nginx_config" (deploy from existing nginx config with includes),
+    # "static_generate" (generate config from an index.html + domains),
+    # "container" (reverse-proxy to a container/service host:port).
+    source_type: Mapped[str] = mapped_column(
+        String(32), nullable=False, default="static_generate"
+    )
+    nginx_config_path: Mapped[str | None] = mapped_column(String(512), nullable=True)
     backend_url: Mapped[str] = mapped_column(String(512), nullable=False, default="")
     static_dir: Mapped[str | None] = mapped_column(String(512), nullable=True)
     enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)

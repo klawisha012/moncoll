@@ -3,9 +3,42 @@ import {
   api,
   Connection,
   ConnectionCreate,
-  ConnectionUpdate,
+  SourceType,
 } from "../api/client";
 import { Plus, Edit2, Trash2, RefreshCw, X, Shield } from "lucide-react";
+
+const SOURCE_TYPES: { value: SourceType; label: string; hint: string }[] = [
+  {
+    value: "nginx_config",
+    label: "Nginx config",
+    hint: "Deploy an existing nginx .conf (includes are expanded).",
+  },
+  {
+    value: "static_generate",
+    label: "Static site",
+    hint: "Generate config from index.html + domain list.",
+  },
+  {
+    value: "container",
+    label: "Container / Service",
+    hint: "Reverse-proxy to host:port of a container or k8s service.",
+  },
+];
+
+const DEFAULT_FORM: ConnectionCreate = {
+  name: "",
+  domains: [],
+  source_type: "static_generate",
+  nginx_config_path: null,
+  static_dir: null,
+  backend_url: "",
+  enabled: true,
+  ssl_enabled: false,
+  ssl_cert_path: null,
+  ssl_key_path: null,
+  preserve_host: true,
+  custom_nginx_config: null,
+};
 
 export default function Connections() {
   const [connections, setConnections] = useState<Connection[]>([]);
@@ -18,20 +51,10 @@ export default function Connections() {
   } | null>(null);
   const [showForm, setShowForm] = useState(false);
   const [editingId, setEditingId] = useState<number | null>(null);
-  const [formData, setFormData] = useState<ConnectionCreate>({
-    name: "",
-    domains: [],
-    mode: "static",
-    backend_url: "",
-    static_dir: null,
-    enabled: true,
-    ssl_enabled: true,
-    ssl_cert_path: null,
-    ssl_key_path: null,
-    preserve_host: true,
-    custom_nginx_config: null,
-  });
+  const [formData, setFormData] = useState<ConnectionCreate>(DEFAULT_FORM);
+  const [domainsInput, setDomainsInput] = useState("");
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const nginxConfigInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     loadConnections();
@@ -58,22 +81,12 @@ export default function Connections() {
   }
 
   function resetForm() {
-    setFormData({
-      name: "",
-      domains: [],
-      mode: "static",
-      backend_url: "",
-      static_dir: null,
-      enabled: true,
-      ssl_enabled: true,
-      ssl_cert_path: null,
-      ssl_key_path: null,
-      preserve_host: true,
-      custom_nginx_config: null,
-    });
+    setFormData(DEFAULT_FORM);
+    setDomainsInput("");
     setEditingId(null);
     setShowForm(false);
     if (fileInputRef.current) fileInputRef.current.value = "";
+    if (nginxConfigInputRef.current) nginxConfigInputRef.current.value = "";
   }
 
   function handleEdit(conn: Connection) {
@@ -81,34 +94,47 @@ export default function Connections() {
     setFormData({
       name: conn.name,
       domains: conn.domains,
-      mode: conn.mode || "static",
-      backend_url: conn.backend_url || "",
+      source_type: conn.source_type,
+      nginx_config_path: conn.nginx_config_path,
       static_dir: conn.static_dir,
+      backend_url: conn.backend_url,
       enabled: conn.enabled,
-      ssl_enabled: true,
-      ssl_cert_path: null,
-      ssl_key_path: null,
-      preserve_host: true,
-      custom_nginx_config: null,
+      ssl_enabled: conn.ssl_enabled,
+      ssl_cert_path: conn.ssl_cert_path,
+      ssl_key_path: conn.ssl_key_path,
+      preserve_host: conn.preserve_host,
+      custom_nginx_config: conn.custom_nginx_config,
     });
+    setDomainsInput(conn.domains.join(", "));
     setShowForm(true);
+  }
+
+  function parseDomains(text: string): string[] {
+    return text
+      .split(/[,\s]+/)
+      .map((d) => d.trim())
+      .filter(Boolean);
   }
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setSaving(true);
     try {
+      const payload: ConnectionCreate = {
+        ...formData,
+        domains: parseDomains(domainsInput),
+      };
       if (editingId !== null) {
-        await api.updateConnection(editingId, formData);
+        await api.updateConnection(editingId, payload);
         showToast("Connection updated successfully", "success");
       } else {
-        await api.createConnection(formData);
+        await api.createConnection(payload);
         showToast("Connection created successfully", "success");
       }
       resetForm();
       loadConnections();
-    } catch {
-      showToast("Failed to save connection", "error");
+    } catch (err: any) {
+      showToast(err?.message || "Failed to save connection", "error");
     } finally {
       setSaving(false);
     }
@@ -170,6 +196,8 @@ export default function Connections() {
     );
   }
 
+  const sourceType = formData.source_type ?? "static_generate";
+
   return (
     <div>
       <div className="page-header">
@@ -219,6 +247,7 @@ export default function Connections() {
               className={`card connection-card ${
                 conn.enabled ? "" : "disabled"
               }`}
+              data-testid={`connection-card-${conn.id}`}
             >
               <div className="card-header">
                 <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
@@ -233,7 +262,6 @@ export default function Connections() {
                       fontSize: "12px",
                       fontWeight: 600,
                       borderRadius: "var(--radius-sm)",
-                      transition: "all 0.2s",
                     }}
                   >
                     {conn.enabled ? "ON" : "OFF"}
@@ -259,6 +287,12 @@ export default function Connections() {
 
               <div className="connection-details">
                 <div className="detail-row">
+                  <strong>Source</strong>
+                  <span className="badge badge-primary">
+                    {conn.source_type}
+                  </span>
+                </div>
+                <div className="detail-row">
                   <strong>Domains</strong>
                   <div style={{ display: "flex", gap: "4px", flexWrap: "wrap" }}>
                     {conn.domains.length > 0 ? (
@@ -273,17 +307,24 @@ export default function Connections() {
                   </div>
                 </div>
 
-                {conn.static_dir && (
+                {conn.source_type === "nginx_config" && conn.nginx_config_path && (
+                  <div className="detail-row">
+                    <strong>Config</strong>
+                    <code className="codeblock">{conn.nginx_config_path}</code>
+                  </div>
+                )}
+                {conn.source_type === "static_generate" && conn.static_dir && (
                   <div className="detail-row">
                     <strong>Static Dir</strong>
                     <code className="codeblock">{conn.static_dir}</code>
                   </div>
                 )}
-
-                <div className="detail-row">
-                  <strong>SSL</strong>
-                  <span className="badge badge-primary">Auto</span>
-                </div>
+                {conn.source_type === "container" && conn.backend_url && (
+                  <div className="detail-row">
+                    <strong>Backend</strong>
+                    <code className="codeblock">{conn.backend_url}</code>
+                  </div>
+                )}
 
                 <div className="detail-row">
                   <strong>Updated</strong>
@@ -297,7 +338,6 @@ export default function Connections() {
         </div>
       )}
 
-      {/* ── Modal ── */}
       {showForm && (
         <div
           className="modal-overlay"
@@ -323,12 +363,40 @@ export default function Connections() {
             </div>
 
             <form onSubmit={handleSubmit}>
-              {/* ── Name + Enabled toggle in one row ── */}
+              <div className="form-group">
+                <label>Connection type *</label>
+                <div
+                  role="tablist"
+                  style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}
+                >
+                  {SOURCE_TYPES.map((opt) => {
+                    const active = sourceType === opt.value;
+                    return (
+                      <button
+                        key={opt.value}
+                        type="button"
+                        role="tab"
+                        aria-selected={active}
+                        data-testid={`source-type-${opt.value}`}
+                        className={`btn btn-sm ${active ? "btn-primary" : "btn-outline"}`}
+                        onClick={() => updateFormField("source_type", opt.value)}
+                      >
+                        {opt.label}
+                      </button>
+                    );
+                  })}
+                </div>
+                <small>
+                  {SOURCE_TYPES.find((o) => o.value === sourceType)?.hint}
+                </small>
+              </div>
+
               <div className="form-group">
                 <label>Name *</label>
                 <div style={{ display: "flex", gap: "12px", alignItems: "center" }}>
                   <input
                     type="text"
+                    data-testid="conn-name"
                     value={formData.name}
                     onChange={(e) => updateFormField("name", e.target.value)}
                     placeholder="My Web App"
@@ -352,85 +420,157 @@ export default function Connections() {
               </div>
 
               <div className="form-group">
-                <label>Static Files Directory (Angie container path)</label>
-                <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
-                  <input
-                    type="text"
-                    value={formData.static_dir || ""}
-                    onChange={(e) =>
-                      updateFormField("static_dir", e.target.value || null)
-                    }
-                    placeholder="/usr/share/angie/html"
-                    style={{ flex: 1, minWidth: "200px" }}
-                  />
-                  <button
-                    type="button"
-                    className="btn btn-outline btn-sm"
-                    onClick={() => fileInputRef.current?.click()}
-                    title="Browse for index.html — the directory will be used"
-                  >
-                    Browse index.html
-                  </button>
-                  <input
-                    type="file"
-                    ref={fileInputRef}
-                    style={{ display: "none" }}
-                    accept=".html,.htm"
-                    onChange={async (e) => {
-                      const file = e.target.files?.[0];
-                      if (!file) return;
-                      const filePath = (file as any).path as string | undefined;
-                      if (filePath) {
-                        // Electron / Tauri: real filesystem path available
-                        const lastSlash = filePath.lastIndexOf("/");
-                        const lastBackslash = filePath.lastIndexOf("\\");
-                        const lastSep = Math.max(lastSlash, lastBackslash);
-                        const dirPath = lastSep >= 0 ? filePath.substring(0, lastSep) : filePath;
-                        updateFormField("static_dir", dirPath);
-                        if (/^[A-Za-z]:[/\\]/.test(filePath) || filePath.includes("\\")) {
+                <label>
+                  Domains
+                  {sourceType === "static_generate" || sourceType === "container"
+                    ? " *"
+                    : ""}
+                </label>
+                <input
+                  type="text"
+                  data-testid="conn-domains"
+                  value={domainsInput}
+                  onChange={(e) => setDomainsInput(e.target.value)}
+                  placeholder="example.com, www.example.com"
+                />
+                <small>
+                  Comma- or space-separated. For <code>nginx_config</code> mode this is auto-populated from <code>server_name</code> if left empty.
+                </small>
+              </div>
+
+              {sourceType === "nginx_config" && (
+                <div className="form-group">
+                  <label>Path to nginx config (inside backend container) *</label>
+                  <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
+                    <input
+                      type="text"
+                      data-testid="conn-nginx-config-path"
+                      value={formData.nginx_config_path || ""}
+                      onChange={(e) =>
+                        updateFormField("nginx_config_path", e.target.value || null)
+                      }
+                      placeholder="/app/site-templates/examples/nginx.conf"
+                      style={{ flex: 1, minWidth: "200px" }}
+                      required
+                    />
+                    <button
+                      type="button"
+                      className="btn btn-outline btn-sm"
+                      onClick={() => nginxConfigInputRef.current?.click()}
+                      title="Pick a .conf file from your computer"
+                    >
+                      Choose .conf file
+                    </button>
+                    <input
+                      type="file"
+                      ref={nginxConfigInputRef}
+                      style={{ display: "none" }}
+                      accept=".conf,text/plain"
+                      onChange={async (e) => {
+                        const file = e.target.files?.[0];
+                        if (!file) return;
+                        try {
+                          const result = await api.uploadNginxConfig(file);
+                          updateFormField("nginx_config_path", result.path);
                           showToast(
-                            `⚠️ "${dirPath}" — это Windows-путь. Смонтируйте эту папку в Angie через docker-compose volumes и укажите контейнерный путь (например, /usr/share/angie/html).`,
+                            `Uploaded ${result.filename} → ${result.path}`,
+                            "success"
+                          );
+                        } catch (err: any) {
+                          showToast(
+                            `Upload failed: ${err.message || "Unknown error"}`,
                             "error"
                           );
-                        } else {
-                          showToast(`📁 Directory: ${dirPath}`, "info");
                         }
-                      } else {
-                        // Browser: upload file to backend, get a backend-accessible path
+                        e.target.value = "";
+                      }}
+                    />
+                  </div>
+                  <small>
+                    Absolute path inside the <code>waf-backend</code> container,
+                    or pick a local <code>.conf</code> file to upload.
+                    <code> include</code> directives are expanded recursively
+                    relative to this file.
+                  </small>
+                </div>
+              )}
+
+              {sourceType === "static_generate" && (
+                <div className="form-group">
+                  <label>Path to static directory or index.html *</label>
+                  <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
+                    <input
+                      type="text"
+                      data-testid="conn-static-dir"
+                      value={formData.static_dir || ""}
+                      onChange={(e) =>
+                        updateFormField("static_dir", e.target.value || null)
+                      }
+                      placeholder="examples  or  /app/site-templates/mysite"
+                      style={{ flex: 1, minWidth: "200px" }}
+                      required
+                    />
+                    <button
+                      type="button"
+                      className="btn btn-outline btn-sm"
+                      onClick={() => fileInputRef.current?.click()}
+                      title="Upload an index.html"
+                    >
+                      Upload index.html
+                    </button>
+                    <input
+                      type="file"
+                      ref={fileInputRef}
+                      style={{ display: "none" }}
+                      accept=".html,.htm"
+                      onChange={async (e) => {
+                        const file = e.target.files?.[0];
+                        if (!file) return;
                         try {
                           const result = await api.uploadStaticFile(file);
                           updateFormField("static_dir", result.path);
-                          if (result.path.startsWith("uploads/")) {
-                            showToast(
-                              `✅ Uploaded "${result.filename}" → ${result.path}`,
-                              "success"
-                            );
-                          } else {
-                            showToast(
-                              `📁 Matched template "${result.path}" (contains "${result.filename}")`,
-                              "success"
-                            );
-                          }
+                          showToast(
+                            `Uploaded ${result.filename} → ${result.path}`,
+                            "success"
+                          );
                         } catch (err: any) {
                           showToast(
-                            `❌ Upload failed: ${err.message || "Unknown error"}`,
+                            `Upload failed: ${err.message || "Unknown error"}`,
                             "error"
                           );
                         }
-                      }
-                      // Reset so the same file can be re-selected
-                      e.target.value = "";
-                    }}
-                  />
+                        e.target.value = "";
+                      }}
+                    />
+                  </div>
+                  <small>
+                    Backend-accessible path. Relative names resolve under{" "}
+                    <code>/app/site-templates/</code>. Pointing to an{" "}
+                    <code>index.html</code> uses its parent directory.
+                  </small>
                 </div>
-                <small>
-                  Container path inside Angie (e.g. <code>/usr/share/angie/html</code>).
-                  Mount host files via <code>docker-compose.yml volumes:</code>, then use the
-                  container path here.
-                  <br />
-                  <strong>Not a Windows path!</strong> Use <code>/var/www/...</code> style paths.
-                </small>
-              </div>
+              )}
+
+              {sourceType === "container" && (
+                <div className="form-group">
+                  <label>Backend host:port *</label>
+                  <input
+                    type="text"
+                    data-testid="conn-backend-url"
+                    value={formData.backend_url || ""}
+                    onChange={(e) =>
+                      updateFormField("backend_url", e.target.value)
+                    }
+                    placeholder="myservice:8080  or  http://service.ns.svc:80"
+                    required
+                  />
+                  <small>
+                    Container name + port (docker compose default network) or
+                    k8s service DNS. <code>http://</code> is added automatically
+                    if omitted.
+                  </small>
+                </div>
+              )}
 
               <div className="modal-actions">
                 <button
@@ -442,6 +582,7 @@ export default function Connections() {
                 </button>
                 <button
                   type="submit"
+                  data-testid="conn-submit"
                   className="btn btn-primary"
                   disabled={saving}
                 >
