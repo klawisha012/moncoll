@@ -1,5 +1,4 @@
 import asyncio
-from typing import Optional
 
 from fastapi import APIRouter, HTTPException, Query
 
@@ -23,7 +22,7 @@ async def metrics(
         loop = asyncio.get_running_loop()
         return await loop.run_in_executor(None, get_dashboard_metrics, hours)
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=str(e)) from e
 
 
 @router.get("/traffic")
@@ -35,7 +34,7 @@ async def traffic(
         loop = asyncio.get_running_loop()
         return await loop.run_in_executor(None, get_traffic_data, hours)
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=str(e)) from e
 
 
 @router.get("/geoip-map")
@@ -47,7 +46,7 @@ async def geoip_map(
         loop = asyncio.get_running_loop()
         return await loop.run_in_executor(None, get_geoip_map_data, hours)
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=str(e)) from e
 
 
 @router.get("/threat-origins")
@@ -57,7 +56,7 @@ async def threat_origins():
         loop = asyncio.get_running_loop()
         return await loop.run_in_executor(None, get_threat_origins)
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=str(e)) from e
 
 
 @router.get("/events")
@@ -72,4 +71,4 @@ async def events(
             None, get_security_events, limit, severity
         )
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=str(e)) from e

@@ -14,6 +14,7 @@ const en: TranslationDict = {
   "nav.configuration": "Configuration",
   "nav.security": "Security",
   "nav.crowdsec": "CrowdSec",
+  "nav.users": "Users",
   "status.engine": "WAF Engine Active",
 
   // Settings popover
@@ -125,6 +126,37 @@ const en: TranslationDict = {
   "general.saved": "Saved",
   "general.error": "Error",
   "general.loading": "Loading...",
+  "general.delete": "Delete",
+
+  // Auth
+  "auth.login.title": "Sign in to WAF",
+  "auth.login.subtitle": "Enter your credentials to manage the firewall.",
+  "auth.login.submit": "Sign in",
+  "auth.login.defaultCredentials": "Default credentials",
+  "auth.username": "Username",
+  "auth.password": "Password",
+  "auth.logout": "Sign out",
+  "auth.changePassword.title": "Change password",
+  "auth.changePassword.subtitle": "Update your account password.",
+  "auth.changePassword.forced": "You must change your password before continuing.",
+  "auth.changePassword.current": "Current password",
+  "auth.changePassword.new": "New password",
+  "auth.changePassword.confirm": "Confirm new password",
+  "auth.changePassword.tooShort": "Password must be at least 8 characters.",
+  "auth.changePassword.mismatch": "New password and confirmation do not match.",
+  "auth.users.title": "Users",
+  "auth.users.subtitle": "Manage panel users and their roles.",
+  "auth.users.add": "Add user",
+  "auth.users.role": "Role",
+  "auth.users.status": "Status",
+  "auth.users.created": "Created",
+  "auth.users.actions": "Actions",
+  "auth.users.you": "you",
+  "auth.users.mustChange": "must change password",
+  "auth.users.active": "active",
+  "auth.users.resetPassword": "Reset password",
+  "auth.users.resetNote": "User will be required to change this password at next login.",
+  "auth.users.confirmDelete": "Delete user '{name}'?",
 };
 
 const ru: TranslationDict = {
@@ -139,6 +171,7 @@ const ru: TranslationDict = {
   "nav.configuration": "Конфигурация",
   "nav.security": "Безопасность",
   "nav.crowdsec": "CrowdSec",
+  "nav.users": "Пользователи",
   "status.engine": "WAF Engine Активен",
 
   // Settings popover
@@ -250,6 +283,37 @@ const ru: TranslationDict = {
   "general.saved": "Сохранено",
   "general.error": "Ошибка",
   "general.loading": "Загрузка...",
+  "general.delete": "Удалить",
+
+  // Auth
+  "auth.login.title": "Вход в WAF",
+  "auth.login.subtitle": "Введите учётные данные для управления фаерволом.",
+  "auth.login.submit": "Войти",
+  "auth.login.defaultCredentials": "Учётные данные по умолчанию",
+  "auth.username": "Логин",
+  "auth.password": "Пароль",
+  "auth.logout": "Выйти",
+  "auth.changePassword.title": "Смена пароля",
+  "auth.changePassword.subtitle": "Обновите пароль вашей учётной записи.",
+  "auth.changePassword.forced": "Перед продолжением нужно сменить пароль.",
+  "auth.changePassword.current": "Текущий пароль",
+  "auth.changePassword.new": "Новый пароль",
+  "auth.changePassword.confirm": "Подтвердите новый пароль",
+  "auth.changePassword.tooShort": "Пароль должен быть не короче 8 символов.",
+  "auth.changePassword.mismatch": "Новый пароль и подтверждение не совпадают.",
+  "auth.users.title": "Пользователи",
+  "auth.users.subtitle": "Управление пользователями панели и их ролями.",
+  "auth.users.add": "Добавить пользователя",
+  "auth.users.role": "Роль",
+  "auth.users.status": "Статус",
+  "auth.users.created": "Создан",
+  "auth.users.actions": "Действия",
+  "auth.users.you": "вы",
+  "auth.users.mustChange": "требуется смена пароля",
+  "auth.users.active": "активен",
+  "auth.users.resetPassword": "Сбросить пароль",
+  "auth.users.resetNote": "При следующем входе пользователь должен будет сменить этот пароль.",
+  "auth.users.confirmDelete": "Удалить пользователя '{name}'?",
 };
 
 export const translations: Record<Lang, TranslationDict> = { en, ru };

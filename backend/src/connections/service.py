@@ -2,12 +2,11 @@ import json
 import logging
 import re
 import shutil
-import uuid
 from datetime import datetime
 from pathlib import Path
 
-from .schemas import Connection, ConnectionCreate, ConnectionUpdate
 from ..certificates import service as cert_service
+from .schemas import Connection, ConnectionCreate, ConnectionUpdate
 
 logger = logging.getLogger(__name__)
 
@@ -17,6 +16,8 @@ CONNECTIONS_D_DIR = CONNECTIONS_DIR / "http.d"
 
 # ── Static site default source (backend container path) ──
 DEFAULT_STATIC_SOURCE = Path("/app/site-templates/examples")
+SITE_TEMPLATES_DIR = DEFAULT_STATIC_SOURCE.parent  # /app/site-templates
+UPLOADS_DIR = SITE_TEMPLATES_DIR / "uploads"
 
 # ── Directives to strip from extracted server blocks (we supply our own) ──
 _STRIP_DIRECTIVES = {"listen", "server_name", "ssl_certificate", "ssl_certificate_key"}
@@ -36,7 +37,7 @@ def _load_connections() -> list[dict]:
         content = CONNECTIONS_FILE.read_text()
         data = json.loads(content)
         return data if isinstance(data, list) else []
-    except (json.JSONDecodeError, IOError):
+    except (OSError, json.JSONDecodeError):
         return []
 
 
@@ -274,6 +275,9 @@ def _generate_nginx_config(conn: dict) -> str:
     lines.append("    listen 80;")
     lines.append(f"    server_name {domains};")
     lines.append("")
+    lines.append("    # GeoIP JSON access log for dashboard analytics")
+    lines.append("    access_log /var/log/angie/geoip.log with_geoip_json;")
+    lines.append("")
     lines.append(blocked_ips_include)
     lines.append("")
 
@@ -298,6 +302,9 @@ def _generate_nginx_config(conn: dict) -> str:
         lines.append("server {")
         lines.append("    listen 443 ssl;")
         lines.append(f"    server_name {domains};")
+        lines.append("")
+        lines.append("    # GeoIP JSON access log for dashboard analytics")
+        lines.append("    access_log /var/log/angie/geoip.log with_geoip_json;")
         lines.append("")
         lines.append(blocked_ips_include)
         ssl_cert_path = conn.get("ssl_cert_path") or cert_path
@@ -461,7 +468,7 @@ def get_connection(conn_id: int) -> Connection | None:
 
 def _generate_certs_and_update_connection(conn: dict, connections: list[dict]):
     """Generate SSL certificates and persist paths back to the connection JSON.
-    
+
     Always writes the nginx config afterwards (even if cert generation fails)
     so the site stays reachable with whatever cert is on disk."""
     conn_id = conn["id"]
@@ -545,7 +552,7 @@ def update_connection(conn_id: int, conn_in: ConnectionUpdate) -> Connection | N
     _ensure_dirs()
     connections = _load_connections()
 
-    for idx, conn in enumerate(connections):
+    for conn in connections:
         if conn.get("id") == conn_id:
             # Update fields
             update_data = conn_in.model_dump(exclude_unset=True)
@@ -611,6 +618,74 @@ def delete_connection(conn_id: int) -> bool:
             return True
 
     return False
+
+
+def _find_existing_template_dir(filename: str) -> str | None:
+    """Search /app/site-templates/ subdirectories for *filename*.
+
+    Returns the leaf directory name (e.g. ``"examples"``) of the first
+    match, or ``None`` if no existing template contains the file.
+    Skips the ``uploads`` directory itself and hidden entries.
+    """
+    clean = filename.rsplit("/", 1)[-1].rsplit("\\", 1)[-1]
+    if not SITE_TEMPLATES_DIR.is_dir():
+        return None
+    for entry in sorted(SITE_TEMPLATES_DIR.iterdir()):
+        if not entry.is_dir():
+            continue
+        if entry.name.startswith(".") or entry.name == "uploads":
+            continue
+        candidate = entry / clean
+        if candidate.is_file():
+            logger.info("Found existing template %s containing %s", entry.name, clean)
+            return entry.name
+    return None
+
+
+def save_uploaded_static(file_content: bytes, filename: str, connection_id: int | None = None) -> dict:
+    """Save an uploaded static file and return the source path usable as static_dir.
+
+    If a file with the same name already exists in one of the template
+    directories under ``/app/site-templates/`` (e.g. ``examples/index.html``),
+    that directory's relative name is returned — so the field shows the
+    *original* source path the user expects.
+
+    Otherwise the file is stored under ``uploads/<name>/`` and a fallback
+    relative path is returned.
+
+    Returns dict with keys: path (relative), filename.
+    """
+    from datetime import datetime as dt
+
+    # Always persist the uploaded file so it is available for later use
+    safe_name = filename.rsplit("/", 1)[-1].rsplit("\\", 1)[-1] or "index.html"
+    stem = safe_name.rsplit(".", 1)[0] if "." in safe_name else safe_name
+    stem = stem.replace(" ", "_").replace(".", "_") or "index"
+    ts = dt.utcnow().strftime("%Y%m%d_%H%M%S")
+    dir_name = f"{stem}_{ts}"
+
+    upload_dir = UPLOADS_DIR / dir_name
+    upload_dir.mkdir(parents=True, exist_ok=True)
+
+    file_path = upload_dir / safe_name
+    file_path.write_bytes(file_content)
+    logger.info("Saved uploaded static file %s → %s", filename, file_path)
+
+    # Check whether an existing template directory already contains this file.
+    # If so, return the template name (e.g. "examples") — that is the
+    # "original path" the user wants to see in the UI.
+    existing = _find_existing_template_dir(safe_name)
+    if existing:
+        return {
+            "path": existing,
+            "filename": safe_name,
+        }
+
+    # Fallback — use the uploads/ directory as the source
+    return {
+        "path": f"uploads/{dir_name}",
+        "filename": safe_name,
+    }
 
 
 def reload_connections_config() -> dict:

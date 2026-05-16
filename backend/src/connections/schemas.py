@@ -1,6 +1,7 @@
-from pydantic import BaseModel, Field
-from typing import Optional, Literal
 from datetime import datetime
+from typing import Literal
+
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class ConnectionBase(BaseModel):
@@ -18,17 +19,17 @@ class ConnectionBase(BaseModel):
     backend_url: str = Field(
         default="", description="Backend target URL (proxy_pass destination) — required for proxy mode"
     )
-    static_dir: Optional[str] = Field(
+    static_dir: str | None = Field(
         default=None, description="Source directory for static site (backend-accessible path, e.g. 'examples' → /app/site-templates/examples). Content is copied into http.d/conn_<id>/site/ on creation."
     )
     enabled: bool = Field(default=True, description="Whether this proxy rule is active")
     ssl_enabled: bool = Field(default=False, description="Enable SSL/TLS for this site")
-    ssl_cert_path: Optional[str] = Field(default=None, description="Path to SSL certificate file")
-    ssl_key_path: Optional[str] = Field(default=None, description="Path to SSL private key file")
+    ssl_cert_path: str | None = Field(default=None, description="Path to SSL certificate file")
+    ssl_key_path: str | None = Field(default=None, description="Path to SSL private key file")
     preserve_host: bool = Field(
         default=True, description="Preserve original Host header when proxying"
     )
-    custom_nginx_config: Optional[str] = Field(
+    custom_nginx_config: str | None = Field(
         default=None, description="Additional custom Nginx directives"
     )
 
@@ -42,25 +43,24 @@ class ConnectionCreate(ConnectionBase):
 class ConnectionUpdate(BaseModel):
     """Schema for updating an existing connection."""
 
-    name: Optional[str] = Field(None, min_length=1, max_length=128)
-    domains: Optional[list[str]] = None
-    mode: Optional[Literal["proxy", "static"]] = None
-    backend_url: Optional[str] = None
-    static_dir: Optional[str] = None
-    enabled: Optional[bool] = None
-    ssl_enabled: Optional[bool] = None
-    ssl_cert_path: Optional[str] = None
-    ssl_key_path: Optional[str] = None
-    preserve_host: Optional[bool] = None
-    custom_nginx_config: Optional[str] = None
+    name: str | None = Field(None, min_length=1, max_length=128)
+    domains: list[str] | None = None
+    mode: Literal["proxy", "static"] | None = None
+    backend_url: str | None = None
+    static_dir: str | None = None
+    enabled: bool | None = None
+    ssl_enabled: bool | None = None
+    ssl_cert_path: str | None = None
+    ssl_key_path: str | None = None
+    preserve_host: bool | None = None
+    custom_nginx_config: str | None = None
 
 
 class Connection(ConnectionBase):
     """Full connection model with id and timestamps."""
 
+    model_config = ConfigDict(from_attributes=True)
+
     id: int = Field(..., description="Unique identifier")
     created_at: datetime = Field(..., description="Creation timestamp")
     updated_at: datetime = Field(..., description="Last update timestamp")
-
-    class Config:
-        from_attributes = True

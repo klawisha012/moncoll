@@ -376,10 +376,9 @@ export default function Connections() {
                     ref={fileInputRef}
                     style={{ display: "none" }}
                     accept=".html,.htm"
-                    onChange={(e) => {
+                    onChange={async (e) => {
                       const file = e.target.files?.[0];
                       if (!file) return;
-                      const fileName = file.name;
                       const filePath = (file as any).path as string | undefined;
                       if (filePath) {
                         // Electron / Tauri: real filesystem path available
@@ -397,12 +396,27 @@ export default function Connections() {
                           showToast(`📁 Directory: ${dirPath}`, "info");
                         }
                       } else {
-                        // Browser: full path not available — clear field, guide user
-                        updateFormField("static_dir", null);
-                        showToast(
-                          `📄 Selected "${fileName}". Enter the container directory path manually (e.g. /usr/share/angie/html).`,
-                          "info"
-                        );
+                        // Browser: upload file to backend, get a backend-accessible path
+                        try {
+                          const result = await api.uploadStaticFile(file);
+                          updateFormField("static_dir", result.path);
+                          if (result.path.startsWith("uploads/")) {
+                            showToast(
+                              `✅ Uploaded "${result.filename}" → ${result.path}`,
+                              "success"
+                            );
+                          } else {
+                            showToast(
+                              `📁 Matched template "${result.path}" (contains "${result.filename}")`,
+                              "success"
+                            );
+                          }
+                        } catch (err: any) {
+                          showToast(
+                            `❌ Upload failed: ${err.message || "Unknown error"}`,
+                            "error"
+                          );
+                        }
                       }
                       // Reset so the same file can be re-selected
                       e.target.value = "";

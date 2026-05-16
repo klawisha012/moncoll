@@ -1,5 +1,5 @@
 import asyncio
-from typing import List, Optional
+
 import docker
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
@@ -20,14 +20,14 @@ class ContainerMetrics(BaseModel):
 
 
 class MetricsResponse(BaseModel):
-    containers: List[ContainerMetrics]
+    containers: list[ContainerMetrics]
 
 
 def get_docker_client() -> docker.DockerClient:
     return docker.from_env()
 
 
-def _get_compose_project(client: docker.DockerClient) -> Optional[str]:
+def _get_compose_project(client: docker.DockerClient) -> str | None:
     """Detect the docker-compose project name from the backend's own container."""
     try:
         own_id = None
@@ -79,13 +79,29 @@ def _get_compose_project(client: docker.DockerClient) -> Optional[str]:
 
 
 def _calculate_container_stats(container) -> ContainerMetrics:
-    """Extract metrics from a single container (runs in thread pool)."""
-    stats = container.stats(stream=False)
+    """Extract metrics from a single container (runs in thread pool).
+
+    All dictionary accesses use .get() with sensible defaults so the
+    function never crashes on missing keys — the Docker stats API shape
+    can vary between Docker / cgroup versions and container states.
+    """
+    try:
+        stats = container.stats(stream=False)
+    except Exception:
+        return ContainerMetrics(
+            name=container.name,
+            cpu=0.0, memory=0.0, memory_percent=0.0,
+            network_rx=0, network_tx=0,
+        )
 
     # --- CPU ---
-    cpu_stats = stats["cpu_stats"]
-    precpu_stats = stats["precpu_stats"]
-    cpu_delta = cpu_stats["cpu_usage"]["total_usage"] - precpu_stats["cpu_usage"]["total_usage"]
+    cpu_stats = stats.get("cpu_stats") or {}
+    precpu_stats = stats.get("precpu_stats") or {}
+
+    cpu_usage = cpu_stats.get("cpu_usage") or {}
+    precpu_usage = precpu_stats.get("cpu_usage") or {}
+
+    cpu_delta = cpu_usage.get("total_usage", 0) - precpu_usage.get("total_usage", 0)
     system_delta = cpu_stats.get("system_cpu_usage", 0) - precpu_stats.get("system_cpu_usage", 0)
     num_cpus = cpu_stats.get("online_cpus", 1)
 
@@ -95,9 +111,9 @@ def _calculate_container_stats(container) -> ContainerMetrics:
         cpu_percent = 0.0
 
     # --- Memory ---
-    mem_stats = stats["memory_stats"]
-    memory_usage = mem_stats["usage"]
-    memory_limit = mem_stats["limit"]
+    mem_stats = stats.get("memory_stats") or {}
+    memory_usage = mem_stats.get("usage", 0)
+    memory_limit = mem_stats.get("limit", 0)
 
     # If limit is the "unlimited" sentinel, fall back to the host total reported by Docker
     if memory_limit >= _DOCKER_UNLIMITED_MEMORY or memory_limit <= 0:
@@ -105,18 +121,24 @@ def _calculate_container_stats(container) -> ContainerMetrics:
         memory_limit = mem_stats.get("hierarchical_memory_limit", 0)
     if memory_limit >= _DOCKER_UNLIMITED_MEMORY or memory_limit <= 0:
         # Last resort: total_rss + total_cache from stats
-        stats_mem = mem_stats.get("stats", {})
+        stats_mem = mem_stats.get("stats") or {}
         memory_limit = stats_mem.get("total_rss", 0) + stats_mem.get("total_cache", 0)
         if memory_limit <= 0:
             memory_limit = 1  # avoid division by zero
+
+    if memory_usage <= 0:
+        memory_usage = 0
 
     memory_mb = memory_usage / (1024 * 1024)
     memory_percent = (memory_usage / memory_limit) * 100.0
 
     # --- Network ---
-    networks = stats.get("networks", {})
-    network_rx = sum(n.get("rx_bytes", 0) for n in networks.values())
-    network_tx = sum(n.get("tx_bytes", 0) for n in networks.values())
+    networks = stats.get("networks") or {}
+    network_rx = 0
+    network_tx = 0
+    if isinstance(networks, dict):
+        network_rx = sum(n.get("rx_bytes", 0) for n in networks.values() if isinstance(n, dict))
+        network_tx = sum(n.get("tx_bytes", 0) for n in networks.values() if isinstance(n, dict))
 
     return ContainerMetrics(
         name=container.name,
@@ -143,22 +165,30 @@ async def get_container_metrics():
                 if c.labels.get("com.docker.compose.project") == compose_project
             ]
         else:
-            # Fallback: exclude obvious system containers
+            # Fallback: include all running containers
             containers = [
                 c for c in all_containers
-                if not c.name.startswith("/")
+                if c.status == "running"
             ]
 
-        # Fetch stats for all containers concurrently via thread pool
+        # Fetch stats for all containers concurrently via thread pool.
+        # Wrap each call so one failing container doesn't break the whole response.
         loop = asyncio.get_running_loop()
-        metrics = await asyncio.gather(*[
-            loop.run_in_executor(None, _calculate_container_stats, c)
-            for c in containers
-        ])
 
+        async def _safe_stats(container):
+            try:
+                return await loop.run_in_executor(None, _calculate_container_stats, container)
+            except Exception:
+                return ContainerMetrics(
+                    name=container.name,
+                    cpu=0.0, memory=0.0, memory_percent=0.0,
+                    network_rx=0, network_tx=0,
+                )
+
+        metrics = await asyncio.gather(*[_safe_stats(c) for c in containers])
         return MetricsResponse(containers=list(metrics))
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=str(e)) from e
 
 
 @router.get("/containers")
@@ -178,4 +208,4 @@ def list_containers():
             ]
         }
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=str(e)) from e

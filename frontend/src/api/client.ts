@@ -228,6 +228,7 @@ async function fetchApi<T>(url: string, options?: RequestInit): Promise<T> {
 
   const response = await fetch(`${API_BASE}${url}`, {
     headers,
+    credentials: "include",
     ...options,
   });
 
@@ -235,6 +236,9 @@ async function fetchApi<T>(url: string, options?: RequestInit): Promise<T> {
     const error = await response
       .json()
       .catch(() => ({ detail: response.statusText }));
+    if (response.status === 401 && !url.startsWith("/api/auth/")) {
+      window.dispatchEvent(new CustomEvent("auth:unauthorized"));
+    }
     throw new Error(error.detail || "API request failed");
   }
 
@@ -243,6 +247,35 @@ async function fetchApi<T>(url: string, options?: RequestInit): Promise<T> {
   }
 
   return response.json();
+}
+
+// ── Auth types ─────────────────────────────────────────────
+
+export type UserRole = "admin" | "viewer";
+
+export interface UserPublic {
+  id: number;
+  username: string;
+  role: UserRole;
+  must_change_password: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface LoginResponse {
+  user: UserPublic;
+  must_change_password: boolean;
+}
+
+export interface UserCreateRequest {
+  username: string;
+  password: string;
+  role: UserRole;
+}
+
+export interface UserUpdateRequest {
+  role?: UserRole;
+  password?: string;
 }
 
 export interface CertificateStatus {
@@ -313,6 +346,26 @@ export const api = {
     fetchApi<void>(`/api/connections/${id}`, { method: "DELETE" }),
   reloadConnections: () =>
     fetchApi<ReloadResponse>("/api/connections/reload", { method: "POST" }),
+
+  // Upload a static site file (e.g. index.html) — returns a backend path
+  // that can be used as static_dir when creating/updating a connection.
+  uploadStaticFile: async (file: File): Promise<{ path: string; filename: string }> => {
+    const formData = new FormData();
+    formData.append("file", file);
+    const response = await fetch(`${API_BASE}/api/connections/upload-static`, {
+      method: "POST",
+      body: formData,
+      credentials: "include",
+    });
+    if (!response.ok) {
+      if (response.status === 401) {
+        window.dispatchEvent(new CustomEvent("auth:unauthorized"));
+      }
+      const error = await response.json().catch(() => ({ detail: response.statusText }));
+      throw new Error(error.detail || "Upload failed");
+    }
+    return response.json();
+  },
 
   // SSL Certificates API
   getCertificateStatus: (connectionId: number) =>
@@ -395,4 +448,51 @@ export const api = {
       `/api/crowdsec/scenarios/toggle/${encodeURIComponent(name)}`,
       { method: "POST" }
     ),
+
+  // ── Auth ────────────────────────────────────────────────
+
+  auth: {
+    login: (username: string, password: string) =>
+      fetchApi<LoginResponse>("/api/auth/login", {
+        method: "POST",
+        body: JSON.stringify({ username, password }),
+      }),
+
+    logout: () =>
+      fetchApi<void>("/api/auth/logout", { method: "POST" }),
+
+    me: async (): Promise<UserPublic | null> => {
+      try {
+        return await fetchApi<UserPublic>("/api/auth/me");
+      } catch {
+        return null;
+      }
+    },
+
+    changePassword: (currentPassword: string, newPassword: string) =>
+      fetchApi<UserPublic>("/api/auth/change-password", {
+        method: "POST",
+        body: JSON.stringify({
+          current_password: currentPassword,
+          new_password: newPassword,
+        }),
+      }),
+
+    listUsers: () => fetchApi<UserPublic[]>("/api/auth/users"),
+
+    createUser: (user: UserCreateRequest) =>
+      fetchApi<UserPublic>("/api/auth/users", {
+        method: "POST",
+        body: JSON.stringify(user),
+      }),
+
+    updateUser: (id: number, patch: UserUpdateRequest) =>
+      fetchApi<UserPublic>(`/api/auth/users/${id}`, {
+        method: "PUT",
+        body: JSON.stringify(patch),
+      }),
+
+    deleteUser: (id: number) =>
+      fetchApi<void>(`/api/auth/users/${id}`, { method: "DELETE" }),
+  },
 };

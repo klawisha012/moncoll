@@ -250,7 +250,7 @@ def get_security_events(limit: int = 50, severity: str = "all") -> list[dict[str
     severity_labels = {0: "info", 1: "low", 2: "medium", 3: "high", 4: "critical"}
 
     result = []
-    for ts, rule_id, client_ip, sev, uri, msg in rows:
+    for ts, rule_id, client_ip, sev, uri, _msg in rows:
         result.append(
             {
                 "timestamp": ts.isoformat(),

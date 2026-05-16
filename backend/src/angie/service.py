@@ -136,22 +136,23 @@ def generate_angie_config(settings: AngieSettings) -> str:
 
     return f"""{modules_block}
 
-user  angie;
-worker_processes  {settings.worker_processes};
-worker_rlimit_nofile {settings.worker_rlimit_nofile};
-
-pid        /run/angie/angie.pid;
-
-events {{
-    worker_connections  {settings.worker_connections};
-}}
-
-
-http {{
-    # Real IP from X-Forwarded-For (Docker / reverse proxy)
-    set_real_ip_from 10.0.0.0/8;
-    set_real_ip_from 172.16.0.0/12;
-    set_real_ip_from 192.168.0.0/16;
+ user  angie;
+ worker_processes  {settings.worker_processes};
+ worker_rlimit_nofile {settings.worker_rlimit_nofile};
+ 
+ pid        /run/angie/angie.pid;
+ 
+ events {{
+     worker_connections  {settings.worker_connections};
+ }}
+ 
+ 
+ http {{
+     # Real IP from X-Forwarded-For (Docker / reverse proxy)
+     set_real_ip_from 10.0.0.0/8;
+     set_real_ip_from 127.0.0.0/8;
+     set_real_ip_from 172.16.0.0/12;
+     set_real_ip_from 192.168.0.0/16;
     real_ip_header X-Forwarded-For;
     real_ip_recursive on;
 

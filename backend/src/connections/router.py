@@ -1,5 +1,5 @@
-from fastapi import APIRouter, HTTPException
-from typing import List
+
+from fastapi import APIRouter, File, HTTPException, UploadFile
 
 from . import service as connection_service
 from .schemas import Connection, ConnectionCreate, ConnectionUpdate
@@ -7,7 +7,7 @@ from .schemas import Connection, ConnectionCreate, ConnectionUpdate
 connections_router = APIRouter(prefix="/api/connections", tags=["connections"])
 
 
-@connections_router.get("/", response_model=List[Connection])
+@connections_router.get("/", response_model=list[Connection])
 async def list_connections():
     """List all site connections."""
     return connection_service.list_connections()
@@ -44,6 +44,25 @@ async def delete_connection(connection_id: int):
     if not success:
         raise HTTPException(status_code=404, detail="Connection not found")
     return None
+
+
+@connections_router.post("/upload-static")
+async def upload_static_file(
+    file: UploadFile = File(...),
+):
+    """Upload a static site file (e.g. index.html) via the browser file picker.
+
+    Returns a backend-accessible path that can be used as ``static_dir``
+    when creating or updating a connection.  The path is an absolute
+    directory inside the backend container that :func:`_resolve_static_source`
+    will recognise.
+    """
+    content = await file.read()
+    result = connection_service.save_uploaded_static(
+        content,
+        file.filename or "index.html",
+    )
+    return result
 
 
 @connections_router.post("/reload")

@@ -87,6 +87,7 @@ services:
       - ./examples/:/app/site-templates/examples/:ro
       - /var/run/docker.sock:/var/run/docker.sock
       - letsencrypt:/etc/letsencrypt
+      - backend-data:/var/lib/angie/data
     restart: unless-stopped
     env_file:
       - .env
@@ -193,3 +194,4 @@ volumes:
   crowdsec-db:
   prometheus-storage:
   letsencrypt:
+  backend-data:
