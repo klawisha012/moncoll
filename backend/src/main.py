@@ -14,6 +14,7 @@ from .certificates import certificates_router
 from .connections.router import connections_router
 from .crowdsec.router import router as crowdsec_router
 from .dashboard.router import router as dashboard_router
+from .db.base import get_sessionmaker
 from .modsecurity import router as modsecurity_router
 from .monitoring import router as monitoring_router
 
@@ -34,7 +35,9 @@ def _allowed_origins() -> list[str]:
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     try:
-        auth_service.seed_default_admin()
+        sessionmaker = get_sessionmaker()
+        async with sessionmaker() as session:
+            await auth_service.seed_default_admin(session)
     except Exception as exc:
         logger.exception("Failed to seed default admin user: %s", exc)
     yield

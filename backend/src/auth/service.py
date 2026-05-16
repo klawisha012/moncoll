@@ -1,94 +1,36 @@
-import json
 import logging
-import os
-import tempfile
-from datetime import datetime, timezone
-from pathlib import Path
 
-from .schemas import UserCreate, UserPublic, UserUpdate
+from sqlalchemy import func, select
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from ..db.models import User
+from .schemas import UserCreate, UserUpdate
 from .security import hash_password, verify_password
 
 logger = logging.getLogger(__name__)
-
-USERS_DIR = Path("/var/lib/angie/data")
-USERS_FILE = USERS_DIR / "users.json"
 
 DEFAULT_ADMIN_USERNAME = "admin"
 DEFAULT_ADMIN_PASSWORD = "admin"
 
 
-def _ensure_dirs() -> None:
-    USERS_DIR.mkdir(parents=True, exist_ok=True)
+async def _count_admins(session: AsyncSession) -> int:
+    result = await session.execute(select(func.count()).select_from(User).where(User.role == "admin"))
+    return int(result.scalar_one())
 
 
-def _load_users() -> list[dict]:
-    if not USERS_FILE.exists():
-        return []
-    try:
-        content = USERS_FILE.read_text()
-        data = json.loads(content)
-        return data if isinstance(data, list) else []
-    except (OSError, json.JSONDecodeError) as exc:
-        logger.error("Failed to read users.json: %s", exc)
-        return []
-
-
-def _save_users(users: list[dict]) -> None:
-    """Atomic write — tempfile + os.replace so the file is never half-written."""
-    _ensure_dirs()
-    fd, tmp_path = tempfile.mkstemp(prefix=".users.", suffix=".json.tmp", dir=str(USERS_DIR))
-    try:
-        with os.fdopen(fd, "w") as f:
-            json.dump(users, f, indent=2)
-        os.replace(tmp_path, USERS_FILE)
-        try:
-            os.chmod(USERS_FILE, 0o600)
-        except OSError:
-            pass
-    except Exception:
-        try:
-            os.unlink(tmp_path)
-        except OSError:
-            pass
-        raise
-
-
-def _next_id(users: list[dict]) -> int:
-    return max([u.get("id", 0) for u in users] + [0]) + 1
-
-
-def _to_public(user: dict) -> UserPublic:
-    return UserPublic(
-        id=user["id"],
-        username=user["username"],
-        role=user["role"],
-        must_change_password=user.get("must_change_password", False),
-        created_at=user["created_at"],
-        updated_at=user["updated_at"],
-    )
-
-
-def _count_admins(users: list[dict]) -> int:
-    return sum(1 for u in users if u.get("role") == "admin")
-
-
-def seed_default_admin() -> None:
+async def seed_default_admin(session: AsyncSession) -> None:
     """Create default admin/admin user if no users exist."""
-    _ensure_dirs()
-    users = _load_users()
-    if users:
+    existing = await session.execute(select(func.count()).select_from(User))
+    if existing.scalar_one() > 0:
         return
-    now = datetime.now(timezone.utc).isoformat()
-    admin = {
-        "id": 1,
-        "username": DEFAULT_ADMIN_USERNAME,
-        "password_hash": hash_password(DEFAULT_ADMIN_PASSWORD),
-        "role": "admin",
-        "must_change_password": True,
-        "created_at": now,
-        "updated_at": now,
-    }
-    _save_users([admin])
+    admin = User(
+        username=DEFAULT_ADMIN_USERNAME,
+        password_hash=hash_password(DEFAULT_ADMIN_PASSWORD),
+        role="admin",
+        must_change_password=True,
+    )
+    session.add(admin)
+    await session.commit()
     logger.warning(
         "Created default admin user (username=%s, password=%s, must_change_password=true). "
         "Change the password on first login.",
@@ -97,83 +39,72 @@ def seed_default_admin() -> None:
     )
 
 
-def authenticate(username: str, password: str) -> dict | None:
-    for user in _load_users():
-        if user.get("username") == username and verify_password(
-            password, user.get("password_hash", "")
-        ):
-            return user
+async def authenticate(session: AsyncSession, username: str, password: str) -> User | None:
+    result = await session.execute(select(User).where(User.username == username))
+    user = result.scalar_one_or_none()
+    if user and verify_password(password, user.password_hash):
+        return user
     return None
 
 
-def get_user(user_id: int) -> dict | None:
-    for user in _load_users():
-        if user.get("id") == user_id:
-            return user
-    return None
+async def get_user(session: AsyncSession, user_id: int) -> User | None:
+    return await session.get(User, user_id)
 
 
-def list_users() -> list[UserPublic]:
-    return [_to_public(u) for u in _load_users()]
+async def list_users(session: AsyncSession) -> list[User]:
+    result = await session.execute(select(User).order_by(User.id))
+    return list(result.scalars().all())
 
 
-def create_user(payload: UserCreate) -> UserPublic:
-    users = _load_users()
-    if any(u.get("username") == payload.username for u in users):
+async def create_user(session: AsyncSession, payload: UserCreate) -> User:
+    existing = await session.execute(select(User).where(User.username == payload.username))
+    if existing.scalar_one_or_none() is not None:
         raise ValueError("username already exists")
-    now = datetime.now(timezone.utc).isoformat()
-    new_user = {
-        "id": _next_id(users),
-        "username": payload.username,
-        "password_hash": hash_password(payload.password),
-        "role": payload.role,
-        "must_change_password": False,
-        "created_at": now,
-        "updated_at": now,
-    }
-    users.append(new_user)
-    _save_users(users)
-    return _to_public(new_user)
+    user = User(
+        username=payload.username,
+        password_hash=hash_password(payload.password),
+        role=payload.role,
+        must_change_password=False,
+    )
+    session.add(user)
+    await session.commit()
+    await session.refresh(user)
+    return user
 
 
-def update_user(user_id: int, payload: UserUpdate) -> UserPublic | None:
-    users = _load_users()
-    for user in users:
-        if user.get("id") != user_id:
-            continue
-        if payload.role is not None:
-            if user.get("role") == "admin" and payload.role != "admin":
-                if _count_admins(users) <= 1:
-                    raise ValueError("cannot demote the last admin")
-            user["role"] = payload.role
-        if payload.password is not None:
-            user["password_hash"] = hash_password(payload.password)
-            user["must_change_password"] = True
-        user["updated_at"] = datetime.now(timezone.utc).isoformat()
-        _save_users(users)
-        return _to_public(user)
-    return None
+async def update_user(session: AsyncSession, user_id: int, payload: UserUpdate) -> User | None:
+    user = await session.get(User, user_id)
+    if user is None:
+        return None
+    if payload.role is not None:
+        if user.role == "admin" and payload.role != "admin":
+            if await _count_admins(session) <= 1:
+                raise ValueError("cannot demote the last admin")
+        user.role = payload.role
+    if payload.password is not None:
+        user.password_hash = hash_password(payload.password)
+        user.must_change_password = True
+    await session.commit()
+    await session.refresh(user)
+    return user
 
 
-def change_password(user_id: int, new_password: str) -> bool:
-    users = _load_users()
-    for user in users:
-        if user.get("id") == user_id:
-            user["password_hash"] = hash_password(new_password)
-            user["must_change_password"] = False
-            user["updated_at"] = datetime.now(timezone.utc).isoformat()
-            _save_users(users)
-            return True
-    return False
+async def change_password(session: AsyncSession, user_id: int, new_password: str) -> bool:
+    user = await session.get(User, user_id)
+    if user is None:
+        return False
+    user.password_hash = hash_password(new_password)
+    user.must_change_password = False
+    await session.commit()
+    return True
 
 
-def delete_user(user_id: int) -> bool:
-    users = _load_users()
-    for idx, user in enumerate(users):
-        if user.get("id") == user_id:
-            if user.get("role") == "admin" and _count_admins(users) <= 1:
-                raise ValueError("cannot delete the last admin")
-            users.pop(idx)
-            _save_users(users)
-            return True
-    return False
+async def delete_user(session: AsyncSession, user_id: int) -> bool:
+    user = await session.get(User, user_id)
+    if user is None:
+        return False
+    if user.role == "admin" and await _count_admins(session) <= 1:
+        raise ValueError("cannot delete the last admin")
+    await session.delete(user)
+    await session.commit()
+    return True

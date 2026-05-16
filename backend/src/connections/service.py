@@ -1,17 +1,19 @@
-import json
 import logging
 import re
 import shutil
 from datetime import datetime
 from pathlib import Path
 
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+
 from ..certificates import service as cert_service
+from ..db.models import Connection as ConnectionModel
 from .schemas import Connection, ConnectionCreate, ConnectionUpdate
 
 logger = logging.getLogger(__name__)
 
 CONNECTIONS_DIR = Path("/var/lib/angie")
-CONNECTIONS_FILE = CONNECTIONS_DIR / "connections.json"
 CONNECTIONS_D_DIR = CONNECTIONS_DIR / "http.d"
 
 # ── Static site default source (backend container path) ──
@@ -24,26 +26,29 @@ _STRIP_DIRECTIVES = {"listen", "server_name", "ssl_certificate", "ssl_certificat
 
 
 def _ensure_dirs():
-    """Ensure connections directory and http.d directory exist."""
+    """Ensure http.d directory exists for generated nginx fragments."""
     CONNECTIONS_DIR.mkdir(parents=True, exist_ok=True)
     CONNECTIONS_D_DIR.mkdir(parents=True, exist_ok=True)
 
 
-def _load_connections() -> list[dict]:
-    """Load connections from JSON file."""
-    if not CONNECTIONS_FILE.exists():
-        return []
-    try:
-        content = CONNECTIONS_FILE.read_text()
-        data = json.loads(content)
-        return data if isinstance(data, list) else []
-    except (OSError, json.JSONDecodeError):
-        return []
-
-
-def _save_connections(connections: list[dict]):
-    """Save connections list to JSON file."""
-    CONNECTIONS_FILE.write_text(json.dumps(connections, indent=2))
+def _to_dict(c: ConnectionModel) -> dict:
+    """Adapter: ORM row → dict used by the file-generation helpers below."""
+    return {
+        "id": c.id,
+        "name": c.name,
+        "domains": list(c.domains or []),
+        "mode": c.mode,
+        "backend_url": c.backend_url,
+        "static_dir": c.static_dir,
+        "enabled": c.enabled,
+        "ssl_enabled": c.ssl_enabled,
+        "ssl_cert_path": c.ssl_cert_path,
+        "ssl_key_path": c.ssl_key_path,
+        "preserve_host": c.preserve_host,
+        "custom_nginx_config": c.custom_nginx_config,
+        "created_at": c.created_at.isoformat() if c.created_at else None,
+        "updated_at": c.updated_at.isoformat() if c.updated_at else None,
+    }
 
 
 def _get_ssl_paths(conn_id: int) -> tuple[str, str]:
@@ -451,135 +456,124 @@ def _delete_nginx_config(conn_id: int):
     _rmdir_if_empty(conn_dir)
 
 
-def list_connections() -> list[Connection]:
+async def list_connections(session: AsyncSession) -> list[Connection]:
     """List all connections."""
-    connections = _load_connections()
-    return [Connection(**conn) for conn in connections]
+    result = await session.execute(select(ConnectionModel).order_by(ConnectionModel.id))
+    return [Connection.model_validate(_to_dict(row)) for row in result.scalars().all()]
 
 
-def get_connection(conn_id: int) -> Connection | None:
+async def get_connection(session: AsyncSession, conn_id: int) -> Connection | None:
     """Get a specific connection by ID."""
-    connections = _load_connections()
-    for conn in connections:
-        if conn.get("id") == conn_id:
-            return Connection(**conn)
-    return None
+    row = await session.get(ConnectionModel, conn_id)
+    if row is None:
+        return None
+    return Connection.model_validate(_to_dict(row))
 
 
-def _generate_certs_and_update_connection(conn: dict, connections: list[dict]):
-    """Generate SSL certificates and persist paths back to the connection JSON.
+async def _generate_certs_and_update_connection(session: AsyncSession, row: ConnectionModel):
+    """Generate SSL certificates and persist paths back to the connection row.
 
     Always writes the nginx config afterwards (even if cert generation fails)
     so the site stays reachable with whatever cert is on disk."""
-    conn_id = conn["id"]
-    domains = conn.get("domains", [])
+    domains = list(row.domains or [])
     if not domains:
-        _write_nginx_config(conn)
+        _write_nginx_config(_to_dict(row))
         return
 
-    result = cert_service.trigger_acme_request(conn_id, domains)
+    result = cert_service.trigger_acme_request(row.id, domains)
     if result.get("success"):
         cert_path = result.get("certificate_path")
         key_path = result.get("key_path")
         if cert_path and key_path:
-            conn["ssl_cert_path"] = cert_path
-            conn["ssl_key_path"] = key_path
-            conn["updated_at"] = datetime.utcnow().isoformat()
-            _save_connections(connections)
+            row.ssl_cert_path = cert_path
+            row.ssl_key_path = key_path
+            await session.commit()
+            await session.refresh(row)
 
     # Always write config — the existing cert on disk (if any) will be used
-    _write_nginx_config(conn)
+    _write_nginx_config(_to_dict(row))
 
 
-def create_connection(conn_in: ConnectionCreate) -> Connection:
+async def create_connection(session: AsyncSession, conn_in: ConnectionCreate) -> Connection:
     """Create a new connection."""
     _ensure_dirs()
-    connections = _load_connections()
 
-    new_id = max([c.get("id", 0) for c in connections] + [0]) + 1
-
-    now = datetime.utcnow()
-    new_conn = {
-        "id": new_id,
-        "name": conn_in.name,
-        "domains": conn_in.domains,
-        "mode": conn_in.mode,
-        "backend_url": conn_in.backend_url,
-        "static_dir": conn_in.static_dir,
-        "enabled": conn_in.enabled,
-        "ssl_enabled": conn_in.ssl_enabled,
-        "ssl_cert_path": conn_in.ssl_cert_path,
-        "ssl_key_path": conn_in.ssl_key_path,
-        "preserve_host": conn_in.preserve_host,
-        "custom_nginx_config": conn_in.custom_nginx_config,
-        "created_at": now.isoformat(),
-        "updated_at": now.isoformat(),
-    }
-
-    connections.append(new_conn)
-    _save_connections(connections)
+    row = ConnectionModel(
+        name=conn_in.name,
+        domains=list(conn_in.domains),
+        mode=conn_in.mode,
+        backend_url=conn_in.backend_url,
+        static_dir=conn_in.static_dir,
+        enabled=conn_in.enabled,
+        ssl_enabled=conn_in.ssl_enabled,
+        ssl_cert_path=conn_in.ssl_cert_path,
+        ssl_key_path=conn_in.ssl_key_path,
+        preserve_host=conn_in.preserve_host,
+        custom_nginx_config=conn_in.custom_nginx_config,
+    )
+    session.add(row)
+    await session.commit()
+    await session.refresh(row)
 
     # Copy static site content into the connection directory
-    if new_conn["mode"] == "static":
-        source = new_conn.get("static_dir") or "examples"
-        _copy_static_site(new_id, source)
+    if row.mode == "static":
+        source = row.static_dir or "examples"
+        _copy_static_site(row.id, source)
 
         # Auto-populate domains from site configs if not explicitly provided
-        if not new_conn["domains"]:
-            site_dir = _site_dir(new_id)
+        if not row.domains:
+            site_dir = _site_dir(row.id)
             parsed_domains = _parse_domains_from_site(site_dir)
             if parsed_domains:
-                new_conn["domains"] = parsed_domains
-                _save_connections(connections)
+                row.domains = parsed_domains
+                await session.commit()
+                await session.refresh(row)
                 logger.info(
                     "Conn %d: auto-populated domains from site configs: %s",
-                    new_id, parsed_domains,
+                    row.id, parsed_domains,
                 )
 
     # Generate Nginx config
-    if new_conn["enabled"]:
-        # Generate certificates first if SSL is enabled (so nginx config references them)
-        if new_conn["ssl_enabled"] and new_conn["domains"]:
-            _generate_certs_and_update_connection(new_conn, connections)
+    if row.enabled:
+        if row.ssl_enabled and row.domains:
+            await _generate_certs_and_update_connection(session, row)
         else:
-            _write_nginx_config(new_conn)
+            _write_nginx_config(_to_dict(row))
 
-    return Connection(**new_conn)
+    return Connection.model_validate(_to_dict(row))
 
 
-def update_connection(conn_id: int, conn_in: ConnectionUpdate) -> Connection | None:
+async def update_connection(
+    session: AsyncSession, conn_id: int, conn_in: ConnectionUpdate
+) -> Connection | None:
     """Update an existing connection."""
     _ensure_dirs()
-    connections = _load_connections()
 
-    for conn in connections:
-        if conn.get("id") == conn_id:
-            # Update fields
-            update_data = conn_in.model_dump(exclude_unset=True)
-            conn.update(update_data)
-            conn["updated_at"] = datetime.utcnow().isoformat()
+    row = await session.get(ConnectionModel, conn_id)
+    if row is None:
+        return None
 
-            _save_connections(connections)
+    update_data = conn_in.model_dump(exclude_unset=True)
+    for key, value in update_data.items():
+        setattr(row, key, value)
+    await session.commit()
+    await session.refresh(row)
 
-            # Re-copy static site if mode changed to static or static_dir updated
-            if conn.get("mode") == "static":
-                # Always re-copy on mode=static (idempotent)
-                source = conn.get("static_dir") or "examples"
-                _copy_static_site(conn_id, source)
+    # Re-copy static site if mode changed to static or static_dir updated
+    if row.mode == "static":
+        source = row.static_dir or "examples"
+        _copy_static_site(conn_id, source)
 
-            # Regenerate or delete Nginx config based on enabled status
-            if conn.get("enabled"):
-                # Generate certificates first if SSL is enabled (so nginx config references them)
-                if conn.get("ssl_enabled") and conn.get("domains"):
-                    _generate_certs_and_update_connection(conn, connections)
-                else:
-                    _write_nginx_config(conn)
-            else:
-                _delete_nginx_config(conn_id)
+    # Regenerate or delete Nginx config based on enabled status
+    if row.enabled:
+        if row.ssl_enabled and row.domains:
+            await _generate_certs_and_update_connection(session, row)
+        else:
+            _write_nginx_config(_to_dict(row))
+    else:
+        _delete_nginx_config(conn_id)
 
-            return Connection(**conn)
-
-    return None
+    return Connection.model_validate(_to_dict(row))
 
 
 def _delete_ssl_certs(conn_id: int):
@@ -604,20 +598,19 @@ def _rmdir_if_empty(dir_path: Path):
         pass  # directory not empty, that's fine
 
 
-def delete_connection(conn_id: int) -> bool:
+async def delete_connection(session: AsyncSession, conn_id: int) -> bool:
     """Delete a connection."""
     _ensure_dirs()
-    connections = _load_connections()
 
-    for idx, conn in enumerate(connections):
-        if conn.get("id") == conn_id:
-            connections.pop(idx)
-            _save_connections(connections)
-            _delete_nginx_config(conn_id)
-            _delete_ssl_certs(conn_id)
-            return True
+    row = await session.get(ConnectionModel, conn_id)
+    if row is None:
+        return False
 
-    return False
+    await session.delete(row)
+    await session.commit()
+    _delete_nginx_config(conn_id)
+    _delete_ssl_certs(conn_id)
+    return True
 
 
 def _find_existing_template_dir(filename: str) -> str | None:
@@ -688,32 +681,32 @@ def save_uploaded_static(file_content: bytes, filename: str, connection_id: int 
     }
 
 
-def reload_connections_config() -> dict:
+async def reload_connections_config(session: AsyncSession) -> dict:
     """Regenerate all Nginx config files and return status."""
     try:
         _ensure_dirs()
-        connections = _load_connections()
+        result = await session.execute(select(ConnectionModel).order_by(ConnectionModel.id))
+        rows = list(result.scalars().all())
 
         # Clear existing connection configs (both old top-level and new subdirectory patterns)
         for f in CONNECTIONS_D_DIR.glob("*.conf"):
             f.unlink()
-        # Remove conn_* subdirectories
         for d in CONNECTIONS_D_DIR.glob("conn_*"):
             if d.is_dir():
                 shutil.rmtree(d)
 
         # Generate new configs for enabled connections & re-copy static sites
-        for conn in connections:
-            if conn.get("enabled"):
-                if conn.get("mode") == "static":
-                    source = conn.get("static_dir") or "examples"
-                    _copy_static_site(conn["id"], source)
-                # Re-generate SSL certs if enabled (they were deleted above)
-                if conn.get("ssl_enabled") and conn.get("domains"):
-                    _generate_certs_and_update_connection(conn, connections)
-                else:
-                    _write_nginx_config(conn)
+        for row in rows:
+            if not row.enabled:
+                continue
+            if row.mode == "static":
+                source = row.static_dir or "examples"
+                _copy_static_site(row.id, source)
+            if row.ssl_enabled and row.domains:
+                await _generate_certs_and_update_connection(session, row)
+            else:
+                _write_nginx_config(_to_dict(row))
 
-        return {"success": True, "message": f"Generated {len(connections)} connection configs"}
+        return {"success": True, "message": f"Generated {len(rows)} connection configs"}
     except Exception as e:
         return {"success": False, "message": str(e)}

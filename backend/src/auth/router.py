@@ -2,10 +2,11 @@ import logging
 import os
 
 from fastapi import APIRouter, Depends, HTTPException, Response, status
+from sqlalchemy.ext.asyncio import AsyncSession
 
+from ..db.models import User
+from ..db.session import get_session
 from . import service as auth_service
-
-logger = logging.getLogger(__name__)
 from .dependencies import COOKIE_NAME, get_current_user, require_admin
 from .schemas import (
     ChangePasswordRequest,
@@ -16,6 +17,8 @@ from .schemas import (
     UserUpdate,
 )
 from .security import JWT_TTL_SECONDS, create_access_token, verify_password
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
 
@@ -42,88 +45,104 @@ def _set_session_cookie(response: Response, token: str) -> None:
 
 
 @router.post("/login", response_model=LoginResponse)
-def login(payload: LoginRequest, response: Response):
-    # Ensure default admin exists (fallback if lifespan seeding failed)
+async def login(
+    payload: LoginRequest,
+    response: Response,
+    session: AsyncSession = Depends(get_session),
+):
     try:
-        auth_service.seed_default_admin()
+        await auth_service.seed_default_admin(session)
     except Exception:
         logger.exception("seed_default_admin failed during login")
 
-    user = auth_service.authenticate(payload.username, payload.password)
+    user = await auth_service.authenticate(session, payload.username, payload.password)
     if not user:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="invalid username or password",
         )
-    token = create_access_token(
-        user_id=user["id"], username=user["username"], role=user["role"]
-    )
+    token = create_access_token(user_id=user.id, username=user.username, role=user.role)
     _set_session_cookie(response, token)
     return LoginResponse(
-        user=UserPublic(**user),
-        must_change_password=user.get("must_change_password", False),
+        user=UserPublic.model_validate(user),
+        must_change_password=user.must_change_password,
     )
 
 
 @router.post("/logout", status_code=204)
-def logout(response: Response):
+async def logout(response: Response):
     response.delete_cookie(COOKIE_NAME, path="/")
     return None
 
 
 @router.get("/me", response_model=UserPublic)
-def me(user: dict = Depends(get_current_user)):
-    return UserPublic(**user)
+async def me(user: User = Depends(get_current_user)):
+    return UserPublic.model_validate(user)
 
 
 @router.post("/change-password", response_model=UserPublic)
-def change_password(
+async def change_password(
     payload: ChangePasswordRequest,
-    user: dict = Depends(get_current_user),
+    user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_session),
 ):
-    if not verify_password(payload.current_password, user.get("password_hash", "")):
+    if not verify_password(payload.current_password, user.password_hash):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="current password is incorrect",
         )
-    if not auth_service.change_password(user["id"], payload.new_password):
+    if not await auth_service.change_password(session, user.id, payload.new_password):
         raise HTTPException(status_code=500, detail="failed to update password")
-    updated = auth_service.get_user(user["id"])
-    return UserPublic(**updated)
+    updated = await auth_service.get_user(session, user.id)
+    return UserPublic.model_validate(updated)
 
 
 @router.get("/users", response_model=list[UserPublic])
-def list_users(_: dict = Depends(require_admin)):
-    return auth_service.list_users()
+async def list_users(
+    _: User = Depends(require_admin),
+    session: AsyncSession = Depends(get_session),
+):
+    users = await auth_service.list_users(session)
+    return [UserPublic.model_validate(u) for u in users]
 
 
 @router.post("/users", response_model=UserPublic, status_code=201)
-def create_user(payload: UserCreate, _: dict = Depends(require_admin)):
+async def create_user(
+    payload: UserCreate,
+    _: User = Depends(require_admin),
+    session: AsyncSession = Depends(get_session),
+):
     try:
-        return auth_service.create_user(payload)
+        user = await auth_service.create_user(session, payload)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
+    return UserPublic.model_validate(user)
 
 
 @router.put("/users/{user_id}", response_model=UserPublic)
-def update_user(
+async def update_user(
     user_id: int,
     payload: UserUpdate,
-    _: dict = Depends(require_admin),
+    _: User = Depends(require_admin),
+    session: AsyncSession = Depends(get_session),
 ):
     try:
-        result = auth_service.update_user(user_id, payload)
+        result = await auth_service.update_user(session, user_id, payload)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
     if result is None:
         raise HTTPException(status_code=404, detail="user not found")
-    return result
+    return UserPublic.model_validate(result)
 
 
 @router.delete("/users/{user_id}", status_code=204)
-def delete_user(user_id: int, _: dict = Depends(require_admin)):
+async def delete_user(
+    user_id: int,
+    _: User = Depends(require_admin),
+    session: AsyncSession = Depends(get_session),
+):
     try:
-        ok = auth_service.delete_user(user_id)
+        ok = await auth_service.delete_user(session, user_id)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
     if not ok:

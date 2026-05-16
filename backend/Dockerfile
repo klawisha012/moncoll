@@ -13,10 +13,12 @@ RUN apt-get update \
 
 # Application source comes last so iterative rebuilds are fast
 COPY src/ ./src/
+COPY alembic.ini ./alembic.ini
+COPY alembic/ ./alembic/
 
 EXPOSE 8000
 
 HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \
     CMD curl -fsS http://localhost:8000/metrics > /dev/null || exit 1
 
-CMD ["uvicorn", "src.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]
+CMD ["sh", "-c", "alembic upgrade head && uvicorn src.main:app --host 0.0.0.0 --port 8000 --reload"]

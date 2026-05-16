@@ -1,0 +1,13 @@
+lua_package_path "/usr/local/lua/crowdsec/?.lua;/usr/local/lua/crowdsec/?/init.lua;;";
+lua_shared_dict crowdsec_cache 50m;
+init_by_lua_block {
+    local cs = require "crowdsec"
+    local ok, err = cs.init("/etc/crowdsec/bouncers/crowdsec-nginx-bouncer.conf", "crowdsec-angie-bouncer/v1.0")
+    if not ok then
+        ngx.log(ngx.ERR, "[CrowdSec] Error: " .. (err or "unknown"))
+    end
+}
+access_by_lua_block {
+    local cs = require "crowdsec"
+    cs.allow_request()
+}

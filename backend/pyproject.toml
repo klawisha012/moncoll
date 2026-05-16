@@ -34,6 +34,5 @@ ignore = [
 [tool.ruff.lint.isort]
 known-first-party = ["src"]
 
-[tool.pytest.ini_options]
-testpaths = ["tests"]
-asyncio_mode = "auto"
+# Pytest config lives in the root pyproject.toml so all test layers
+# (unit / integration / e2e) share a single entry point.

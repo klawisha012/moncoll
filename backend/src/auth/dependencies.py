@@ -1,12 +1,18 @@
 from fastapi import Depends, HTTPException, Request, status
+from sqlalchemy.ext.asyncio import AsyncSession
 
+from ..db.models import User
+from ..db.session import get_session
 from . import service as auth_service
 from .security import decode_access_token
 
 COOKIE_NAME = "waf_session"
 
 
-def get_current_user(request: Request) -> dict:
+async def get_current_user(
+    request: Request,
+    session: AsyncSession = Depends(get_session),
+) -> User:
     token = request.cookies.get(COOKIE_NAME)
     if not token:
         raise HTTPException(
@@ -26,7 +32,7 @@ def get_current_user(request: Request) -> dict:
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="invalid session",
         )
-    user = auth_service.get_user(user_id)
+    user = await auth_service.get_user(session, user_id)
     if not user:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -35,8 +41,8 @@ def get_current_user(request: Request) -> dict:
     return user
 
 
-def require_password_changed(user: dict = Depends(get_current_user)) -> dict:
-    if user.get("must_change_password"):
+async def require_password_changed(user: User = Depends(get_current_user)) -> User:
+    if user.must_change_password:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="password change required",
@@ -44,8 +50,8 @@ def require_password_changed(user: dict = Depends(get_current_user)) -> dict:
     return user
 
 
-def require_admin(user: dict = Depends(require_password_changed)) -> dict:
-    if user.get("role") != "admin":
+async def require_admin(user: User = Depends(require_password_changed)) -> User:
+    if user.role != "admin":
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="admin role required",

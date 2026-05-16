@@ -1,0 +1,10 @@
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["backend"]
+asyncio_mode = "auto"
+markers = [
+    "unit: fast, in-process tests with no external deps",
+    "integration: tests that need a database or other local service",
+    "e2e: black-box tests against the live docker-compose stack",
+]
+addopts = "-ra --strict-markers"

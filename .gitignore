@@ -54,7 +54,8 @@ Thumbs.db
 crowdsec/
 vllm
 Dockerfile
-.roo
 
-http.d/
+# AI
+.roo
+.roo/
 .claude/

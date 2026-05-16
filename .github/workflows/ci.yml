@@ -86,7 +86,7 @@ jobs:
     name: Docker - Build Images
     runs-on: ubuntu-latest
     timeout-minutes: 15
-    needs: [backend-checks, frontend-checks]
+    needs: [backend-lint, unit-tests, frontend-checks]
 
     steps:
       - uses: actions/checkout@v4
@@ -123,9 +123,9 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
-  # ─── Integration Tests (full Docker stack) ──────────────
-  integration-tests:
-    name: Integration Tests
+  # ─── E2E Tests (full Docker stack) ───────────────────────
+  e2e-tests:
+    name: E2E Tests
     runs-on: ubuntu-latest
     timeout-minutes: 20
     needs: [docker-build]
@@ -168,21 +168,24 @@ jobs:
           docker exec waf-angie-1 mkdir -p /var/log/angie
           docker exec waf-angie-1 touch /var/log/angie/modsec_audit.log
 
-      - name: Run integration tests
+      - name: Run e2e tests
         run: |
-          cd tests
-          python -m pytest test_sqli_942.py test_xss_941.py test_lfi_930.py -v --tb=short -x
+          pytest -m e2e \
+            tests/e2e/modsecurity/test_sqli_942.py \
+            tests/e2e/modsecurity/test_xss_941.py \
+            tests/e2e/modsecurity/test_lfi_930.py \
+            -v --tb=short -x
         continue-on-error: true
-        id: integration
+        id: e2e
 
       - name: Collect logs on failure
-        if: steps.integration.outcome == 'failure'
+        if: steps.e2e.outcome == 'failure'
         run: |
           docker compose logs --tail=100 > docker-logs.txt 2>&1
-          echo "::warning::Integration tests failed. Check docker-logs.txt artifact."
+          echo "::warning::E2E tests failed. Check docker-logs.txt artifact."
 
       - name: Upload logs artifact
-        if: steps.integration.outcome == 'failure'
+        if: steps.e2e.outcome == 'failure'
         uses: actions/upload-artifact@v4
         with:
           name: docker-logs
@@ -198,7 +201,7 @@ jobs:
     name: Security - Trivy
     runs-on: ubuntu-latest
     timeout-minutes: 15
-    needs: [backend-checks, frontend-checks]
+    needs: [backend-lint, unit-tests, frontend-checks]
 
     permissions:
       security-events: write

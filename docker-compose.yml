@@ -75,19 +75,42 @@ services:
       - GF_SERVER_SERVE_FROM_SUB_PATH=true
       - GF_LIVE_ALLOWED_ORIGINS=*
 
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-waf}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-waf}
+      POSTGRES_DB: ${POSTGRES_DB:-waf}
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-waf} -d ${POSTGRES_DB:-waf}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+    env_file:
+      - .env
+
   backend:
     build: ./backend
     ports:
       - "8000:8000"
     volumes:
       - ./backend/src/:/app/src/
+      - ./backend/alembic/:/app/alembic/
+      - ./backend/alembic.ini:/app/alembic.ini
       - ./configs/angie/angie.conf:/app/etc/angie/angie.conf
-      - ./configs/angie/connections.json:/var/lib/angie/connections.json
       - ./configs/angie/http.d/:/var/lib/angie/http.d/
       - ./examples/:/app/site-templates/examples/:ro
       - /var/run/docker.sock:/var/run/docker.sock
       - letsencrypt:/etc/letsencrypt
       - backend-data:/var/lib/angie/data
+    environment:
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-waf}:${POSTGRES_PASSWORD:-waf}@postgres:5432/${POSTGRES_DB:-waf}
+    depends_on:
+      postgres:
+        condition: service_healthy
     restart: unless-stopped
     env_file:
       - .env
@@ -195,3 +218,4 @@ volumes:
   prometheus-storage:
   letsencrypt:
   backend-data:
+  postgres-data:
