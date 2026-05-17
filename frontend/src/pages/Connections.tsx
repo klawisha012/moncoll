@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import {
   api,
   Connection,
@@ -54,7 +54,14 @@ export default function Connections() {
   const [formData, setFormData] = useState<ConnectionCreate>(DEFAULT_FORM);
   const [domainsInput, setDomainsInput] = useState("");
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const nginxConfigInputRef = useRef<HTMLInputElement>(null);
+  const nginxConfigInputRef = useRef<HTMLInputElement | null>(null);
+  const setNginxConfigRef = useCallback((el: HTMLInputElement | null) => {
+    nginxConfigInputRef.current = el;
+    if (el) {
+      el.setAttribute("webkitdirectory", "");
+      el.setAttribute("directory", "");
+    }
+  }, []);
 
   useEffect(() => {
     loadConnections();
@@ -434,63 +441,72 @@ export default function Connections() {
                   placeholder="example.com, www.example.com"
                 />
                 <small>
-                  Comma- or space-separated. For <code>nginx_config</code> mode this is auto-populated from <code>server_name</code> if left empty.
+                  {sourceType === "nginx_config"
+                    ? <>Auto-populated from <code>server_name</code> in the uploaded nginx.conf. Leave empty or edit after upload.</>
+                    : "Comma- or space-separated."}
                 </small>
               </div>
 
               {sourceType === "nginx_config" && (
                 <div className="form-group">
-                  <label>Path to nginx config (inside backend container) *</label>
-                  <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
-                    <input
-                      type="text"
-                      data-testid="conn-nginx-config-path"
-                      value={formData.nginx_config_path || ""}
-                      onChange={(e) =>
-                        updateFormField("nginx_config_path", e.target.value || null)
-                      }
-                      placeholder="/app/site-templates/examples/nginx.conf"
-                      style={{ flex: 1, minWidth: "200px" }}
-                      required
-                    />
+                  <label>Nginx config folder *</label>
+                  <div style={{ display: "flex", gap: "8px", alignItems: "center", flexWrap: "wrap" }}>
                     <button
                       type="button"
-                      className="btn btn-outline btn-sm"
+                      className="btn btn-primary"
                       onClick={() => nginxConfigInputRef.current?.click()}
-                      title="Pick a .conf file from your computer"
+                      title="Select a folder containing nginx.conf and related files"
                     >
-                      Choose .conf file
+                      Select config folder
                     </button>
+                    {formData.nginx_config_path && (
+                      <code className="codeblock" style={{ fontSize: "12px" }}>
+                        {formData.nginx_config_path}
+                      </code>
+                    )}
                     <input
                       type="file"
-                      ref={nginxConfigInputRef}
+                      ref={setNginxConfigRef}
                       style={{ display: "none" }}
-                      accept=".conf,text/plain"
+                      multiple
                       onChange={async (e) => {
-                        const file = e.target.files?.[0];
-                        if (!file) return;
+                        const files = e.target.files;
+                        if (!files || files.length === 0) return;
                         try {
-                          const result = await api.uploadNginxConfig(file);
+                          const result = await api.uploadNginxConfig(files);
                           updateFormField("nginx_config_path", result.path);
                           showToast(
-                            `Uploaded ${result.filename} → ${result.path}`,
+                            `Uploaded ${files.length} file(s) from folder → ${result.filename}`,
                             "success"
                           );
+                          // Auto-fill domains & backend_url from parsed nginx.conf
+                          try {
+                            const parsed = await api.parseNginxConfig(result.path);
+                            if (parsed.domains.length > 0) {
+                              setDomainsInput(parsed.domains.join(", "));
+                              updateFormField("domains", parsed.domains);
+                            }
+                            if (parsed.backend_url && !formData.backend_url) {
+                              updateFormField("backend_url", parsed.backend_url);
+                            }
+                          } catch {
+                            // parse failure is non-fatal — user can fill manually
+                          }
                         } catch (err: any) {
-                          showToast(
-                            `Upload failed: ${err.message || "Unknown error"}`,
-                            "error"
-                          );
+                          const msg =
+                            typeof err.message === "string"
+                              ? err.message
+                              : JSON.stringify(err.message || err);
+                          showToast(`Upload failed: ${msg}`, "error");
                         }
                         e.target.value = "";
                       }}
                     />
                   </div>
                   <small>
-                    Absolute path inside the <code>waf-backend</code> container,
-                    or pick a local <code>.conf</code> file to upload.
-                    <code> include</code> directives are expanded recursively
-                    relative to this file.
+                    Select the <strong>folder</strong> containing <code>nginx.conf</code>.
+                    All files (locations, includes, index.html, …) are uploaded together.
+                    Domains and backend URL are parsed automatically.
                   </small>
                 </div>
               )}

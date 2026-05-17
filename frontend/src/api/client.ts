@@ -372,11 +372,18 @@ export const api = {
     return response.json();
   },
 
-  // Upload an nginx .conf file — returns the absolute backend path that can
-  // be used as nginx_config_path when creating/updating a connection.
-  uploadNginxConfig: async (file: File): Promise<{ path: string; filename: string }> => {
+  // Upload an nginx config **directory** via the browser folder picker.
+  // All files in the selected folder are sent, preserving subdirectory
+  // structure via webkitRelativePath. The backend returns the absolute
+  // path to the main .conf file.
+  uploadNginxConfig: async (files: FileList | File[]): Promise<{ path: string; filename: string }> => {
     const formData = new FormData();
-    formData.append("file", file);
+    for (let i = 0; i < files.length; i++) {
+      const file = files[i];
+      // webkitRelativePath preserves subdirectory structure (e.g. "subdir/nginx.conf")
+      const relativePath = (file as any).webkitRelativePath || file.name;
+      formData.append("files", file, relativePath);
+    }
     const response = await fetch(`${API_BASE}/api/connections/upload-nginx-config`, {
       method: "POST",
       body: formData,
@@ -386,10 +393,32 @@ export const api = {
       if (response.status === 401) {
         window.dispatchEvent(new CustomEvent("auth:unauthorized"));
       }
-      const error = await response.json().catch(() => ({ detail: response.statusText }));
-      throw new Error(error.detail || "Upload failed");
+      const body = await response.json().catch(() => null);
+      let message = "Upload failed";
+      if (body) {
+        if (Array.isArray(body.detail)) {
+          message = body.detail.map((e: any) => e.msg || JSON.stringify(e)).join("; ");
+        } else if (typeof body.detail === "string") {
+          message = body.detail;
+        }
+      }
+      throw new Error(message);
     }
     return response.json();
+  },
+
+  // Parse an uploaded nginx config and return extracted fields
+  // (domains, backend_url, index, root) for form auto-fill.
+  parseNginxConfig: async (nginxConfigPath: string): Promise<{
+    domains: string[];
+    backend_url: string;
+    index: string;
+    root: string;
+  }> => {
+    return fetchApi("/api/connections/parse-nginx-config", {
+      method: "POST",
+      body: JSON.stringify({ nginx_config_path: nginxConfigPath }),
+    });
   },
 
   // SSL Certificates API

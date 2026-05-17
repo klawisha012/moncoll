@@ -29,26 +29,29 @@ def _get_client() -> ClickHouseClient:
     )
 
 
-def get_dashboard_metrics(hours: int = 24) -> dict[str, Any]:
+def get_dashboard_metrics(hours: float = 24) -> dict[str, Any]:
     """Fetch summary metrics for the dashboard stat cards.
 
     Args:
         hours: Time window in hours for metric aggregation (default: 24).
+               Supports fractional hours (e.g. 0.0167 = 1 minute).
     """
     client = _get_client()
-    hours = max(1, min(hours, 8760))  # clamp between 1 hour and 1 year
+    hours = max(0.0167, min(hours, 8760))  # clamp between 1 minute and 1 year
+    minutes = max(1, int(hours * 60))  # convert to integer minutes for ClickHouse INTERVAL
 
     # Total requests (last N hours from nginx access log)
     total_requests = client.execute(
         f"SELECT count() FROM logs.nginx_access_log "
-        f"WHERE time_local >= now() - INTERVAL {hours} HOUR"
+        f"WHERE time_local >= now() - INTERVAL {minutes} MINUTE"
     )[0][0]
 
     # Previous period for change calculation
+    prev_minutes = max(1, int(hours * 60 * 2))  # 2x the window
     prev_total = client.execute(
         f"SELECT count() FROM logs.nginx_access_log "
-        f"WHERE time_local >= now() - INTERVAL {hours * 2} HOUR "
-        f"AND time_local < now() - INTERVAL {hours} HOUR"
+        f"WHERE time_local >= now() - INTERVAL {prev_minutes} MINUTE "
+        f"AND time_local < now() - INTERVAL {minutes} MINUTE"
     )[0][0]
 
     total_requests_change = 0.0
@@ -60,14 +63,14 @@ def get_dashboard_metrics(hours: int = 24) -> dict[str, Any]:
     # Blocked threats (WAF events with anomaly_score > 0)
     blocked_threats = client.execute(
         f"SELECT count() FROM logs.waf_audit_log "
-        f"WHERE timestamp >= now() - INTERVAL {hours} HOUR"
+        f"WHERE timestamp >= now() - INTERVAL {minutes} MINUTE"
     )[0][0]
 
     # High severity count (severity >= 2 in messages)
     high_severity = client.execute(
         f"SELECT count() FROM logs.waf_audit_log "
         f"ARRAY JOIN messages AS m "
-        f"WHERE timestamp >= now() - INTERVAL {hours} HOUR "
+        f"WHERE timestamp >= now() - INTERVAL {minutes} MINUTE "
         f"AND m.severity >= 2"
     )[0][0]
 
@@ -75,19 +78,19 @@ def get_dashboard_metrics(hours: int = 24) -> dict[str, Any]:
     active_rules_result = client.execute(
         f"SELECT count(DISTINCT m.ruleId) FROM logs.waf_audit_log "
         f"ARRAY JOIN messages AS m "
-        f"WHERE timestamp >= now() - INTERVAL {hours} HOUR"
+        f"WHERE timestamp >= now() - INTERVAL {minutes} MINUTE"
     )
     active_rules = active_rules_result[0][0] if active_rules_result else 0
 
     # System health: percentage of non-5xx responses in the time window
     total_responses = client.execute(
         f"SELECT count() FROM logs.nginx_access_log "
-        f"WHERE time_local >= now() - INTERVAL {hours} HOUR"
+        f"WHERE time_local >= now() - INTERVAL {minutes} MINUTE"
     )[0][0]
 
     error_responses = client.execute(
         f"SELECT count() FROM logs.nginx_access_log "
-        f"WHERE time_local >= now() - INTERVAL {hours} HOUR "
+        f"WHERE time_local >= now() - INTERVAL {minutes} MINUTE "
         f"AND status >= 500"
     )[0][0]
 
@@ -112,20 +115,22 @@ def get_dashboard_metrics(hours: int = 24) -> dict[str, Any]:
     }
 
 
-def get_traffic_data(hours: int = 24) -> list[dict[str, Any]]:
+def get_traffic_data(hours: float = 24) -> list[dict[str, Any]]:
     """Get traffic data points for the last N hours, aggregated by hour.
 
     Args:
         hours: Time window in hours for metric aggregation (default: 24).
+               Supports fractional hours (e.g. 0.0167 = 1 minute).
     """
     client = _get_client()
-    hours = max(1, min(hours, 8760))  # clamp between 1 hour and 1 year
+    hours = max(0.0167, min(hours, 8760))  # clamp between 1 minute and 1 year
+    minutes = max(1, int(hours * 60))  # convert to integer minutes for ClickHouse INTERVAL
 
     # Total traffic per hour
     rows = client.execute(
         f"SELECT toStartOfHour(time_local) AS hour, count() AS total "
         f"FROM logs.nginx_access_log "
-        f"WHERE time_local >= now() - INTERVAL {hours} HOUR "
+        f"WHERE time_local >= now() - INTERVAL {minutes} MINUTE "
         f"GROUP BY hour ORDER BY hour"
     )
 
@@ -133,7 +138,7 @@ def get_traffic_data(hours: int = 24) -> list[dict[str, Any]]:
     malicious_rows = client.execute(
         f"SELECT toStartOfHour(timestamp) AS hour, count() AS total "
         f"FROM logs.waf_audit_log "
-        f"WHERE timestamp >= now() - INTERVAL {hours} HOUR "
+        f"WHERE timestamp >= now() - INTERVAL {minutes} MINUTE "
         f"GROUP BY hour ORDER BY hour"
     )
     malicious_map = {row[0]: row[1] for row in malicious_rows}
@@ -189,20 +194,22 @@ def get_threat_origins() -> list[dict[str, Any]]:
     return result
 
 
-def get_geoip_map_data(hours: int = 24) -> list[dict[str, Any]]:
+def get_geoip_map_data(hours: float = 24) -> list[dict[str, Any]]:
     """Get GeoIP coordinates with hit counts for world map visualization.
 
     Args:
         hours: Time window in hours (default: 24).
+               Supports fractional hours (e.g. 0.0167 = 1 minute).
     """
     client = _get_client()
-    hours = max(1, min(hours, 8760))
+    hours = max(0.0167, min(hours, 8760))
+    minutes = max(1, int(hours * 60))  # convert to integer minutes for ClickHouse INTERVAL
 
     rows = client.execute(
         f"SELECT geoip_longitude, geoip_latitude, geoip_country_code, "
         f"geoip_city_name, count() AS cnt "
         f"FROM logs.nginx_access_log "
-        f"WHERE time_local >= now() - INTERVAL {hours} HOUR "
+        f"WHERE time_local >= now() - INTERVAL {minutes} MINUTE "
         f"AND geoip_latitude != 0 AND geoip_longitude != 0 "
         f"AND geoip_country_code != '' "
         f"GROUP BY geoip_longitude, geoip_latitude, geoip_country_code, geoip_city_name "

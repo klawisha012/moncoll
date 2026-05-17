@@ -1,1 +1,0 @@
-{"name":"test","domains":["zwarder.ru"],"source_type":"static_generate","static_dir":"examples/test_mode1","enabled":true,"ssl_enabled":true,"preserve_host":true,"custom_nginx_config":"location = /probe {\n    default_type text/plain;\n    return 200 \"mode1-include-ok\";\n}"}  

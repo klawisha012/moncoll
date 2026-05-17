@@ -15,7 +15,7 @@ router = APIRouter(prefix="/api/dashboard", tags=["dashboard"])
 
 @router.get("/metrics")
 async def metrics(
-    hours: int = Query(24, ge=1, le=8760, description="Time window in hours"),
+    hours: float = Query(24, ge=0.0167, le=8760, description="Time window in hours (supports fractional, e.g. 0.0167 = 1 min)"),
 ):
     """Return summary metrics for the dashboard stat cards."""
     try:
@@ -27,7 +27,7 @@ async def metrics(
 
 @router.get("/traffic")
 async def traffic(
-    hours: int = Query(24, ge=1, le=8760, description="Time window in hours"),
+    hours: float = Query(24, ge=0.0167, le=8760, description="Time window in hours (supports fractional, e.g. 0.0167 = 1 min)"),
 ):
     """Return traffic data points (clean vs malicious) for charts."""
     try:
@@ -39,7 +39,7 @@ async def traffic(
 
 @router.get("/geoip-map")
 async def geoip_map(
-    hours: int = Query(24, ge=1, le=8760, description="Time window in hours"),
+    hours: float = Query(24, ge=0.0167, le=8760, description="Time window in hours (supports fractional, e.g. 0.0167 = 1 min)"),
 ):
     """Return GeoIP coordinates with hit counts for world map visualization."""
     try:

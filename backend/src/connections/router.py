@@ -1,3 +1,5 @@
+from typing import List
+
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -76,19 +78,36 @@ async def upload_static_file(
 
 @connections_router.post("/upload-nginx-config")
 async def upload_nginx_config(
-    file: UploadFile = File(...),
+    files: List[UploadFile] = File(...),
 ):
-    """Upload an nginx ``.conf`` file via the browser file picker.
+    """Upload an nginx config **directory** via the browser folder picker.
 
-    Returns the absolute backend-container path that can be used as
-    ``nginx_config_path`` when creating or updating a connection.
+    All files in the selected folder are stored, preserving subdirectory
+    structure.  Returns the absolute backend-container path to the main
+    ``.conf`` file so it can be used as ``nginx_config_path`` when
+    creating or updating a connection.
     """
-    content = await file.read()
-    result = connection_service.save_uploaded_nginx_config(
-        content,
-        file.filename or "nginx.conf",
-    )
+    if not files:
+        raise HTTPException(status_code=400, detail="No files uploaded")
+    file_tuples = [
+        (f.filename or "nginx.conf", await f.read())
+        for f in files
+    ]
+    result = connection_service.save_uploaded_nginx_config(file_tuples)
     return result
+
+
+@connections_router.post("/parse-nginx-config")
+async def parse_nginx_config(body: dict):
+    """Parse an uploaded nginx config and return extracted fields.
+
+    Accepts ``{"nginx_config_path": "/path/to/nginx.conf"}`` and returns
+    ``{domains, backend_url, index, root}`` for form auto-fill.
+    """
+    path = (body or {}).get("nginx_config_path", "")
+    if not path:
+        raise HTTPException(status_code=400, detail="nginx_config_path is required")
+    return connection_service.parse_nginx_config_preview(path)
 
 
 @connections_router.post("/reload")

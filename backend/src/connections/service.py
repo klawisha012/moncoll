@@ -243,17 +243,57 @@ def _existing_or_none(path: Path) -> Path | None:
     return path if path.is_dir() else None
 
 
+def _copy_dir_contents(src: Path, dest: Path) -> None:
+    """Copy files and subdirectories from *src* into *dest* (overlay/merge).
+
+    Unlike ``shutil.copytree`` this does **not** require *dest* to be absent;
+    existing files with the same name are overwritten.
+    """
+    if not src.is_dir():
+        return
+    dest.mkdir(parents=True, exist_ok=True)
+    for item in src.iterdir():
+        target = dest / item.name
+        if item.is_dir():
+            if target.is_dir():
+                shutil.rmtree(target)
+            shutil.copytree(item, target)
+        else:
+            shutil.copy2(item, target)
+
+
 def _copy_static_site(conn_id: int, source: str | Path) -> Path | None:
     source_path = _resolve_static_source(source)
-    if source_path is None:
-        logger.warning("Cannot copy static site for conn %s: no valid source", conn_id)
-        return None
     dest = _site_dir(conn_id)
     if dest.exists():
         shutil.rmtree(dest)
-    shutil.copytree(source_path, dest)
-    logger.info("Copied static site %s → %s", source_path, dest)
+    dest.mkdir(parents=True, exist_ok=True)
+
+    if source_path is None:
+        logger.warning("Cannot copy static site for conn %s: no valid source", conn_id)
+        _write_fallback_index(dest, conn_id)
+        return dest
+
+    try:
+        shutil.copytree(source_path, dest, dirs_exist_ok=True)
+        logger.info("Copied static site %s → %s", source_path, dest)
+    except Exception:
+        logger.exception("Failed to copy static site %s → %s", source_path, dest)
+        _write_fallback_index(dest, conn_id)
     return dest
+
+
+def _write_fallback_index(site_dir: Path, conn_id: int) -> None:
+    """Write a minimal index.html so the site never returns 403."""
+    index_html = site_dir / "index.html"
+    if not index_html.exists():
+        index_html.write_text(
+            "<!DOCTYPE html>\n<html lang=\"en\">\n"
+            "<head><meta charset=\"utf-8\"><title>Site</title></head>\n"
+            f"<body><h1>Connection {conn_id}</h1><p>Site is being configured.</p></body>\n"
+            "</html>\n"
+        )
+        logger.info("Conn %d: wrote fallback index.html", conn_id)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -461,17 +501,39 @@ def _prepare_source(row: ConnectionModel) -> bool:
         source = row.static_dir or "examples"
         _copy_static_site(row.id, source)
     elif row.source_type == "nginx_config":
+        # ── Step 1: copy the uploaded nginx config directory (skip *.conf) ──
+        nginx_dir = None
         if row.nginx_config_path:
             src_dir = Path(row.nginx_config_path).parent
             if src_dir.is_dir():
                 if site_dest.exists():
                     shutil.rmtree(site_dest)
-                shutil.copytree(src_dir, site_dest)
-                logger.info("Copied nginx_config site %s → %s", src_dir, site_dest)
+                shutil.copytree(
+                    src_dir,
+                    site_dest,
+                    ignore=shutil.ignore_patterns("*.conf"),
+                )
+                nginx_dir = src_dir
+                logger.info("Copied nginx_config site %s → %s (skipped *.conf)", src_dir, site_dest)
             else:
                 site_dest.mkdir(parents=True, exist_ok=True)
         else:
             site_dest.mkdir(parents=True, exist_ok=True)
+
+        # ── Step 2: overlay static_dir content (if set) on top of nginx config dir ──
+        if row.static_dir:
+            overlay = _resolve_static_source(row.static_dir)
+            if overlay is not None and overlay != nginx_dir:
+                site_dest.mkdir(parents=True, exist_ok=True)
+                _copy_dir_contents(overlay, site_dest)
+                logger.info(
+                    "Conn %d: overlaid static_dir %s onto site %s",
+                    row.id, overlay, site_dest,
+                )
+
+        # ── Step 3: ensure site dir is never empty (prevents 403) ──
+        _ensure_site_not_empty(site_dest, row.id)
+
         if not row.domains and row.nginx_config_path:
             expanded = _resolve_nginx_includes(Path(row.nginx_config_path))
             parsed: list[str] = []
@@ -491,6 +553,83 @@ def _prepare_source(row: ConnectionModel) -> bool:
         site_dest.mkdir(parents=True, exist_ok=True)
 
     return mutated
+
+
+def _ensure_site_not_empty(site_dir: Path, conn_id: int) -> None:
+    """Guarantee the site directory contains at least an index.html.
+
+    An empty root directory causes Angie/nginx to return 403 Forbidden
+    (directory index forbidden) instead of a meaningful response.
+    """
+    if not site_dir.exists():
+        site_dir.mkdir(parents=True, exist_ok=True)
+    # Count web-content files — ignore .conf, .well-known, and hidden files.
+    _web_exts = {".html", ".htm", ".css", ".js", ".json", ".xml",
+                 ".txt", ".png", ".jpg", ".jpeg", ".gif", ".svg",
+                 ".ico", ".woff", ".woff2", ".ttf", ".eot", ".pdf"}
+    has_web_content = any(
+        p.is_file() and p.suffix.lower() in _web_exts
+        for p in site_dir.iterdir()
+    ) if site_dir.exists() else False
+    if not has_web_content:
+        _write_fallback_index(site_dir, conn_id)
+
+
+def parse_nginx_config_preview(nginx_config_path: str) -> dict:
+    """Parse an uploaded nginx config and return extracted fields for form pre-fill.
+
+    Returns a dict with ``domains``, ``backend_url``, ``index``, and ``root``
+    so the frontend can auto-populate the connection form before creation.
+    """
+    result: dict = {"domains": [], "backend_url": "", "index": "index.html", "root": ""}
+    try:
+        config_path = Path(nginx_config_path)
+        if not config_path.is_file():
+            return result
+        expanded = _resolve_nginx_includes(config_path)
+        bodies = _extract_nginx_server_blocks(expanded)
+        if not bodies:
+            return result
+        body = bodies[0]
+
+        # ── server_name → domains
+        names: list[str] = []
+        seen: set[str] = set()
+        for name in _extract_server_names_from_body(body):
+            if name not in seen and name != "_":
+                seen.add(name)
+                names.append(name)
+        result["domains"] = names
+
+        # ── scan body for proxy_pass, index, root
+        for raw_line in body.splitlines():
+            line = raw_line.strip()
+            if not line or line.startswith("#"):
+                continue
+
+            m = re.match(r"proxy_pass\s+(https?://\S+|\S+)\s*;", line)
+            if m:
+                url = m.group(1)
+                if not url.startswith(("http://", "https://")):
+                    url = f"http://{url}"
+                result["backend_url"] = url
+                continue
+
+            m = re.match(r"index\s+(.+?)\s*;", line)
+            if m:
+                result["index"] = m.group(1)
+                continue
+
+            m = re.match(r"root\s+(\S+)\s*;", line)
+            if m:
+                result["root"] = m.group(1)
+                continue
+
+        logger.info("Parsed nginx config %s → domains=%s backend=%s",
+                     nginx_config_path, names, result["backend_url"])
+    except Exception:
+        logger.exception("Failed to parse nginx config %s", nginx_config_path)
+    return result
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -515,7 +654,12 @@ async def _generate_certs_and_update_connection(session: AsyncSession, row: Conn
         _write_nginx_config(_to_dict(row))
         return
 
-    # Try Let's Encrypt first; fall back to self-signed if ACME fails
+    # ── Phase 1: write config without SSL so the ACME challenge
+    #    location is live *before* certbot tries to verify ──
+    _write_nginx_config(_to_dict(row))
+    _reload_angie()
+
+    # ── Phase 2: obtain certificate (ACME or self-signed) ──
     result = cert_service.trigger_acme_request(row.id, domains)
     if not result.get("success"):
         logger.warning(
@@ -538,6 +682,7 @@ async def _generate_certs_and_update_connection(session: AsyncSession, row: Conn
             row.id, result.get("message", "unknown error"),
         )
 
+    # ── Phase 3: rewrite config with the newly-obtained certificate ──
     _write_nginx_config(_to_dict(row))
 
 
@@ -680,28 +825,65 @@ def save_uploaded_static(file_content: bytes, filename: str, connection_id: int 
     return {"path": f"uploads/{dir_name}", "filename": safe_name}
 
 
-def save_uploaded_nginx_config(file_content: bytes, filename: str) -> dict:
-    """Save an uploaded nginx ``.conf`` file under the backend uploads tree.
+def save_uploaded_nginx_config(files: list[tuple[str, bytes]]) -> dict:
+    """Save uploaded nginx config directory under the backend uploads tree.
 
-    Returns the absolute backend-container path so it can be used directly
-    as ``nginx_config_path`` on a connection.
+    Accepts a list of ``(relative_path, content)`` tuples — typically from a
+    folder picker (``webkitdirectory``).  All files are stored under one
+    timestamped directory, preserving subdirectory structure.  The return
+    value contains the absolute path to the *main* ``.conf`` file so it can
+    be used directly as ``nginx_config_path`` on a connection.
     """
     from datetime import datetime as dt
 
-    safe_name = filename.rsplit("/", 1)[-1].rsplit("\\", 1)[-1] or "nginx.conf"
-    stem = safe_name.rsplit(".", 1)[0] if "." in safe_name else safe_name
-    stem = stem.replace(" ", "_").replace(".", "_") or "nginx"
-    ts = dt.utcnow().strftime("%Y%m%d_%H%M%S")
-    dir_name = f"{stem}_{ts}"
+    if not files:
+        raise ValueError("No files provided for nginx config upload")
 
+    ts = dt.utcnow().strftime("%Y%m%d_%H%M%S")
+    dir_name = f"nginx_config_{ts}"
     upload_dir = UPLOADS_DIR / "configs" / dir_name
     upload_dir.mkdir(parents=True, exist_ok=True)
 
-    file_path = upload_dir / safe_name
-    file_path.write_bytes(file_content)
-    logger.info("Saved uploaded nginx config %s → %s", filename, file_path)
+    main_conf_path: str | None = None
+    saved_count = 0
 
-    return {"path": str(file_path), "filename": safe_name}
+    for rel_path, content in files:
+        # Normalise path separators and strip leading slashes / dots
+        clean = rel_path.replace("\\", "/").lstrip("/")
+        # Skip macOS resource-fork turds
+        if clean.startswith("__MACOSX") or clean.startswith("."):
+            continue
+        parts = [p for p in clean.split("/") if p and p != ".."]
+        if not parts:
+            continue
+        safe_name = parts[-1]
+        sub_dir = upload_dir
+        for part in parts[:-1]:
+            sub_dir = sub_dir / part
+        sub_dir.mkdir(parents=True, exist_ok=True)
+        file_path = sub_dir / safe_name
+        file_path.write_bytes(content)
+
+        # Pick the main config: prefer nginx.conf, otherwise first .conf file
+        if main_conf_path is None or safe_name == "nginx.conf":
+            main_conf_path = str(file_path)
+            if safe_name == "nginx.conf":
+                # Keep scanning — nginx.conf was found, but don't break
+                # in case a more specific one comes later (unlikely).
+                pass
+
+        saved_count += 1
+        logger.debug("Saved uploaded config file %s → %s", clean, file_path)
+
+    if main_conf_path is None:
+        raise ValueError("No .conf file found in uploaded directory")
+
+    logger.info(
+        "Saved uploaded nginx config directory (%d files) → %s (main: %s)",
+        saved_count, upload_dir, main_conf_path,
+    )
+
+    return {"path": main_conf_path, "filename": Path(main_conf_path).name}
 
 
 async def reload_connections_config(session: AsyncSession) -> dict:

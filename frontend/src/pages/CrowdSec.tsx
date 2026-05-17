@@ -43,14 +43,7 @@ interface HubScenario {
   installed: boolean;
 }
 
-type TimeUnit = "minutes" | "hours" | "days";
 type PanelKey = "status" | "blocks" | "scenarios" | "alerts";
-
-const UNITS: { value: TimeUnit; label: string; multiplier: number }[] = [
-  { value: "minutes", label: "Minutes", multiplier: 1 / 60 },
-  { value: "hours", label: "Hours", multiplier: 1 },
-  { value: "days", label: "Days", multiplier: 24 },
-];
 
 const ALL_PANELS: PanelKey[] = ["status", "blocks", "scenarios", "alerts"];
 
@@ -68,8 +61,6 @@ export default function CrowdSec() {
   const [scenarioSearch, setScenarioSearch] = useState("");
   const [hubExpanded, setHubExpanded] = useState(false);
   const [expandedCards, setExpandedCards] = useState<Set<string>>(new Set());
-  const [timeValue, setTimeValue] = useState(24);
-  const [timeUnit, setTimeUnit] = useState<TimeUnit>("hours");
   const [visiblePanels, setVisiblePanels] = useState<Set<PanelKey>>(new Set(ALL_PANELS));
   const [gearOpen, setGearOpen] = useState(false);
 
@@ -477,7 +468,7 @@ export default function CrowdSec() {
         </div>
       </div>
 
-      {/* ── Time Range + Gear ── */}
+      {/* ── Gear ── */}
       <div
         style={{
           display: "flex",
@@ -491,54 +482,6 @@ export default function CrowdSec() {
           flexWrap: "wrap",
         }}
       >
-        <span style={{ fontSize: "13px", color: "var(--text-secondary, #888)", fontWeight: 500 }}>
-          {t("crowdsec.timeRange")}:
-        </span>
-        <input
-          type="number"
-          min={1}
-          max={8760}
-          value={timeValue}
-          onChange={(e) => {
-            const v = parseInt(e.target.value, 10);
-            if (!isNaN(v) && v >= 1 && v <= 8760) setTimeValue(v);
-          }}
-          style={{
-            width: "80px",
-            padding: "6px 10px",
-            fontSize: "13px",
-            border: "1px solid var(--border-color, #2a2a2a)",
-            borderRadius: "var(--radius-sm, 6px)",
-            background: "var(--input-bg, #0d0d1a)",
-            color: "var(--text-primary, #e0e0e0)",
-            outline: "none",
-          }}
-        />
-        <select
-          value={timeUnit}
-          onChange={(e) => setTimeUnit(e.target.value as TimeUnit)}
-          style={{
-            padding: "6px 10px",
-            fontSize: "13px",
-            border: "1px solid var(--border-color, #2a2a2a)",
-            borderRadius: "var(--radius-sm, 6px)",
-            background: "var(--input-bg, #0d0d1a)",
-            color: "var(--text-primary, #e0e0e0)",
-            outline: "none",
-            cursor: "pointer",
-          }}
-        >
-          {UNITS.map((unit) => (
-            <option key={unit.value} value={unit.value}>
-              {unit.label}
-            </option>
-          ))}
-        </select>
-        <span style={{ fontSize: "12px", color: "var(--text-secondary, #666)" }}>
-          (stats for the last {timeValue} {timeUnit === "minutes" ? "min" : timeUnit === "hours" ? "hr" : "day"}
-          {timeValue !== 1 ? "s" : ""})
-        </span>
-
         {/* Gear button */}
         <div style={{ position: "relative", marginLeft: "auto" }}>
           <button

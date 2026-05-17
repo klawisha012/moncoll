@@ -422,9 +422,12 @@ export default function Dashboard() {
     };
   }, [gearOpen]);
 
-  // Compute total hours from value + unit — round to integer for API
+  // Compute total hours from value + unit (supports fractional, e.g. 1 min → 0.0167 hours)
   const unitMultiplier = UNITS.find((u) => u.value === timeUnit)?.multiplier ?? 1;
-  const selectedHours = Math.max(1, Math.round(timeValue * unitMultiplier));
+  const selectedHours = +(timeValue * unitMultiplier).toFixed(4);
+  // Clamp to valid range: 1 minute (0.0167h) to 1 year (8760h)
+  const MAX_HOURS = 8760;
+  const maxValue = Math.floor(MAX_HOURS / unitMultiplier);
 
   useEffect(() => {
     // Only fetch when on native tab
@@ -623,11 +626,11 @@ export default function Dashboard() {
             <input
               type="number"
               min={1}
-              max={8760}
+              max={maxValue}
               value={timeValue}
               onChange={(e) => {
                 const v = parseInt(e.target.value, 10);
-                if (!isNaN(v) && v >= 1 && v <= 8760) setTimeValue(v);
+                if (!isNaN(v) && v >= 1 && v <= maxValue) setTimeValue(v);
               }}
               style={{
                 width: "80px",
