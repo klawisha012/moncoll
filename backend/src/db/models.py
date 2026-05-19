@@ -43,6 +43,13 @@ class Connection(Base):
     compose_yaml: Mapped[str | None] = mapped_column(Text, nullable=True)
     compose_service: Mapped[str | None] = mapped_column(String(128), nullable=True)
     compose_port: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    # Comma-separated subset of {"h1","h2","h3"} — per-connection HTTP versions
+    # this server block listens for. Default keeps backwards-compat with the
+    # pre-2026-05 behavior (plain HTTP/1.1 on 80 + HTTP/2 over TLS).
+    http_versions: Mapped[str] = mapped_column(String(32), nullable=False, default="h1,h2")
+    # One of: "auto" (let Angie pick from Accept-Encoding), "gzip", "brotli",
+    # "zstd", "none". Per-connection override of the global negotiation.
+    compression_algo: Mapped[str] = mapped_column(String(16), nullable=False, default="auto")
     enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     ssl_enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     ssl_cert_path: Mapped[str | None] = mapped_column(String(512), nullable=True)

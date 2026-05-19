@@ -2,6 +2,7 @@
 
 These tests mock the ClickHouse client so they run without docker.
 """
+
 from __future__ import annotations
 
 from unittest.mock import MagicMock, patch
@@ -45,7 +46,9 @@ def test_host_filter_nginx_with_domains():
 
 
 def test_host_filter_waf_uses_request_headers():
-    assert ds._host_filter_waf(["x.test"]) == " AND request_headers['Host'] IN ('x.test')"
+    assert (
+        ds._host_filter_waf(["x.test"]) == " AND request_headers['Host'] IN ('x.test')"
+    )
 
 
 def test_clamp_minutes_floor_is_one_minute():
@@ -60,7 +63,9 @@ def test_safe_execute_swallows_clickhouse_error(mock_ch_client):
     from clickhouse_driver.errors import Error as ClickHouseError
 
     mock_ch_client.execute.side_effect = ClickHouseError("boom")
-    assert ds._safe_execute(mock_ch_client, "SELECT 1", default="fallback") == "fallback"
+    assert (
+        ds._safe_execute(mock_ch_client, "SELECT 1", default="fallback") == "fallback"
+    )
 
 
 def test_safe_execute_swallows_unexpected_error(mock_ch_client):
@@ -93,7 +98,9 @@ def test_threat_origins_falls_back_when_join_fails(mock_ch_client):
         ClickHouseError("JOIN type mismatch"),
     ]
     result = ds.get_threat_origins()
-    assert result == [{"country": "UNKNOWN", "country_code": "UNKNOWN", "blocks_percent": 100.0}]
+    assert result == [
+        {"country": "UNKNOWN", "country_code": "UNKNOWN", "blocks_percent": 100.0}
+    ]
 
 
 def test_threat_origins_no_client_returns_empty():
@@ -154,4 +161,6 @@ def test_metrics_passes_host_filter_when_connection_id_supplied(mock_ch_client):
 
     seen_queries = [call.args[0] for call in mock_ch_client.execute.call_args_list]
     assert any("host IN ('a.test')" in q for q in seen_queries), seen_queries
-    assert any("request_headers['Host'] IN ('a.test')" in q for q in seen_queries), seen_queries
+    assert any("request_headers['Host'] IN ('a.test')" in q for q in seen_queries), (
+        seen_queries
+    )

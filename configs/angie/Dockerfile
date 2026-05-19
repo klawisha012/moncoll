@@ -17,6 +17,7 @@ RUN apk add --no-cache \
     angie-module-echo \
     angie-module-zip \
     angie-module-zstd \
+    angie-module-brotli \
     angie-module-lua \
     curl tar lua5.1 lua5.1-cjson lua5.1-socket gettext git
 
@@ -35,7 +36,7 @@ RUN curl -L -o /tmp/bouncer.tgz "https://github.com/crowdsecurity/cs-nginx-bounc
     && rm -rf /tmp/bouncer.tgz /tmp/bouncer-extract
 
 # Активируем динамические модули (acme здесь НЕ нужен, он встроен)
-ENV ANGIE_LOAD_MODULES="modsecurity,geoip2,echo,zip,zstd,ndk,lua"
+ENV ANGIE_LOAD_MODULES="modsecurity,geoip2,echo,zip,zstd,brotli,ndk,lua"
 
 # Конфигурация Lua для CrowdSec
 RUN mkdir -p /etc/angie/http.d/ \

@@ -52,6 +52,8 @@ def _to_dict(c: ConnectionModel) -> dict:
         "compose_yaml": c.compose_yaml,
         "compose_service": c.compose_service,
         "compose_port": c.compose_port,
+        "http_versions": getattr(c, "http_versions", None) or "h1,h2",
+        "compression_algo": getattr(c, "compression_algo", None) or "auto",
         "enabled": c.enabled,
         "ssl_enabled": c.ssl_enabled,
         "ssl_cert_path": c.ssl_cert_path,
@@ -61,6 +63,100 @@ def _to_dict(c: ConnectionModel) -> dict:
         "created_at": c.created_at.isoformat() if c.created_at else None,
         "updated_at": c.updated_at.isoformat() if c.updated_at else None,
     }
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# HTTP version + compression helpers
+# ─────────────────────────────────────────────────────────────────────────────
+
+_VALID_HTTP_VERSIONS = ("h1", "h2", "h3")
+_VALID_COMPRESSION_ALGOS = ("auto", "gzip", "brotli", "zstd", "none")
+
+
+def _parse_http_versions(value: str | None) -> list[str]:
+    """Return a list of {'h1','h2','h3'} preserving order, defaulting to h1+h2.
+
+    Tolerant of malformed values (silently drops unknown tokens); returns the
+    default ``['h1','h2']`` if nothing parses out.
+    """
+    if not value:
+        return ["h1", "h2"]
+    out: list[str] = []
+    seen: set[str] = set()
+    for tok in value.split(","):
+        t = tok.strip().lower()
+        if t in _VALID_HTTP_VERSIONS and t not in seen:
+            seen.add(t)
+            out.append(t)
+    return out or ["h1", "h2"]
+
+
+def _normalize_compression_algo(value: str | None) -> str:
+    """Return one of _VALID_COMPRESSION_ALGOS, defaulting to 'auto'."""
+    v = (value or "auto").strip().lower()
+    return v if v in _VALID_COMPRESSION_ALGOS else "auto"
+
+
+def _emit_compression_overrides(algo: str) -> list[str]:
+    """Return server-block directives that pin one compression algorithm.
+
+    For ``algo='auto'`` we emit nothing — the global config in angie.conf
+    has gzip+brotli+zstd all enabled, so Angie negotiates per request via
+    the client's Accept-Encoding header (zstd > brotli > gzip).
+    """
+    if algo == "auto":
+        return []
+    if algo == "none":
+        return [
+            "    # compression_algo=none — disable all encoders for this server",
+            "    gzip off;",
+            "    brotli off;",
+            "    zstd off;",
+        ]
+    # Pinned: disable the other two so only the chosen encoder fires.
+    others = [a for a in ("gzip", "brotli", "zstd") if a != algo]
+    lines = [f"    # compression_algo={algo} — pin this encoder, disable others"]
+    lines.append(f"    {algo} on;")
+    for other in others:
+        lines.append(f"    {other} off;")
+    return lines
+
+
+def _emit_listen_directives(
+    *,
+    http_versions: list[str],
+    has_ssl: bool,
+) -> tuple[list[str], list[str]]:
+    """Build the listen directives for the plain (port 80) and TLS (443) blocks.
+
+    Returns ``(plain_listens, tls_listens)``.
+
+      * ``h1`` → ``listen 80;`` on the plain block, ``listen 443 ssl;`` on TLS
+      * ``h2`` → adds ``http2 on;`` on TLS (no-op on plain — HTTP/2 cleartext
+        is not standardised in Angie)
+      * ``h3`` → adds ``listen 443 quic reuseport;`` + ``http3 on;`` on TLS
+    """
+    plain: list[str] = []
+    tls: list[str] = []
+
+    if "h1" in http_versions:
+        plain.append("    listen 80;")
+        if has_ssl:
+            tls.append("    listen 443 ssl;")
+    elif has_ssl:
+        # If the operator dropped h1 but kept TLS, we still need a 443 listener.
+        tls.append("    listen 443 ssl;")
+
+    if has_ssl and "h2" in http_versions:
+        tls.append("    http2 on;")
+
+    if has_ssl and "h3" in http_versions:
+        tls.append("    listen 443 quic reuseport;")
+        tls.append("    http3 on;")
+        # Advertise HTTP/3 via Alt-Svc so HTTP/2 clients upgrade on subsequent hits.
+        tls.append("    add_header Alt-Svc 'h3=\":443\"; ma=86400' always;")
+
+    return plain, tls
 
 
 def _get_ssl_paths(conn_id: int) -> tuple[str, str]:
@@ -383,10 +479,13 @@ def _generate_nginx_config(conn: dict) -> str:
     domains = " ".join(conn["domains"]) if conn["domains"] else "_"
     conn_id = conn["id"]
     source_type = conn.get("source_type", "static_generate")
+    http_versions = _parse_http_versions(conn.get("http_versions"))
+    compression_algo = _normalize_compression_algo(conn.get("compression_algo"))
 
     lines: list[str] = []
     lines.append(f"## Connection: {conn['name']} (ID: {conn_id})")
     lines.append(f"## Source: {source_type}")
+    lines.append(f"## HTTP versions: {','.join(http_versions)} | compression: {compression_algo}")
     lines.append(f"## Generated at: {datetime.utcnow().isoformat()}Z")
     lines.append("")
 
@@ -397,6 +496,13 @@ def _generate_nginx_config(conn: dict) -> str:
         target.append("    # ModSecurity integration")
         target.append("    modsecurity on;")
         target.append("    modsecurity_rules_file /etc/angie/modsecurity/rules.conf;")
+
+    def _append_compression(target: list[str]):
+        overrides = _emit_compression_overrides(compression_algo)
+        if not overrides:
+            return
+        target.append("")
+        target.extend(overrides)
 
     def _append_custom_nginx(target: list[str], connection: dict):
         custom = (connection.get("custom_nginx_config") or "").strip()
@@ -411,37 +517,53 @@ def _generate_nginx_config(conn: dict) -> str:
 
     body_lines = _build_server_body(conn)
 
-    lines.append("server {")
-    lines.append("    listen 80;")
-    lines.append(f"    server_name {domains};")
-    lines.append("")
-    lines.append("    # GeoIP JSON access log for dashboard analytics")
-    lines.append("    access_log /var/log/angie/geoip.log with_geoip_json;")
-    lines.append("")
-    lines.append(blocked_ips_include)
-    lines.append("")
-    lines.append("    # Let's Encrypt HTTP-01 challenge")
-    lines.append("    location ^~ /.well-known/acme-challenge/ {")
-    lines.append(f"        root /etc/angie/http.d/conn_{conn_id}/site;")
-    lines.append("        try_files $uri =404;")
-    lines.append("    }")
-    lines.append("")
-
     # SSL is enabled implicitly whenever we have cert+key paths on the row.
     # Cert generation runs unconditionally for any enabled connection with
     # domains, so most configs emit the 80→443 redirect + ssl server block.
     has_ssl = bool(conn.get("ssl_cert_path") and conn.get("ssl_key_path"))
 
-    if has_ssl:
-        lines.append("    location / {")
-        lines.append("        return 301 https://$host$request_uri;")
+    plain_listens, tls_listens = _emit_listen_directives(
+        http_versions=http_versions, has_ssl=has_ssl
+    )
+
+    # ── Plain HTTP server block ──
+    # Emit only when 'h1' is in http_versions (else we'd open an empty server).
+    emit_plain = bool(plain_listens)
+    if emit_plain:
+        lines.append("server {")
+        lines.extend(plain_listens)
+        lines.append(f"    server_name {domains};")
+        lines.append("")
+        lines.append("    # GeoIP JSON access log for dashboard analytics")
+        lines.append("    access_log /var/log/angie/geoip.log with_geoip_json;")
+        lines.append("")
+        lines.append(blocked_ips_include)
+        lines.append("")
+        lines.append("    # Let's Encrypt HTTP-01 challenge")
+        lines.append("    location ^~ /.well-known/acme-challenge/ {")
+        lines.append(f"        root /etc/angie/http.d/conn_{conn_id}/site;")
+        lines.append("        try_files $uri =404;")
         lines.append("    }")
-        lines.append("}")
         lines.append("")
 
+        if has_ssl:
+            lines.append("    location / {")
+            lines.append("        return 301 https://$host$request_uri;")
+            lines.append("    }")
+            lines.append("}")
+            lines.append("")
+        else:
+            _append_modsecurity(lines)
+            _append_compression(lines)
+            lines.append("")
+            lines.extend(body_lines)
+            _append_custom_nginx(lines, conn)
+            lines.append("}")
+
+    if has_ssl:
         cert_path, key_path = _get_ssl_paths(conn_id)
         lines.append("server {")
-        lines.append("    listen 443 ssl;")
+        lines.extend(tls_listens)
         lines.append(f"    server_name {domains};")
         lines.append("")
         lines.append("    # GeoIP JSON access log for dashboard analytics")
@@ -458,16 +580,12 @@ def _generate_nginx_config(conn: dict) -> str:
             '    add_header Strict-Transport-Security "max-age=31536000; includeSubDomains" always;'
         )
         _append_modsecurity(lines)
+        _append_compression(lines)
         lines.append("")
         lines.extend(body_lines)
         _append_custom_nginx(lines, conn)
-    else:
-        _append_modsecurity(lines)
-        lines.append("")
-        lines.extend(body_lines)
-        _append_custom_nginx(lines, conn)
+        lines.append("}")
 
-    lines.append("}")
     return "\n".join(lines)
 
 
@@ -592,6 +710,50 @@ def _compose_project_name(conn_id: int) -> str:
     return f"waf_conn_{conn_id}"
 
 
+# Patterns that grant container → host-root escalation. Defense-in-depth
+# even though docker_compose connections are admin-only: any one of these
+# breaks the WAF's isolation guarantees.
+_COMPOSE_DENYLIST_PATTERNS = (
+    re.compile(r"^\s*privileged\s*:\s*true\b", re.IGNORECASE | re.MULTILINE),
+    re.compile(r"^\s*pid\s*:\s*['\"]?host['\"]?\s*$", re.IGNORECASE | re.MULTILINE),
+    re.compile(
+        r"^\s*network_mode\s*:\s*['\"]?host['\"]?\s*$",
+        re.IGNORECASE | re.MULTILINE,
+    ),
+    re.compile(r"^\s*ipc\s*:\s*['\"]?host['\"]?\s*$", re.IGNORECASE | re.MULTILINE),
+    re.compile(r"^\s*userns_mode\s*:\s*['\"]?host['\"]?\s*$", re.IGNORECASE | re.MULTILINE),
+    re.compile(r"^\s*cap_add\s*:", re.IGNORECASE | re.MULTILINE),
+    re.compile(r"^\s*-\s*/var/run/docker\.sock", re.IGNORECASE | re.MULTILINE),
+    re.compile(r"^\s*-\s*/etc(/|:)", re.IGNORECASE | re.MULTILINE),
+    re.compile(r"^\s*-\s*/proc(/|:)", re.IGNORECASE | re.MULTILINE),
+    re.compile(r"^\s*-\s*/sys(/|:)", re.IGNORECASE | re.MULTILINE),
+    re.compile(r"^\s*-\s*/root(/|:)", re.IGNORECASE | re.MULTILINE),
+    re.compile(r"^\s*-\s*/:", re.IGNORECASE | re.MULTILINE),
+    re.compile(r"^\s*devices\s*:", re.IGNORECASE | re.MULTILINE),
+)
+
+
+def _validate_compose_yaml(yaml_text: str) -> str | None:
+    """Return an error message if *yaml_text* uses a host-escalation pattern.
+
+    Returns ``None`` when the YAML passes the deny-list. The check is a
+    string scan — it is intentionally conservative, may false-positive on
+    comments containing the same substrings, and is meant as one layer of
+    defense in depth (not a hardened parser).
+    """
+    if not yaml_text:
+        return None
+    for pattern in _COMPOSE_DENYLIST_PATTERNS:
+        m = pattern.search(yaml_text)
+        if m:
+            snippet = m.group(0).strip()[:80]
+            return (
+                f"Compose YAML rejected: host-escalation pattern '{snippet}' "
+                "is not allowed (privileged/host-namespace/host-mount/docker.sock)."
+            )
+    return None
+
+
 def _run_compose(project_dir: Path, project_name: str, *args: str) -> tuple[int, str]:
     """Run a docker-compose command. Returns (returncode, combined stdout+stderr).
 
@@ -617,7 +779,7 @@ def _run_compose(project_dir: Path, project_name: str, *args: str) -> tuple[int,
                 return 0, last_out
         except FileNotFoundError:
             continue
-        except Exception as exc:
+        except (subprocess.SubprocessError, OSError) as exc:
             return 1, f"{type(exc).__name__}: {exc}"
     return 1, last_out or "docker compose not available"
 
@@ -636,9 +798,27 @@ def _bring_up_compose(row: ConnectionModel) -> str | None:
         )
         return None
 
+    # ── Defense-in-depth: reject host-escalation patterns ──
+    err = _validate_compose_yaml(row.compose_yaml)
+    if err:
+        logger.warning("Conn %s: %s", row.id, err)
+        return row.backend_url or None
+
     project_dir = _compose_project_dir(row.id)
     project_dir.mkdir(parents=True, exist_ok=True)
-    (project_dir / "docker-compose.yml").write_text(row.compose_yaml)
+    # Restrict perms so other processes sharing the volume can't read
+    # the YAML body (it may contain secrets in `environment:` blocks).
+    try:
+        project_dir.chmod(0o700)
+    except OSError:
+        # chmod is best-effort on filesystems that don't support POSIX modes
+        pass
+    compose_file = project_dir / "docker-compose.yml"
+    compose_file.write_text(row.compose_yaml)
+    try:
+        compose_file.chmod(0o600)
+    except OSError:
+        pass
 
     project_name = _compose_project_name(row.id)
     code, out = _run_compose(project_dir, project_name, "up", "-d", "--remove-orphans")
@@ -876,6 +1056,8 @@ async def create_connection(session: AsyncSession, conn_in: ConnectionCreate) ->
         compose_yaml=conn_in.compose_yaml,
         compose_service=conn_in.compose_service,
         compose_port=conn_in.compose_port,
+        http_versions=conn_in.http_versions,
+        compression_algo=conn_in.compression_algo,
         enabled=conn_in.enabled,
         ssl_enabled=conn_in.ssl_enabled,
         ssl_cert_path=conn_in.ssl_cert_path,

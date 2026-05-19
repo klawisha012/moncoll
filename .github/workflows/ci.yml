@@ -226,6 +226,42 @@ jobs:
         if: always()
         run: docker compose down -v
 
+  # ─── Load Test Smoke (k6) ───────────────────────────────
+  loadtest-smoke:
+    name: Load Test - Smoke (k6)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    needs: [docker-build]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Generate .env
+        run: bash scripts/generate-env.sh
+
+      - name: Start Docker stack (angie only)
+        run: docker compose up -d --build --wait angie backend postgres
+        timeout-minutes: 10
+
+      - name: Wait for WAF to accept connections
+        run: |
+          for i in $(seq 1 30); do
+            if curl -sf --no-keepalive http://localhost:80/ > /dev/null 2>&1; then
+              echo "WAF is ready"
+              break
+            fi
+            echo "Attempt $i/30..."
+            sleep 5
+          done
+
+      - name: Run k6 smoke
+        run: docker compose --profile loadtest run --rm k6 run /scripts/smoke.js
+
+      - name: Stop Docker stack
+        if: always()
+        run: docker compose down -v
+
   # ─── Security Scan ──────────────────────────────────────
   security-scan:
     name: Security - Trivy

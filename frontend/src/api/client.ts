@@ -41,6 +41,10 @@ export type SourceType =
   | "container"
   | "docker_compose";
 
+export type HttpVersion = "h1" | "h2" | "h3";
+
+export type CompressionAlgo = "auto" | "gzip" | "brotli" | "zstd" | "none";
+
 export interface Connection {
   id: number;
   name: string;
@@ -52,6 +56,8 @@ export interface Connection {
   compose_yaml: string | null;
   compose_service: string | null;
   compose_port: number | null;
+  http_versions: string; // CSV of HttpVersion
+  compression_algo: CompressionAlgo;
   enabled: boolean;
   ssl_enabled: boolean;
   ssl_cert_path: string | null;
@@ -72,6 +78,8 @@ export interface ConnectionCreate {
   compose_yaml?: string | null;
   compose_service?: string | null;
   compose_port?: number | null;
+  http_versions?: string;
+  compression_algo?: CompressionAlgo;
   enabled?: boolean;
   ssl_enabled?: boolean;
   ssl_cert_path?: string | null;
@@ -90,6 +98,8 @@ export interface ConnectionUpdate {
   compose_yaml?: string | null;
   compose_service?: string | null;
   compose_port?: number | null;
+  http_versions?: string;
+  compression_algo?: CompressionAlgo;
   enabled?: boolean;
   ssl_enabled?: boolean;
   ssl_cert_path?: string | null;

@@ -106,7 +106,14 @@ def _domains_for_connection(connection_id: int | None) -> list[str]:
 
 
 def _quote_domains(domains: Iterable[str]) -> str:
-    cleaned = [d.replace("'", "") for d in domains if d]
+    """Render an SQL IN-list, stripping anything that could break ClickHouse string parsing.
+
+    Strips single quotes, backslashes (escape introducer), and NUL bytes.
+    Domains come from the admin-controlled ``connections.domains`` JSON
+    column, but a stray ``\\`` in a saved domain would still corrupt the
+    query — strip defensively here rather than trust the upstream.
+    """
+    cleaned = [d.replace("'", "").replace("\\", "").replace("\x00", "") for d in domains if d]
     if not cleaned:
         return f"('{_NO_DOMAINS_SENTINEL}')"
     return "(" + ", ".join(f"'{d}'" for d in cleaned) + ")"

@@ -3,6 +3,7 @@
 We exercise the pure helpers (compose YAML port detection, proxy-body
 generation) without spinning up real containers or hitting the DB.
 """
+
 from __future__ import annotations
 
 from src.connections import service as cs
@@ -96,3 +97,102 @@ def test_compose_project_dir_is_per_connection():
     d = cs._compose_project_dir(11)
     assert d.name == "conn_11"
     assert d.parent == cs.COMPOSE_PROJECTS_DIR
+
+
+# ── compose YAML deny-list (host-escalation patterns) ──────
+
+
+def test_validate_compose_yaml_accepts_benign():
+    yaml = """services:
+  app:
+    image: nginx:alpine
+    expose:
+      - "80"
+    environment:
+      FOO: bar
+"""
+    assert cs._validate_compose_yaml(yaml) is None
+
+
+def test_validate_compose_yaml_rejects_privileged():
+    yaml = """services:
+  pwn:
+    image: alpine
+    privileged: true
+"""
+    err = cs._validate_compose_yaml(yaml)
+    assert err is not None and "privileged" in err.lower()
+
+
+def test_validate_compose_yaml_rejects_docker_sock_mount():
+    yaml = """services:
+  pwn:
+    image: alpine
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+"""
+    err = cs._validate_compose_yaml(yaml)
+    assert err is not None
+    assert (
+        "docker.sock" in err
+        or "host-mount" in err.lower()
+        or "host-escalation" in err.lower()
+    )
+
+
+def test_validate_compose_yaml_rejects_root_mount():
+    yaml = """services:
+  pwn:
+    image: alpine
+    volumes:
+      - /:/host
+"""
+    err = cs._validate_compose_yaml(yaml)
+    assert err is not None
+
+
+def test_validate_compose_yaml_rejects_host_pid():
+    yaml = """services:
+  pwn:
+    image: alpine
+    pid: host
+"""
+    err = cs._validate_compose_yaml(yaml)
+    assert err is not None
+
+
+def test_validate_compose_yaml_rejects_host_network():
+    yaml = """services:
+  pwn:
+    image: alpine
+    network_mode: host
+"""
+    err = cs._validate_compose_yaml(yaml)
+    assert err is not None
+
+
+def test_validate_compose_yaml_rejects_cap_add():
+    yaml = """services:
+  pwn:
+    image: alpine
+    cap_add:
+      - SYS_ADMIN
+"""
+    err = cs._validate_compose_yaml(yaml)
+    assert err is not None
+
+
+def test_validate_compose_yaml_rejects_etc_mount():
+    yaml = """services:
+  pwn:
+    image: alpine
+    volumes:
+      - /etc:/host_etc
+"""
+    err = cs._validate_compose_yaml(yaml)
+    assert err is not None
+
+
+def test_validate_compose_yaml_empty_is_ok():
+    assert cs._validate_compose_yaml("") is None
+    assert cs._validate_compose_yaml(None) is None  # type: ignore[arg-type]
