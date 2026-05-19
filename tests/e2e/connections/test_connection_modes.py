@@ -187,6 +187,45 @@ def test_mode_static_generate(page: Page, api_session: requests.Session):
     assert "mode2-static-ok" in r.text
 
 
+def test_mode_docker_compose(page: Page, api_session: requests.Session):
+    """Create a connection backed by an inline docker-compose project.
+
+    The compose body launches a single demo container that serves a
+    tiny page; the WAF should reverse-proxy to it.
+    """
+    name = f"e2e-compose-{RUN_ID}"
+    _api_delete_conn_by_name(api_session, name)
+
+    compose_yaml = (
+        "services:\n"
+        "  appcompose:\n"
+        "    image: nginxdemos/hello:plain-text\n"
+        "    expose:\n"
+        '      - "80"\n'
+    )
+
+    _ui_open_new_connection(page)
+    page.get_by_test_id("source-type-docker_compose").click()
+    page.get_by_test_id("conn-name").fill(name)
+    page.get_by_test_id("conn-domains").fill("test4.example")
+    page.get_by_test_id("conn-compose-service").fill("appcompose")
+    page.get_by_test_id("conn-compose-port").fill("80")
+    page.get_by_test_id("conn-compose-yaml").fill(compose_yaml)
+    _ui_submit(page)
+
+    expect(page.get_by_text(name)).to_be_visible()
+
+    rows = api_session.get(f"{BACKEND_URL}/api/connections/").json()
+    conn = next(c for c in rows if c["name"] == name)
+    assert conn["source_type"] == "docker_compose"
+    assert conn["compose_service"] == "appcompose"
+    assert conn["compose_port"] == 80
+
+    cfg = _read_generated_config(conn["id"])
+    assert "## Source: docker_compose" in cfg
+    assert "proxy_pass http://appcompose:80" in cfg
+
+
 def test_mode_container(page: Page, api_session: requests.Session):
     name = f"e2e-container-{RUN_ID}"
     _api_delete_conn_by_name(api_session, name)

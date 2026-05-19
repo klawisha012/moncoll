@@ -15,6 +15,14 @@ Run a specific layer:
 from pathlib import Path
 
 
+def pytest_configure(config):
+    config.addinivalue_line("markers", "unit: unit-level tests (fast, no I/O)")
+    config.addinivalue_line(
+        "markers", "integration: integration tests (FastAPI + mocked services)"
+    )
+    config.addinivalue_line("markers", "e2e: end-to-end tests requiring the full stack")
+
+
 def pytest_collection_modifyitems(config, items):
     tests_root = Path(__file__).parent
     for item in items:

@@ -3,7 +3,7 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
-SourceType = Literal["nginx_config", "static_generate", "container"]
+SourceType = Literal["nginx_config", "static_generate", "container", "docker_compose"]
 
 
 class ConnectionBase(BaseModel):
@@ -21,7 +21,9 @@ class ConnectionBase(BaseModel):
             "How this connection is sourced: "
             "'nginx_config' = deploy an existing nginx config (with includes); "
             "'static_generate' = generate config from index.html + domains; "
-            "'container' = reverse-proxy to a container/service host:port."
+            "'container' = reverse-proxy to a container/service host:port; "
+            "'docker_compose' = bring up a user-supplied docker-compose file "
+            "and reverse-proxy to one of its services."
         ),
     )
     nginx_config_path: str | None = Field(
@@ -38,7 +40,25 @@ class ConnectionBase(BaseModel):
     backend_url: str = Field(
         default="",
         description="Backend target (e.g. 'myservice:8080' or 'http://myservice:8080'). "
-        "Used only when source_type='container'.",
+        "Used only when source_type='container' or 'docker_compose'.",
+    )
+    compose_yaml: str | None = Field(
+        default=None,
+        description="Inline docker-compose YAML body. Used only when "
+        "source_type='docker_compose'. The backend writes it to a project "
+        "directory and runs 'docker compose up -d' against it.",
+    )
+    compose_service: str | None = Field(
+        default=None,
+        description="Name of the compose service to reverse-proxy to. "
+        "Used only when source_type='docker_compose'.",
+    )
+    compose_port: int | None = Field(
+        default=None,
+        ge=1,
+        le=65535,
+        description="Port on the compose service to proxy to. Used only when "
+        "source_type='docker_compose'.",
     )
     enabled: bool = Field(default=True, description="Whether this connection is active")
     ssl_enabled: bool = Field(default=False, description="Enable SSL/TLS for this site")
@@ -67,6 +87,9 @@ class ConnectionUpdate(BaseModel):
     nginx_config_path: str | None = None
     static_dir: str | None = None
     backend_url: str | None = None
+    compose_yaml: str | None = None
+    compose_service: str | None = None
+    compose_port: int | None = Field(None, ge=1, le=65535)
     enabled: bool | None = None
     ssl_enabled: bool | None = None
     ssl_cert_path: str | None = None

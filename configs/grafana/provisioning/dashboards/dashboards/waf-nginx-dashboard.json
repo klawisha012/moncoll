@@ -38,21 +38,21 @@
             "barAlignment": 0,
             "barWidthFactor": 0.6,
             "drawStyle": "line",
-            "fillOpacity": 0,
-            "gradientMode": "none",
+            "fillOpacity": 25,
+            "gradientMode": "opacity",
             "hideFrom": {
               "legend": false,
               "tooltip": false,
               "viz": false
             },
             "insertNulls": false,
-            "lineInterpolation": "linear",
-            "lineWidth": 1,
+            "lineInterpolation": "smooth",
+            "lineWidth": 2,
             "pointSize": 5,
             "scaleDistribution": {
               "type": "linear"
             },
-            "showPoints": "auto",
+            "showPoints": "never",
             "showValues": false,
             "spanNulls": false,
             "stacking": {
@@ -68,15 +68,12 @@
             "mode": "absolute",
             "steps": [
               {
-                "color": "green",
-                "value": 0
-              },
-              {
                 "color": "red",
-                "value": 80
+                "value": null
               }
             ]
-          }
+          },
+          "unit": "short"
         },
         "overrides": []
       },
@@ -103,7 +100,7 @@
       "pluginVersion": "12.3.1",
       "targets": [
         {
-          "rawSql": "SELECT toStartOfMinute(timestamp) AS time, count() AS value FROM logs.waf_audit_log PREWHERE $__timeFilter(timestamp) GROUP BY time ORDER BY time",
+          "rawSql": "SELECT toStartOfMinute(timestamp) AS time, count() AS \"WAF events\" FROM logs.waf_audit_log PREWHERE $__timeFilter(timestamp) WHERE match(request_headers['Host'], '${connection:regex}') GROUP BY time ORDER BY time",
           "refId": "A"
         }
       ],
@@ -165,36 +162,29 @@
       },
       "id": 2,
       "options": {
-        "barRadius": 0,
-        "barWidth": 0.97,
-        "fullHighlight": false,
-        "groupWidth": 0.7,
-        "legend": {
-          "calcs": [],
-          "displayMode": "list",
-          "placement": "bottom",
-          "showLegend": true
+        "displayMode": "gradient",
+        "minVizHeight": 16,
+        "minVizWidth": 8,
+        "namePlacement": "left",
+        "orientation": "horizontal",
+        "reduceOptions": {
+          "calcs": ["lastNotNull"],
+          "fields": "",
+          "values": false
         },
-        "orientation": "auto",
-        "showValue": "auto",
-        "stacking": "none",
-        "tooltip": {
-          "hideZeros": false,
-          "mode": "single",
-          "sort": "none"
-        },
-        "xTickLabelRotation": 0,
-        "xTickLabelSpacing": 0
+        "showUnfilled": true,
+        "sizing": "auto",
+        "valueMode": "color"
       },
       "pluginVersion": "12.3.1",
       "targets": [
         {
-          "rawSql": "SELECT m.ruleId AS ruleId, count() AS value FROM logs.waf_audit_log ARRAY JOIN messages AS m PREWHERE $__timeFilter(timestamp) GROUP BY ruleId ORDER BY value DESC LIMIT 10",
+          "rawSql": "SELECT concat('Rule ', toString(m.ruleId)) AS rule, count() AS hits FROM logs.waf_audit_log ARRAY JOIN messages AS m PREWHERE $__timeFilter(timestamp) WHERE match(request_headers['Host'], '${connection:regex}') GROUP BY m.ruleId ORDER BY hits DESC LIMIT 10",
           "refId": "A"
         }
       ],
       "title": "🚨 Top Rules by Trigger Count",
-      "type": "barchart"
+      "type": "bargauge"
     },
     {
       "datasource": {
@@ -212,9 +202,19 @@
               "viz": false
             }
           },
-          "mappings": []
+          "mappings": [],
+          "unit": "short"
         },
-        "overrides": []
+        "overrides": [
+          { "matcher": { "id": "byName", "options": "EMERGENCY" }, "properties": [{ "id": "color", "value": { "fixedColor": "dark-red", "mode": "fixed" } }] },
+          { "matcher": { "id": "byName", "options": "ALERT" },     "properties": [{ "id": "color", "value": { "fixedColor": "red",       "mode": "fixed" } }] },
+          { "matcher": { "id": "byName", "options": "CRITICAL" },  "properties": [{ "id": "color", "value": { "fixedColor": "orange",    "mode": "fixed" } }] },
+          { "matcher": { "id": "byName", "options": "ERROR" },     "properties": [{ "id": "color", "value": { "fixedColor": "yellow",    "mode": "fixed" } }] },
+          { "matcher": { "id": "byName", "options": "WARNING" },   "properties": [{ "id": "color", "value": { "fixedColor": "super-light-yellow", "mode": "fixed" } }] },
+          { "matcher": { "id": "byName", "options": "NOTICE" },    "properties": [{ "id": "color", "value": { "fixedColor": "blue",      "mode": "fixed" } }] },
+          { "matcher": { "id": "byName", "options": "INFO" },      "properties": [{ "id": "color", "value": { "fixedColor": "green",     "mode": "fixed" } }] },
+          { "matcher": { "id": "byName", "options": "DEBUG" },     "properties": [{ "id": "color", "value": { "fixedColor": "dark-green", "mode": "fixed" } }] }
+        ]
       },
       "gridPos": {
         "h": 6,
@@ -225,11 +225,12 @@
       "id": 3,
       "options": {
         "legend": {
-          "displayMode": "list",
-          "placement": "bottom",
-          "showLegend": true
+          "displayMode": "table",
+          "placement": "right",
+          "showLegend": true,
+          "values": ["value", "percent"]
         },
-        "pieType": "pie",
+        "pieType": "donut",
         "reduceOptions": {
           "calcs": [
             "lastNotNull"
@@ -241,13 +242,13 @@
         "tooltip": {
           "hideZeros": false,
           "mode": "single",
-          "sort": "none"
+          "sort": "desc"
         }
       },
       "pluginVersion": "12.3.1",
       "targets": [
         {
-          "rawSql": "SELECT m.severity AS severity, count() AS value FROM logs.waf_audit_log ARRAY JOIN messages AS m PREWHERE $__timeFilter(timestamp) GROUP BY severity",
+          "rawSql": "SELECT multiIf(m.severity = 0, 'EMERGENCY', m.severity = 1, 'ALERT', m.severity = 2, 'CRITICAL', m.severity = 3, 'ERROR', m.severity = 4, 'WARNING', m.severity = 5, 'NOTICE', m.severity = 6, 'INFO', m.severity = 7, 'DEBUG', toString(m.severity)) AS severity, count() AS hits FROM logs.waf_audit_log ARRAY JOIN messages AS m PREWHERE $__timeFilter(timestamp) WHERE match(request_headers['Host'], '${connection:regex}') GROUP BY severity",
           "refId": "A"
         }
       ],
@@ -260,32 +261,32 @@
       },
       "fieldConfig": {
         "defaults": {
+          "color": { "mode": "continuous-RdYlGr" },
           "custom": {
             "align": "auto",
-            "cellOptions": {
-              "type": "auto"
-            },
-            "footer": {
-              "reducers": []
-            },
+            "cellOptions": { "type": "auto" },
+            "filterable": true,
+            "footer": { "reducers": [] },
             "inspect": false
           },
-          "mappings": [],
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "green",
-                "value": 0
-              },
-              {
-                "color": "red",
-                "value": 80
-              }
+          "mappings": []
+        },
+        "overrides": [
+          {
+            "matcher": { "id": "byName", "options": "hits" },
+            "properties": [
+              { "id": "custom.cellOptions", "value": { "type": "gauge", "mode": "gradient", "valueDisplayMode": "color" } },
+              { "id": "color", "value": { "mode": "continuous-YlRd" } },
+              { "id": "custom.width", "value": 220 }
+            ]
+          },
+          {
+            "matcher": { "id": "byName", "options": "client_ip" },
+            "properties": [
+              { "id": "displayName", "value": "Client IP" }
             ]
           }
-        },
-        "overrides": []
+        ]
       },
       "gridPos": {
         "h": 6,
@@ -296,12 +297,13 @@
       "id": 4,
       "options": {
         "cellHeight": "sm",
-        "showHeader": true
+        "showHeader": true,
+        "sortBy": [{ "displayName": "hits", "desc": true }]
       },
       "pluginVersion": "12.3.1",
       "targets": [
         {
-          "rawSql": "SELECT client_ip, count() AS hits FROM logs.waf_audit_log PREWHERE $__timeFilter(timestamp) GROUP BY client_ip ORDER BY hits DESC LIMIT 15",
+          "rawSql": "SELECT client_ip, count() AS hits FROM logs.waf_audit_log PREWHERE $__timeFilter(timestamp) WHERE match(request_headers['Host'], '${connection:regex}') GROUP BY client_ip ORDER BY hits DESC LIMIT 15",
           "refId": "A"
         }
       ],
@@ -314,57 +316,41 @@
       },
       "fieldConfig": {
         "defaults": {
-          "color": {
-            "mode": "palette-classic"
-          },
+          "color": { "mode": "thresholds" },
           "custom": {
             "axisBorderShow": false,
             "axisCenteredZero": false,
-            "axisColorMode": "text",
+            "axisColorMode": "thresholds",
             "axisLabel": "",
             "axisPlacement": "auto",
             "barAlignment": 0,
             "barWidthFactor": 0.6,
             "drawStyle": "line",
-            "fillOpacity": 0,
-            "gradientMode": "none",
-            "hideFrom": {
-              "legend": false,
-              "tooltip": false,
-              "viz": false
-            },
+            "fillOpacity": 20,
+            "gradientMode": "scheme",
+            "hideFrom": { "legend": false, "tooltip": false, "viz": false },
             "insertNulls": false,
-            "lineInterpolation": "linear",
-            "lineWidth": 1,
+            "lineInterpolation": "stepAfter",
+            "lineWidth": 2,
             "pointSize": 5,
-            "scaleDistribution": {
-              "type": "linear"
-            },
-            "showPoints": "auto",
+            "scaleDistribution": { "type": "linear" },
+            "showPoints": "never",
             "showValues": false,
             "spanNulls": false,
-            "stacking": {
-              "group": "A",
-              "mode": "none"
-            },
-            "thresholdsStyle": {
-              "mode": "off"
-            }
+            "stacking": { "group": "A", "mode": "none" },
+            "thresholdsStyle": { "mode": "dashed" }
           },
           "mappings": [],
           "thresholds": {
             "mode": "absolute",
             "steps": [
-              {
-                "color": "green",
-                "value": 0
-              },
-              {
-                "color": "red",
-                "value": 80
-              }
+              { "color": "green",  "value": null },
+              { "color": "yellow", "value": 5 },
+              { "color": "orange", "value": 10 },
+              { "color": "red",    "value": 20 }
             ]
-          }
+          },
+          "unit": "short"
         },
         "overrides": []
       },
@@ -391,7 +377,7 @@
       "pluginVersion": "12.3.1",
       "targets": [
         {
-          "rawSql": "SELECT toStartOfMinute(timestamp) AS time, max(anomaly_score) AS value FROM logs.waf_audit_log PREWHERE $__timeFilter(timestamp) GROUP BY time ORDER BY time",
+          "rawSql": "SELECT toStartOfMinute(timestamp) AS time, max(anomaly_score) AS \"max anomaly score\" FROM logs.waf_audit_log PREWHERE $__timeFilter(timestamp) WHERE match(request_headers['Host'], '${connection:regex}') GROUP BY time ORDER BY time",
           "refId": "A"
         }
       ],
@@ -453,36 +439,29 @@
       },
       "id": 6,
       "options": {
-        "barRadius": 0,
-        "barWidth": 0.97,
-        "fullHighlight": false,
-        "groupWidth": 0.7,
-        "legend": {
-          "calcs": [],
-          "displayMode": "list",
-          "placement": "bottom",
-          "showLegend": true
+        "displayMode": "gradient",
+        "minVizHeight": 16,
+        "minVizWidth": 8,
+        "namePlacement": "left",
+        "orientation": "horizontal",
+        "reduceOptions": {
+          "calcs": ["lastNotNull"],
+          "fields": "",
+          "values": false
         },
-        "orientation": "auto",
-        "showValue": "auto",
-        "stacking": "none",
-        "tooltip": {
-          "hideZeros": false,
-          "mode": "single",
-          "sort": "none"
-        },
-        "xTickLabelRotation": 0,
-        "xTickLabelSpacing": 0
+        "showUnfilled": true,
+        "sizing": "auto",
+        "valueMode": "color"
       },
       "pluginVersion": "12.3.1",
       "targets": [
         {
-          "rawSql": "SELECT tag, count() AS value FROM logs.waf_audit_log ARRAY JOIN messages_tags AS tags ARRAY JOIN tags AS tag PREWHERE $__timeFilter(timestamp) GROUP BY tag ORDER BY value DESC LIMIT 10",
+          "rawSql": "SELECT tag, count() AS hits FROM logs.waf_audit_log ARRAY JOIN messages_tags AS tags ARRAY JOIN tags AS tag PREWHERE $__timeFilter(timestamp) WHERE match(request_headers['Host'], '${connection:regex}') GROUP BY tag ORDER BY hits DESC LIMIT 10",
           "refId": "A"
         }
       ],
       "title": "🏷 Top Tags",
-      "type": "barchart"
+      "type": "bargauge"
     },
     {
       "datasource": {
@@ -539,36 +518,29 @@
       },
       "id": 7,
       "options": {
-        "barRadius": 0,
-        "barWidth": 0.97,
-        "fullHighlight": false,
-        "groupWidth": 0.7,
-        "legend": {
-          "calcs": [],
-          "displayMode": "list",
-          "placement": "bottom",
-          "showLegend": true
+        "displayMode": "gradient",
+        "minVizHeight": 16,
+        "minVizWidth": 8,
+        "namePlacement": "left",
+        "orientation": "horizontal",
+        "reduceOptions": {
+          "calcs": ["lastNotNull"],
+          "fields": "",
+          "values": false
         },
-        "orientation": "auto",
-        "showValue": "auto",
-        "stacking": "none",
-        "tooltip": {
-          "hideZeros": false,
-          "mode": "single",
-          "sort": "none"
-        },
-        "xTickLabelRotation": 0,
-        "xTickLabelSpacing": 0
+        "showUnfilled": true,
+        "sizing": "auto",
+        "valueMode": "color"
       },
       "pluginVersion": "12.3.1",
       "targets": [
         {
-          "rawSql": "SELECT request_uri, count() AS value FROM logs.waf_audit_log PREWHERE $__timeFilter(timestamp) GROUP BY request_uri ORDER BY value DESC LIMIT 10",
+          "rawSql": "SELECT if(length(request_uri) > 40, concat(substring(request_uri, 1, 37), '…'), request_uri) AS uri, count() AS hits FROM logs.waf_audit_log PREWHERE $__timeFilter(timestamp) WHERE match(request_headers['Host'], '${connection:regex}') GROUP BY uri ORDER BY hits DESC LIMIT 10",
           "refId": "A"
         }
       ],
-      "title": "📄 Top Requested URIs (Blocked)",
-      "type": "barchart"
+      "title": "📄 Top Blocked URIs",
+      "type": "bargauge"
     },
     {
       "datasource": {
@@ -625,36 +597,29 @@
       },
       "id": 8,
       "options": {
-        "barRadius": 0,
-        "barWidth": 0.97,
-        "fullHighlight": false,
-        "groupWidth": 0.7,
-        "legend": {
-          "calcs": [],
-          "displayMode": "list",
-          "placement": "bottom",
-          "showLegend": true
+        "displayMode": "gradient",
+        "minVizHeight": 16,
+        "minVizWidth": 8,
+        "namePlacement": "left",
+        "orientation": "horizontal",
+        "reduceOptions": {
+          "calcs": ["lastNotNull"],
+          "fields": "",
+          "values": false
         },
-        "orientation": "auto",
-        "showValue": "auto",
-        "stacking": "none",
-        "tooltip": {
-          "hideZeros": false,
-          "mode": "single",
-          "sort": "none"
-        },
-        "xTickLabelRotation": 0,
-        "xTickLabelSpacing": 0
+        "showUnfilled": true,
+        "sizing": "auto",
+        "valueMode": "color"
       },
       "pluginVersion": "12.3.1",
       "targets": [
         {
-          "rawSql": "SELECT m.file AS file, count() AS value FROM logs.waf_audit_log ARRAY JOIN messages AS m PREWHERE $__timeFilter(timestamp) GROUP BY file ORDER BY value DESC LIMIT 10",
+          "rawSql": "SELECT replaceRegexpOne(replaceRegexpOne(m.file, '\\.conf$', ''), '^.*/', '') AS ruleset, count() AS hits FROM logs.waf_audit_log ARRAY JOIN messages AS m PREWHERE $__timeFilter(timestamp) WHERE match(request_headers['Host'], '${connection:regex}') GROUP BY ruleset ORDER BY hits DESC LIMIT 10",
           "refId": "A"
         }
       ],
-      "title": "🧩 Rules by File",
-      "type": "barchart"
+      "title": "🧩 Top Rule Files",
+      "type": "bargauge"
     },
     {
       "datasource": {
@@ -662,35 +627,36 @@
       },
       "fieldConfig": {
         "defaults": {
-          "color": {
-            "mode": "thresholds"
-          },
+          "color": { "mode": "palette-classic" },
           "custom": {
-            "align": "auto",
-            "cellOptions": {
-              "type": "auto"
-            },
-            "footer": {
-              "reducers": []
-            },
-            "inspect": false
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "drawStyle": "bars",
+            "fillOpacity": 80,
+            "gradientMode": "none",
+            "hideFrom": { "legend": false, "tooltip": false, "viz": false },
+            "lineInterpolation": "linear",
+            "lineWidth": 0,
+            "pointSize": 5,
+            "scaleDistribution": { "type": "linear" },
+            "showPoints": "never",
+            "spanNulls": false,
+            "stacking": { "group": "A", "mode": "normal" },
+            "thresholdsStyle": { "mode": "off" }
           },
           "mappings": [],
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "green",
-                "value": 0
-              },
-              {
-                "color": "red",
-                "value": 80
-              }
-            ]
-          }
+          "unit": "short"
         },
-        "overrides": []
+        "overrides": [
+          { "matcher": { "id": "byName", "options": "2xx" }, "properties": [{ "id": "color", "value": { "fixedColor": "green",  "mode": "fixed" } }] },
+          { "matcher": { "id": "byName", "options": "3xx" }, "properties": [{ "id": "color", "value": { "fixedColor": "blue",   "mode": "fixed" } }] },
+          { "matcher": { "id": "byName", "options": "4xx" }, "properties": [{ "id": "color", "value": { "fixedColor": "orange", "mode": "fixed" } }] },
+          { "matcher": { "id": "byName", "options": "5xx" }, "properties": [{ "id": "color", "value": { "fixedColor": "red",    "mode": "fixed" } }] }
+        ]
       },
       "gridPos": {
         "h": 6,
@@ -700,18 +666,23 @@
       },
       "id": 9,
       "options": {
-        "cellHeight": "sm",
-        "showHeader": true
+        "legend": {
+          "calcs": ["sum"],
+          "displayMode": "table",
+          "placement": "right",
+          "showLegend": true
+        },
+        "tooltip": { "hideZeros": false, "mode": "multi", "sort": "desc" }
       },
       "pluginVersion": "12.3.1",
       "targets": [
         {
-          "rawSql": "SELECT toStartOfMinute(time_local) AS time, status, count() AS value FROM logs.nginx_access_log PREWHERE $__timeFilter(time_local) GROUP BY time, status ORDER BY time",
+          "rawSql": "SELECT toStartOfMinute(time_local) AS time, countIf(status >= 200 AND status < 300) AS \"2xx\", countIf(status >= 300 AND status < 400) AS \"3xx\", countIf(status >= 400 AND status < 500) AS \"4xx\", countIf(status >= 500) AS \"5xx\" FROM logs.nginx_access_log PREWHERE $__timeFilter(time_local) WHERE match(host, '${connection:regex}') GROUP BY time ORDER BY time",
           "refId": "A"
         }
       ],
       "title": "📈 HTTP Status Codes Over Time",
-      "type": "table"
+      "type": "timeseries"
     },
     {
       "datasource": {
@@ -719,32 +690,30 @@
       },
       "fieldConfig": {
         "defaults": {
+          "color": { "mode": "continuous-BlPu" },
           "custom": {
             "align": "auto",
-            "cellOptions": {
-              "type": "auto"
-            },
-            "footer": {
-              "reducers": []
-            },
+            "cellOptions": { "type": "auto" },
+            "filterable": true,
+            "footer": { "reducers": [] },
             "inspect": false
           },
-          "mappings": [],
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "green",
-                "value": 0
-              },
-              {
-                "color": "red",
-                "value": 80
-              }
-            ]
-          }
+          "mappings": []
         },
-        "overrides": []
+        "overrides": [
+          {
+            "matcher": { "id": "byName", "options": "hits" },
+            "properties": [
+              { "id": "custom.cellOptions", "value": { "type": "gauge", "mode": "gradient", "valueDisplayMode": "color" } },
+              { "id": "color", "value": { "mode": "continuous-BlPu" } },
+              { "id": "custom.width", "value": 220 }
+            ]
+          },
+          {
+            "matcher": { "id": "byName", "options": "ip" },
+            "properties": [{ "id": "displayName", "value": "Client IP" }]
+          }
+        ]
       },
       "gridPos": {
         "h": 6,
@@ -755,12 +724,13 @@
       "id": 10,
       "options": {
         "cellHeight": "sm",
-        "showHeader": true
+        "showHeader": true,
+        "sortBy": [{ "displayName": "hits", "desc": true }]
       },
       "pluginVersion": "12.3.1",
       "targets": [
         {
-          "rawSql": "SELECT remote_addr AS ip, count() AS hits FROM logs.nginx_access_log PREWHERE $__timeFilter(time_local) GROUP BY ip ORDER BY hits DESC LIMIT 15",
+          "rawSql": "SELECT remote_addr AS ip, count() AS hits FROM logs.nginx_access_log PREWHERE $__timeFilter(time_local) WHERE match(host, '${connection:regex}') GROUP BY ip ORDER BY hits DESC LIMIT 15",
           "refId": "A"
         }
       ],
@@ -773,32 +743,30 @@
       },
       "fieldConfig": {
         "defaults": {
+          "color": { "mode": "continuous-GrYlRd" },
           "custom": {
             "align": "auto",
-            "cellOptions": {
-              "type": "auto"
-            },
-            "footer": {
-              "reducers": []
-            },
+            "cellOptions": { "type": "auto" },
+            "filterable": true,
+            "footer": { "reducers": [] },
             "inspect": false
           },
-          "mappings": [],
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "green",
-                "value": 0
-              },
-              {
-                "color": "red",
-                "value": 80
-              }
-            ]
-          }
+          "mappings": []
         },
-        "overrides": []
+        "overrides": [
+          {
+            "matcher": { "id": "byName", "options": "hits" },
+            "properties": [
+              { "id": "custom.cellOptions", "value": { "type": "gauge", "mode": "gradient", "valueDisplayMode": "color" } },
+              { "id": "color", "value": { "mode": "continuous-GrYlRd" } },
+              { "id": "custom.width", "value": 160 }
+            ]
+          },
+          {
+            "matcher": { "id": "byName", "options": "ua" },
+            "properties": [{ "id": "displayName", "value": "User-Agent" }]
+          }
+        ]
       },
       "gridPos": {
         "h": 6,
@@ -809,12 +777,13 @@
       "id": 11,
       "options": {
         "cellHeight": "sm",
-        "showHeader": true
+        "showHeader": true,
+        "sortBy": [{ "displayName": "hits", "desc": true }]
       },
       "pluginVersion": "12.3.1",
       "targets": [
         {
-          "rawSql": "SELECT http_user_agent AS ua, count() AS hits FROM logs.nginx_access_log PREWHERE $__timeFilter(time_local) GROUP BY ua ORDER BY hits DESC LIMIT 15",
+          "rawSql": "SELECT if(length(http_user_agent) > 80, concat(substring(http_user_agent, 1, 77), '…'), http_user_agent) AS ua, count() AS hits FROM logs.nginx_access_log PREWHERE $__timeFilter(time_local) WHERE match(host, '${connection:regex}') GROUP BY ua ORDER BY hits DESC LIMIT 15",
           "refId": "A"
         }
       ],
@@ -827,30 +796,9 @@
       },
       "fieldConfig": {
         "defaults": {
-          "custom": {
-            "align": "auto",
-            "cellOptions": {
-              "type": "auto"
-            },
-            "footer": {
-              "reducers": []
-            },
-            "inspect": false
-          },
+          "color": { "mode": "continuous-GrYlRd" },
           "mappings": [],
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "green",
-                "value": 0
-              },
-              {
-                "color": "red",
-                "value": 80
-              }
-            ]
-          }
+          "unit": "short"
         },
         "overrides": []
       },
@@ -862,18 +810,29 @@
       },
       "id": 12,
       "options": {
-        "cellHeight": "sm",
-        "showHeader": true
+        "displayMode": "gradient",
+        "minVizHeight": 16,
+        "minVizWidth": 8,
+        "namePlacement": "left",
+        "orientation": "horizontal",
+        "reduceOptions": {
+          "calcs": ["lastNotNull"],
+          "fields": "",
+          "values": false
+        },
+        "showUnfilled": true,
+        "sizing": "auto",
+        "valueMode": "color"
       },
       "pluginVersion": "12.3.1",
       "targets": [
         {
-          "rawSql": "SELECT geoip_country_code AS country, count() AS hits FROM logs.nginx_access_log PREWHERE $__timeFilter(time_local) GROUP BY country ORDER BY hits DESC",
+          "rawSql": "SELECT if(geoip_country_code = '' OR geoip_country_code IS NULL, 'Unknown', geoip_country_code) AS country, count() AS hits FROM logs.nginx_access_log PREWHERE $__timeFilter(time_local) WHERE match(host, '${connection:regex}') GROUP BY country ORDER BY hits DESC LIMIT 15",
           "refId": "A"
         }
       ],
       "title": "🌍 Requests by Country",
-      "type": "table"
+      "type": "bargauge"
     },
     {
       "datasource": {
@@ -881,9 +840,7 @@
       },
       "fieldConfig": {
         "defaults": {
-          "color": {
-            "mode": "palette-classic"
-          },
+          "color": { "mode": "palette-classic" },
           "custom": {
             "axisBorderShow": false,
             "axisCenteredZero": false,
@@ -891,47 +848,22 @@
             "axisLabel": "",
             "axisPlacement": "auto",
             "barAlignment": 0,
-            "barWidthFactor": 0.6,
             "drawStyle": "line",
-            "fillOpacity": 0,
-            "gradientMode": "none",
-            "hideFrom": {
-              "legend": false,
-              "tooltip": false,
-              "viz": false
-            },
+            "fillOpacity": 30,
+            "gradientMode": "opacity",
+            "hideFrom": { "legend": false, "tooltip": false, "viz": false },
             "insertNulls": false,
-            "lineInterpolation": "linear",
-            "lineWidth": 1,
+            "lineInterpolation": "smooth",
+            "lineWidth": 2,
             "pointSize": 5,
-            "scaleDistribution": {
-              "type": "linear"
-            },
-            "showPoints": "auto",
-            "showValues": false,
+            "scaleDistribution": { "type": "linear" },
+            "showPoints": "never",
             "spanNulls": false,
-            "stacking": {
-              "group": "A",
-              "mode": "none"
-            },
-            "thresholdsStyle": {
-              "mode": "off"
-            }
+            "stacking": { "group": "A", "mode": "none" },
+            "thresholdsStyle": { "mode": "off" }
           },
           "mappings": [],
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "green",
-                "value": 0
-              },
-              {
-                "color": "red",
-                "value": 80
-              }
-            ]
-          }
+          "unit": "bytes"
         },
         "overrides": []
       },
@@ -958,7 +890,7 @@
       "pluginVersion": "12.3.1",
       "targets": [
         {
-          "rawSql": "SELECT toStartOfMinute(time_local) AS time, sum(body_bytes_sent) AS value FROM logs.nginx_access_log PREWHERE $__timeFilter(time_local) GROUP BY time ORDER BY time",
+          "rawSql": "SELECT toStartOfMinute(time_local) AS time, sum(body_bytes_sent) AS \"bytes sent\" FROM logs.nginx_access_log PREWHERE $__timeFilter(time_local) WHERE match(host, '${connection:regex}') GROUP BY time ORDER BY time",
           "refId": "A"
         }
       ],
@@ -971,9 +903,7 @@
       },
       "fieldConfig": {
         "defaults": {
-          "color": {
-            "mode": "palette-classic"
-          },
+          "color": { "mode": "palette-classic" },
           "custom": {
             "axisBorderShow": false,
             "axisCenteredZero": false,
@@ -981,47 +911,22 @@
             "axisLabel": "",
             "axisPlacement": "auto",
             "barAlignment": 0,
-            "barWidthFactor": 0.6,
             "drawStyle": "line",
-            "fillOpacity": 0,
-            "gradientMode": "none",
-            "hideFrom": {
-              "legend": false,
-              "tooltip": false,
-              "viz": false
-            },
+            "fillOpacity": 25,
+            "gradientMode": "opacity",
+            "hideFrom": { "legend": false, "tooltip": false, "viz": false },
             "insertNulls": false,
-            "lineInterpolation": "linear",
-            "lineWidth": 1,
+            "lineInterpolation": "smooth",
+            "lineWidth": 2,
             "pointSize": 5,
-            "scaleDistribution": {
-              "type": "linear"
-            },
-            "showPoints": "auto",
-            "showValues": false,
+            "scaleDistribution": { "type": "linear" },
+            "showPoints": "never",
             "spanNulls": false,
-            "stacking": {
-              "group": "A",
-              "mode": "none"
-            },
-            "thresholdsStyle": {
-              "mode": "off"
-            }
+            "stacking": { "group": "A", "mode": "none" },
+            "thresholdsStyle": { "mode": "off" }
           },
           "mappings": [],
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "green",
-                "value": 0
-              },
-              {
-                "color": "red",
-                "value": 80
-              }
-            ]
-          }
+          "unit": "reqps"
         },
         "overrides": []
       },
@@ -1048,7 +953,7 @@
       "pluginVersion": "12.3.1",
       "targets": [
         {
-          "rawSql": "SELECT toStartOfSecond(toDateTime64(time_local, 0)) AS time, count() AS value FROM logs.nginx_access_log PREWHERE $__timeFilter(time_local) GROUP BY time ORDER BY time",
+          "rawSql": "SELECT toStartOfMinute(time_local) AS time, count() / 60.0 AS \"req/s\" FROM logs.nginx_access_log PREWHERE $__timeFilter(time_local) WHERE match(host, '${connection:regex}') GROUP BY time ORDER BY time",
           "refId": "A"
         }
       ],
@@ -1066,7 +971,29 @@
     "clickhouse"
   ],
   "templating": {
-    "list": []
+    "list": [
+      {
+        "name": "connection",
+        "label": "Domain",
+        "type": "query",
+        "datasource": {
+          "uid": "bfbcca0459mo0f"
+        },
+        "definition": "SELECT DISTINCT host FROM logs.nginx_access_log WHERE host != '' ORDER BY host",
+        "query": "SELECT DISTINCT host FROM logs.nginx_access_log WHERE host != '' ORDER BY host",
+        "includeAll": true,
+        "allValue": ".*",
+        "multi": true,
+        "current": {
+          "selected": true,
+          "text": ["All"],
+          "value": ["$__all"]
+        },
+        "refresh": 2,
+        "sort": 1,
+        "hide": 0
+      }
+    ]
   },
   "time": {
     "from": "now-6h",

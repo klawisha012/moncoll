@@ -1,5 +1,3 @@
-from typing import List
-
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -78,7 +76,7 @@ async def upload_static_file(
 
 @connections_router.post("/upload-nginx-config")
 async def upload_nginx_config(
-    files: List[UploadFile] = File(...),
+    files: list[UploadFile] = File(...),
 ):
     """Upload an nginx config **directory** via the browser folder picker.
 
@@ -89,10 +87,7 @@ async def upload_nginx_config(
     """
     if not files:
         raise HTTPException(status_code=400, detail="No files uploaded")
-    file_tuples = [
-        (f.filename or "nginx.conf", await f.read())
-        for f in files
-    ]
+    file_tuples = [(f.filename or "nginx.conf", await f.read()) for f in files]
     result = connection_service.save_uploaded_nginx_config(file_tuples)
     return result
 

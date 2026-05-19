@@ -34,13 +34,15 @@ class Connection(Base):
     domains: Mapped[list[str]] = mapped_column(JSON, nullable=False, default=list)
     # One of: "nginx_config" (deploy from existing nginx config with includes),
     # "static_generate" (generate config from an index.html + domains),
-    # "container" (reverse-proxy to a container/service host:port).
-    source_type: Mapped[str] = mapped_column(
-        String(32), nullable=False, default="static_generate"
-    )
+    # "container" (reverse-proxy to a container/service host:port),
+    # "docker_compose" (bring up a user-supplied compose file and proxy to one of its services).
+    source_type: Mapped[str] = mapped_column(String(32), nullable=False, default="static_generate")
     nginx_config_path: Mapped[str | None] = mapped_column(String(512), nullable=True)
     backend_url: Mapped[str] = mapped_column(String(512), nullable=False, default="")
     static_dir: Mapped[str | None] = mapped_column(String(512), nullable=True)
+    compose_yaml: Mapped[str | None] = mapped_column(Text, nullable=True)
+    compose_service: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    compose_port: Mapped[int | None] = mapped_column(Integer, nullable=True)
     enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     ssl_enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     ssl_cert_path: Mapped[str | None] = mapped_column(String(512), nullable=True)

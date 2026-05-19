@@ -23,7 +23,19 @@ const SOURCE_TYPES: { value: SourceType; label: string; hint: string }[] = [
     label: "Container / Service",
     hint: "Reverse-proxy to host:port of a container or k8s service.",
   },
+  {
+    value: "docker_compose",
+    label: "Docker Compose",
+    hint: "Paste a compose YAML — the WAF brings the stack up and proxies to the chosen service.",
+  },
 ];
+
+const DEFAULT_COMPOSE_YAML = `services:
+  app:
+    image: nginx:alpine
+    expose:
+      - "80"
+`;
 
 const DEFAULT_FORM: ConnectionCreate = {
   name: "",
@@ -32,6 +44,9 @@ const DEFAULT_FORM: ConnectionCreate = {
   nginx_config_path: null,
   static_dir: null,
   backend_url: "",
+  compose_yaml: null,
+  compose_service: null,
+  compose_port: null,
   enabled: true,
   ssl_enabled: false,
   ssl_cert_path: null,
@@ -105,6 +120,9 @@ export default function Connections() {
       nginx_config_path: conn.nginx_config_path,
       static_dir: conn.static_dir,
       backend_url: conn.backend_url,
+      compose_yaml: conn.compose_yaml,
+      compose_service: conn.compose_service,
+      compose_port: conn.compose_port,
       enabled: conn.enabled,
       ssl_enabled: conn.ssl_enabled,
       ssl_cert_path: conn.ssl_cert_path,
@@ -331,6 +349,25 @@ export default function Connections() {
                     <strong>Backend</strong>
                     <code className="codeblock">{conn.backend_url}</code>
                   </div>
+                )}
+                {conn.source_type === "docker_compose" && (
+                  <>
+                    {conn.compose_service && (
+                      <div className="detail-row">
+                        <strong>Service</strong>
+                        <code className="codeblock">
+                          {conn.compose_service}
+                          {conn.compose_port ? `:${conn.compose_port}` : ""}
+                        </code>
+                      </div>
+                    )}
+                    {conn.backend_url && (
+                      <div className="detail-row">
+                        <strong>Backend</strong>
+                        <code className="codeblock">{conn.backend_url}</code>
+                      </div>
+                    )}
+                  </>
                 )}
 
                 <div className="detail-row">
@@ -586,6 +623,88 @@ export default function Connections() {
                     if omitted.
                   </small>
                 </div>
+              )}
+
+              {sourceType === "docker_compose" && (
+                <>
+                  <div className="form-group">
+                    <label>Compose service name *</label>
+                    <input
+                      type="text"
+                      data-testid="conn-compose-service"
+                      value={formData.compose_service || ""}
+                      onChange={(e) =>
+                        updateFormField(
+                          "compose_service",
+                          e.target.value || null
+                        )
+                      }
+                      placeholder="app"
+                      required
+                    />
+                    <small>
+                      Service name defined in your compose YAML below. Traffic
+                      will be reverse-proxied to{" "}
+                      <code>service:port</code> on the WAF docker network.
+                    </small>
+                  </div>
+
+                  <div className="form-group">
+                    <label>Service port</label>
+                    <input
+                      type="number"
+                      min={1}
+                      max={65535}
+                      data-testid="conn-compose-port"
+                      value={formData.compose_port ?? ""}
+                      onChange={(e) => {
+                        const v = e.target.value
+                          ? parseInt(e.target.value, 10)
+                          : null;
+                        updateFormField(
+                          "compose_port",
+                          Number.isFinite(v as number) ? v : null
+                        );
+                      }}
+                      placeholder="80"
+                    />
+                    <small>
+                      Leave empty to auto-detect from the first{" "}
+                      <code>expose:</code> or <code>ports:</code> entry on the
+                      service.
+                    </small>
+                  </div>
+
+                  <div className="form-group">
+                    <label>docker-compose.yml *</label>
+                    <textarea
+                      data-testid="conn-compose-yaml"
+                      value={formData.compose_yaml || ""}
+                      onChange={(e) =>
+                        updateFormField(
+                          "compose_yaml",
+                          e.target.value || null
+                        )
+                      }
+                      placeholder={DEFAULT_COMPOSE_YAML}
+                      rows={12}
+                      required
+                      style={{
+                        fontFamily: "monospace",
+                        fontSize: "12px",
+                        width: "100%",
+                        minHeight: "220px",
+                      }}
+                    />
+                    <small>
+                      The backend writes this to{" "}
+                      <code>/var/lib/waf/compose/conn_&lt;id&gt;/docker-compose.yml</code>{" "}
+                      and runs <code>docker compose up -d</code>. The compose
+                      project is torn down automatically when the connection is
+                      deleted.
+                    </small>
+                  </div>
+                </>
               )}
 
               <div className="modal-actions">

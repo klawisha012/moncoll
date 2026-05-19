@@ -47,6 +47,16 @@ type PanelKey = "status" | "blocks" | "scenarios" | "alerts";
 
 const ALL_PANELS: PanelKey[] = ["status", "blocks", "scenarios", "alerts"];
 
+type TimeUnit = "minutes" | "hours" | "days";
+
+const TIME_UNITS: { value: TimeUnit; label: string; multiplier: number }[] = [
+  { value: "minutes", label: "Minutes", multiplier: 1 / 60 },
+  { value: "hours", label: "Hours", multiplier: 1 },
+  { value: "days", label: "Days", multiplier: 24 },
+];
+
+const MAX_HOURS = 8760;
+
 export default function CrowdSec() {
   const { t } = useSettings();
   const [status, setStatus] = useState<CrowdSecStatus | null>(null);
@@ -63,6 +73,14 @@ export default function CrowdSec() {
   const [expandedCards, setExpandedCards] = useState<Set<string>>(new Set());
   const [visiblePanels, setVisiblePanels] = useState<Set<PanelKey>>(new Set(ALL_PANELS));
   const [gearOpen, setGearOpen] = useState(false);
+
+  // Time range for alerts + manual block history (mirrors Dashboard's picker)
+  const [timeValue, setTimeValue] = useState<number>(24);
+  const [timeUnit, setTimeUnit] = useState<TimeUnit>("hours");
+
+  const unitMultiplier = TIME_UNITS.find((u) => u.value === timeUnit)?.multiplier ?? 1;
+  const selectedHours = +(timeValue * unitMultiplier).toFixed(4);
+  const maxValue = Math.floor(MAX_HOURS / unitMultiplier);
 
   // Block form state
   const [blockIp, setBlockIp] = useState("");
@@ -115,7 +133,7 @@ export default function CrowdSec() {
         api.getCrowdSecStatus(),
         api.getCrowdSecDecisions(),
         api.getCrowdSecScenarios(),
-        api.getCrowdSecManualBlocks(50),
+        api.getCrowdSecManualBlocks(50, selectedHours),
         api.getCrowdSecServiceStatus().catch(() => ({ enabled: true })),
         api.getConnections().catch(() => [] as Connection[]),
       ]);
@@ -130,15 +148,23 @@ export default function CrowdSec() {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [selectedHours]);
 
   useEffect(() => {
     loadData();
   }, [loadData]);
 
+  // Refresh alerts panel when time window changes (only if user has opened it)
+  useEffect(() => {
+    if (expandedCards.has("alerts")) {
+      loadAlerts();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedHours]);
+
   async function loadAlerts() {
     try {
-      const items = await api.getCrowdSecAlerts();
+      const items = await api.getCrowdSecAlerts(selectedHours);
       setAlerts(items);
     } catch (e: any) {
       showToast(e.message, "error");
@@ -468,7 +494,7 @@ export default function CrowdSec() {
         </div>
       </div>
 
-      {/* ── Gear ── */}
+      {/* ── Time range + Gear ── */}
       <div
         style={{
           display: "flex",
@@ -482,6 +508,58 @@ export default function CrowdSec() {
           flexWrap: "wrap",
         }}
       >
+        {/* Time range selector (same UX as the Dashboard native panels) */}
+        <span style={{ fontSize: "13px", color: "var(--text-secondary, #888)", fontWeight: 500 }}>
+          Time Range:
+        </span>
+        <input
+          type="number"
+          data-testid="crowdsec-time-value"
+          min={1}
+          max={maxValue}
+          value={timeValue}
+          onChange={(e) => {
+            const v = parseInt(e.target.value, 10);
+            if (!isNaN(v) && v >= 1 && v <= maxValue) setTimeValue(v);
+          }}
+          style={{
+            width: "80px",
+            padding: "6px 10px",
+            fontSize: "13px",
+            border: "1px solid var(--border-color, #2a2a2a)",
+            borderRadius: "var(--radius-sm, 6px)",
+            background: "var(--input-bg, #0d0d1a)",
+            color: "var(--text-primary, #e0e0e0)",
+            outline: "none",
+          }}
+        />
+        <select
+          data-testid="crowdsec-time-unit"
+          value={timeUnit}
+          onChange={(e) => setTimeUnit(e.target.value as TimeUnit)}
+          style={{
+            padding: "6px 10px",
+            fontSize: "13px",
+            border: "1px solid var(--border-color, #2a2a2a)",
+            borderRadius: "var(--radius-sm, 6px)",
+            background: "var(--input-bg, #0d0d1a)",
+            color: "var(--text-primary, #e0e0e0)",
+            outline: "none",
+            cursor: "pointer",
+          }}
+        >
+          {TIME_UNITS.map((unit) => (
+            <option key={unit.value} value={unit.value}>
+              {unit.label}
+            </option>
+          ))}
+        </select>
+        <span style={{ fontSize: "12px", color: "var(--text-secondary, #666)" }}>
+          (alerts &amp; manual blocks for the last {timeValue}{" "}
+          {timeUnit === "minutes" ? "min" : timeUnit === "hours" ? "hr" : "day"}
+          {timeValue !== 1 ? "s" : ""})
+        </span>
+
         {/* Gear button */}
         <div style={{ position: "relative", marginLeft: "auto" }}>
           <button
@@ -613,7 +691,7 @@ export default function CrowdSec() {
             <CardChevron card="status" />
           </div>
           {isExpanded("status") && (
-            <div style={{ padding: "16px 20px", borderTop: "1px solid var(--border)" }}>
+            <div style={{ padding: "16px 20px", borderTop: "1px solid var(--border-default)" }}>
               <div style={{ display: "flex", gap: "8px" }}>
                 <button
                   className={`btn ${serviceEnabled ? "btn-danger" : "btn-success"}`}
@@ -668,9 +746,9 @@ export default function CrowdSec() {
             <CardChevron card="blocks" />
           </div>
           {isExpanded("blocks") && (
-            <div style={{ borderTop: "1px solid var(--border)" }}>
+            <div style={{ borderTop: "1px solid var(--border-default)" }}>
               {/* Block IP Manually */}
-              <div style={{ padding: "16px 20px", borderBottom: "1px solid var(--border)" }}>
+              <div style={{ padding: "16px 20px", borderBottom: "1px solid var(--border-default)" }}>
                 <h4 style={{ fontSize: "13px", fontWeight: 600, marginBottom: "12px", display: "flex", alignItems: "center", gap: "6px" }}>
                   <Ban size={14} style={{ color: "var(--danger)" }} />
                   Block IP Manually
@@ -856,7 +934,7 @@ export default function CrowdSec() {
               </div>
 
               {/* Active Decisions */}
-              <div style={{ padding: "12px 20px", borderBottom: "1px solid var(--border)" }}>
+              <div style={{ padding: "12px 20px", borderBottom: "1px solid var(--border-default)" }}>
                 <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "8px" }}>
                   <h4 style={{ fontSize: "13px", fontWeight: 600, margin: 0, display: "flex", alignItems: "center", gap: "6px" }}>
                     <Globe size={14} style={{ color: "var(--accent-1)" }} />
@@ -871,7 +949,7 @@ export default function CrowdSec() {
                     Clear All
                   </button>
                 </div>
-                <div className="table-wrapper" style={{ maxHeight: "300px", overflowY: "auto" }}>
+                <div className="table-wrapper" style={{ maxHeight: "240px", overflowY: "auto" }}>
                   <table className="table">
                     <thead>
                       <tr>
@@ -953,7 +1031,7 @@ export default function CrowdSec() {
                   <Clock size={14} style={{ color: "var(--accent-2)" }} />
                   Manual Block History
                 </h4>
-                <div className="table-wrapper" style={{ maxHeight: "300px", overflowY: "auto" }}>
+                <div className="table-wrapper" style={{ maxHeight: "240px", overflowY: "auto" }}>
                   <table className="table">
                     <thead>
                       <tr>
@@ -1023,9 +1101,9 @@ export default function CrowdSec() {
             <CardChevron card="scenarios" />
           </div>
           {isExpanded("scenarios") && (
-            <div style={{ borderTop: "1px solid var(--border)" }}>
+            <div style={{ borderTop: "1px solid var(--border-default)" }}>
               {/* Search + Browse Hub toolbar */}
-              <div style={{ padding: "12px 20px", display: "flex", alignItems: "center", gap: "8px", borderBottom: "1px solid var(--border)" }}>
+              <div style={{ padding: "12px 20px", display: "flex", alignItems: "center", gap: "8px", borderBottom: "1px solid var(--border-default)" }}>
                 <div style={{ position: "relative", flex: 1 }}>
                   <Search
                     size={14}
@@ -1090,7 +1168,7 @@ export default function CrowdSec() {
                   Installed Scenarios
                 </h4>
               </div>
-              <div className="table-wrapper" style={{ maxHeight: "400px", overflowY: "auto" }}>
+              <div className="table-wrapper" style={{ maxHeight: "260px", overflowY: "auto" }}>
                 <table className="table">
                   <thead>
                     <tr>
@@ -1199,7 +1277,7 @@ export default function CrowdSec() {
                       alignItems: "center",
                       justifyContent: "space-between",
                       cursor: "pointer",
-                      borderTop: "1px solid var(--border)",
+                      borderTop: "1px solid var(--border-default)",
                     }}
                     onClick={(e) => { e.stopPropagation(); setHubExpanded(!hubExpanded); }}
                   >
@@ -1209,7 +1287,7 @@ export default function CrowdSec() {
                     {hubExpanded ? <ChevronUp size={14} style={{ color: "var(--text-muted)" }} /> : <ChevronDown size={14} style={{ color: "var(--text-muted)" }} />}
                   </div>
                   {hubExpanded && (
-                    <div className="table-wrapper" style={{ maxHeight: "400px", overflowY: "auto" }}>
+                    <div className="table-wrapper" style={{ maxHeight: "260px", overflowY: "auto" }}>
                       <table className="table">
                         <thead>
                           <tr>
@@ -1289,8 +1367,8 @@ export default function CrowdSec() {
             <CardChevron card="alerts" />
           </div>
           {isExpanded("alerts") && (
-            <div style={{ borderTop: "1px solid var(--border)", padding: "12px 20px" }}>
-              <div className="table-wrapper" style={{ maxHeight: "500px", overflowY: "auto" }}>
+            <div style={{ borderTop: "1px solid var(--border-default)", padding: "12px 20px" }}>
+              <div className="table-wrapper" style={{ maxHeight: "280px", overflowY: "auto" }}>
                 <table className="table">
                   <thead>
                     <tr>

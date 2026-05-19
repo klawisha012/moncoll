@@ -37,6 +37,7 @@ def _get_compose_project(client: docker.DockerClient) -> str | None:
 
         # 1) Hostname = short container ID (works everywhere: Linux, Docker Desktop, WSL)
         import socket
+
         candidate = socket.gethostname()
         if candidate and len(candidate) >= 12:
             own_id = candidate
@@ -51,7 +52,11 @@ def _get_compose_project(client: docker.DockerClient) -> str | None:
                             if len(parts) >= 3:
                                 segment = parts[-1]
                                 if "docker-" in segment:
-                                    own_id = segment.rsplit("docker-", 1)[-1].rstrip(".scope").split("/")[0]
+                                    own_id = (
+                                        segment.rsplit("docker-", 1)[-1]
+                                        .rstrip(".scope")
+                                        .split("/")[0]
+                                    )
                                     break
                             elif "docker/" in line:
                                 own_id = line.strip().split("docker/", 1)[-1].split("/")[0]
@@ -64,6 +69,7 @@ def _get_compose_project(client: docker.DockerClient) -> str | None:
         # 3) Last resort: iterate all containers and find ours by matching hostname
         if not own_id:
             import socket as _socket
+
             hostname = _socket.gethostname()
             for c in client.containers.list():
                 if c.id.startswith(hostname) or c.name == hostname:
@@ -93,8 +99,11 @@ def _calculate_container_stats(container) -> ContainerMetrics:
     except Exception:
         return ContainerMetrics(
             name=container.name,
-            cpu=0.0, memory=0.0, memory_percent=0.0,
-            network_rx=0, network_tx=0,
+            cpu=0.0,
+            memory=0.0,
+            memory_percent=0.0,
+            network_rx=0,
+            network_tx=0,
         )
 
     # --- CPU ---
@@ -164,15 +173,13 @@ async def get_container_metrics():
         # Filter to only the current compose project (if detectable)
         if compose_project:
             containers = [
-                c for c in all_containers
+                c
+                for c in all_containers
                 if c.labels.get("com.docker.compose.project") == compose_project
             ]
         else:
             # Fallback: include all running containers
-            containers = [
-                c for c in all_containers
-                if c.status == "running"
-            ]
+            containers = [c for c in all_containers if c.status == "running"]
 
         # Fetch stats for all containers concurrently via thread pool.
         # Wrap each call so one failing container doesn't break the whole response.
@@ -184,8 +191,11 @@ async def get_container_metrics():
             except Exception:
                 return ContainerMetrics(
                     name=container.name,
-                    cpu=0.0, memory=0.0, memory_percent=0.0,
-                    network_rx=0, network_tx=0,
+                    cpu=0.0,
+                    memory=0.0,
+                    memory_percent=0.0,
+                    network_rx=0,
+                    network_tx=0,
                 )
 
         metrics = await asyncio.gather(*[_safe_stats(c) for c in containers])

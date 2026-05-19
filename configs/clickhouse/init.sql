@@ -82,12 +82,18 @@ CREATE TABLE IF NOT EXISTS logs.nginx_access_log
     `geoip_city_name` LowCardinality(String),
     `geoip_organization` String,
     `geoip_latitude` Float64,
-    `geoip_longitude` Float64
+    `geoip_longitude` Float64,
+
+    -- Host header (server_name), used for per-domain dashboard filtering
+    `host` LowCardinality(String) DEFAULT ''
 
 ) ENGINE = MergeTree()
 PARTITION BY toYYYYMM(time_local)
 ORDER BY (time_local, remote_addr, status)
 TTL time_local + INTERVAL 3 MONTH;
+
+-- Idempotent migration for pre-existing deployments (no-op if column exists)
+ALTER TABLE logs.nginx_access_log ADD COLUMN IF NOT EXISTS host LowCardinality(String) DEFAULT '';
 
 
 -- Таблица для алертов CrowdSec

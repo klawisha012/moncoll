@@ -35,7 +35,11 @@ export interface ModuleInfo {
   loaded: boolean;
 }
 
-export type SourceType = "nginx_config" | "static_generate" | "container";
+export type SourceType =
+  | "nginx_config"
+  | "static_generate"
+  | "container"
+  | "docker_compose";
 
 export interface Connection {
   id: number;
@@ -45,6 +49,9 @@ export interface Connection {
   nginx_config_path: string | null;
   static_dir: string | null;
   backend_url: string;
+  compose_yaml: string | null;
+  compose_service: string | null;
+  compose_port: number | null;
   enabled: boolean;
   ssl_enabled: boolean;
   ssl_cert_path: string | null;
@@ -62,6 +69,9 @@ export interface ConnectionCreate {
   nginx_config_path?: string | null;
   static_dir?: string | null;
   backend_url?: string;
+  compose_yaml?: string | null;
+  compose_service?: string | null;
+  compose_port?: number | null;
   enabled?: boolean;
   ssl_enabled?: boolean;
   ssl_cert_path?: string | null;
@@ -77,6 +87,9 @@ export interface ConnectionUpdate {
   nginx_config_path?: string | null;
   static_dir?: string | null;
   backend_url?: string;
+  compose_yaml?: string | null;
+  compose_service?: string | null;
+  compose_port?: number | null;
   enabled?: boolean;
   ssl_enabled?: boolean;
   ssl_cert_path?: string | null;
@@ -218,6 +231,17 @@ export interface GeoipMapPoint {
   hits: number;
 }
 
+function buildDashboardQuery(
+  hours?: number,
+  connectionId?: number | null
+): string {
+  const params = new URLSearchParams();
+  if (hours !== undefined) params.set("hours", String(hours));
+  if (connectionId != null) params.set("connection_id", String(connectionId));
+  const qs = params.toString();
+  return qs ? `?${qs}` : "";
+}
+
 async function fetchApi<T>(url: string, options?: RequestInit): Promise<T> {
   const headers: Record<string, string> = {
     ...(options?.headers
@@ -319,20 +343,35 @@ export const api = {
   reloadAngie: () =>
     fetchApi<ReloadResponse>("/api/angie/reload", { method: "POST" }),
 
-  getMetrics: () => fetchApi<Metrics>("/api/dashboard/metrics"),
+  getMetrics: (hours?: number, connectionId?: number | null) =>
+    fetchApi<Metrics>(`/api/dashboard/metrics${buildDashboardQuery(hours, connectionId)}`),
   getContainerMetrics: () =>
     fetchApi<{ containers: ContainerMetrics[] }>("/api/monitoring/metrics"),
-  getTraffic: () => fetchApi<TrafficDataPoint[]>("/api/dashboard/traffic"),
-  getThreatOrigins: () =>
-    fetchApi<ThreatOrigin[]>("/api/dashboard/threat-origins"),
-  getGeoipMap: (hours?: number) =>
+  getTraffic: (hours?: number, connectionId?: number | null) =>
+    fetchApi<TrafficDataPoint[]>(
+      `/api/dashboard/traffic${buildDashboardQuery(hours, connectionId)}`
+    ),
+  getThreatOrigins: (hours?: number, connectionId?: number | null) =>
+    fetchApi<ThreatOrigin[]>(
+      `/api/dashboard/threat-origins${buildDashboardQuery(hours, connectionId)}`
+    ),
+  getGeoipMap: (hours?: number, connectionId?: number | null) =>
     fetchApi<GeoipMapPoint[]>(
-      `/api/dashboard/geoip-map${hours ? `?hours=${hours}` : ""}`
+      `/api/dashboard/geoip-map${buildDashboardQuery(hours, connectionId)}`
     ),
-  getEvents: (limit = 50, severity = "all") =>
-    fetchApi<SecurityEvent[]>(
-      `/api/dashboard/events?limit=${limit}&severity=${severity}`
-    ),
+  getEvents: (
+    limit = 50,
+    severity = "all",
+    hours?: number,
+    connectionId?: number | null
+  ) => {
+    const params = new URLSearchParams();
+    params.set("limit", String(limit));
+    params.set("severity", severity);
+    if (hours !== undefined) params.set("hours", String(hours));
+    if (connectionId != null) params.set("connection_id", String(connectionId));
+    return fetchApi<SecurityEvent[]>(`/api/dashboard/events?${params.toString()}`);
+  },
 
   // Connections API
   getConnections: () => fetchApi<Connection[]>("/api/connections/"),
@@ -458,8 +497,13 @@ export const api = {
       method: "DELETE",
     }),
 
-  getCrowdSecManualBlocks: (limit = 100) =>
-    fetchApi<ManualBlockLogEntry[]>(`/api/crowdsec/manual-blocks?limit=${limit}`),
+  getCrowdSecManualBlocks: (limit = 100, hours?: number) => {
+    const params = new URLSearchParams({ limit: String(limit) });
+    if (hours !== undefined) params.set("hours", String(hours));
+    return fetchApi<ManualBlockLogEntry[]>(
+      `/api/crowdsec/manual-blocks?${params.toString()}`
+    );
+  },
 
   getCrowdSecScenarios: () =>
     fetchApi<ScenarioInfo[]>("/api/crowdsec/scenarios"),
@@ -482,8 +526,10 @@ export const api = {
   reloadCrowdSec: () =>
     fetchApi<ReloadResponse>("/api/crowdsec/reload", { method: "POST" }),
 
-  getCrowdSecAlerts: () =>
-    fetchApi<AlertItem[]>("/api/crowdsec/alerts"),
+  getCrowdSecAlerts: (hours?: number) =>
+    fetchApi<AlertItem[]>(
+      `/api/crowdsec/alerts${hours !== undefined ? `?hours=${hours}` : ""}`
+    ),
 
   getCrowdSecServiceStatus: () =>
     fetchApi<{enabled: boolean}>("/api/crowdsec/service-status"),

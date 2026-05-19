@@ -44,6 +44,7 @@
   --border-color: #2a2a2a;
   --card-bg: #1a1a2e;
   --accent: #6366f1;
+  --accent-primary: var(--accent-1);
   --danger-bg: rgba(239, 68, 68, 0.1);
 
   /* ── Sizing ── */
@@ -188,6 +189,10 @@ body {
 }
 ::-webkit-scrollbar-thumb:hover {
   background: rgba(255, 255, 255, 0.18);
+}
+
+[data-theme="light"] ::-webkit-scrollbar-thumb:hover {
+  background: rgba(0, 0, 0, 0.24);
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════
@@ -1393,12 +1398,16 @@ input[type="number"] {
   color: var(--text-primary);
 }
 
-.world-map-container .leaflet-popup-content-wrapper {
+.world-map-container .leaflet-popup-content-wrapper,
+.world-map-container .leaflet-popup-content-wrapper .leaflet-popup-content {
   background: var(--bg-elevated);
   color: var(--text-primary);
   border-radius: var(--radius-sm);
-  border: 1px solid var(--border-strong);
   box-shadow: 0 4px 16px rgba(0, 0, 0, 0.5);
+}
+
+.world-map-container .leaflet-popup-content-wrapper {
+  border: 1px solid var(--border-strong);
 }
 
 .world-map-container .leaflet-popup-tip {

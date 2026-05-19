@@ -1,8 +1,10 @@
 import { useEffect, useState, useMemo, useRef } from "react";
 import { Cog, BarChart3, Globe, ShieldAlert, Map, Gauge, ShieldOff, Clock, ScrollText } from "lucide-react";
-import type { Metrics, TrafficDataPoint, ThreatOrigin, SecurityEvent, GeoipMapPoint } from "../api/client";
+import { api } from "../api/client";
+import type { Connection, Metrics, TrafficDataPoint, ThreatOrigin, SecurityEvent, GeoipMapPoint } from "../api/client";
 import { MapContainer, TileLayer, CircleMarker, Popup } from "react-leaflet";
 import "leaflet/dist/leaflet.css";
+import { useSettings } from "../context/SettingsContext";
 
 type Tab = "grafana" | "native";
 type TimeUnit = "minutes" | "hours" | "days";
@@ -212,7 +214,7 @@ function EventsTable({ data, loading }: { data: SecurityEvent[] | null; loading:
   };
 
   return (
-    <div className="table-wrapper">
+    <div className="table-wrapper" style={{ maxHeight: "280px", overflowY: "auto" }}>
       <table>
         <thead>
           <tr>
@@ -256,6 +258,14 @@ function EventsTable({ data, loading }: { data: SecurityEvent[] | null; loading:
 
 // ─── GeoIP World Map (Leaflet) ──────────────────────────────
 function GeoipMap({ data, loading }: { data: GeoipMapPoint[] | null; loading: boolean }) {
+  const { theme } = useSettings();
+  const isLight = theme === "light";
+  const tileUrl = isLight
+    ? "https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}.png"
+    : "https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png";
+  const mapBg = isLight ? "#f5f6fa" : "#0b0f1e";
+  const legendBg = isLight ? "rgba(255,255,255,0.9)" : "rgba(11,15,30,0.85)";
+  const popupText = isLight ? "#1a1d2e" : "#e8ecf4";
   if (loading) {
     return (
       <div className="loading-spinner" style={{ padding: "40px 0", fontSize: "13px" }}>
@@ -300,11 +310,11 @@ function GeoipMap({ data, loading }: { data: GeoipMapPoint[] | null; loading: bo
         worldCopyJump={true}
         maxBounds={[[-90, -180], [90, 180]]}
         maxBoundsViscosity={0.5}
-        style={{ height: "100%", width: "100%", background: "#0b0f1e" }}
+        style={{ height: "100%", width: "100%", background: mapBg }}
         attributionControl={false}
       >
         <TileLayer
-          url="https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png"
+          url={tileUrl}
           noWrap={false}
         />
         {data.map((d, i) => (
@@ -321,7 +331,7 @@ function GeoipMap({ data, loading }: { data: GeoipMapPoint[] | null; loading: bo
             }}
           >
             <Popup>
-              <div style={{ fontSize: "12px", color: "#111" }}>
+              <div style={{ fontSize: "12px", color: popupText }}>
                 <strong>{d.city_name || d.country_code}</strong>
                 <br />
                 {d.hits.toLocaleString()} requests
@@ -340,7 +350,7 @@ function GeoipMap({ data, loading }: { data: GeoipMapPoint[] | null; loading: bo
           bottom: "12px",
           left: "12px",
           zIndex: 1000,
-          background: "rgba(11,15,30,0.85)",
+          background: legendBg,
           backdropFilter: "blur(6px)",
           borderRadius: "var(--radius-sm)",
           padding: "8px 12px",
@@ -364,6 +374,102 @@ function GeoipMap({ data, loading }: { data: GeoipMapPoint[] | null; loading: bo
           <div className="map-legend-dot" style={{ background: "#10b981" }} />
           Low
         </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── Grafana Tab ─────────────────────────────────────────────────
+// Renders the Grafana iframe with a per-domain scope selector that
+// expands to either "All" (regex .*) or the chosen connection's domains.
+function GrafanaTab({
+  connections,
+  connectionId,
+  onConnectionChange,
+}: {
+  connections: Connection[];
+  connectionId: number | null;
+  onConnectionChange: (id: number | null) => void;
+}) {
+  const selected = useMemo(
+    () => connections.find((c) => c.id === connectionId) ?? null,
+    [connections, connectionId]
+  );
+
+  const varConnection = useMemo(() => {
+    if (!selected || !selected.domains || selected.domains.length === 0) return null;
+    return selected.domains;
+  }, [selected]);
+
+  const src = useMemo(() => {
+    const params = new URLSearchParams({
+      orgId: "1",
+      refresh: "10s",
+      theme: "dark",
+      kiosk: "tv",
+    });
+    if (varConnection) {
+      for (const domain of varConnection) {
+        params.append("var-connection", domain);
+      }
+    }
+    return `/grafana/d/waf-nginx-dashboard/waf-and-nginx-security-dashboard-2?${params.toString()}`;
+  }, [varConnection]);
+
+  return (
+    <div>
+      <div
+        style={{
+          display: "flex",
+          alignItems: "center",
+          gap: "10px",
+          marginBottom: "12px",
+          padding: "10px 16px",
+          background: "var(--card-bg, #1a1a2e)",
+          borderRadius: "var(--radius-md, 8px)",
+          border: "1px solid var(--border-color, #2a2a2a)",
+        }}
+      >
+        <span style={{ fontSize: "13px", color: "var(--text-secondary, #888)", fontWeight: 500 }}>
+          Domain:
+        </span>
+        <select
+          data-testid="grafana-connection-picker"
+          value={connectionId ?? ""}
+          onChange={(e) => {
+            const v = e.target.value;
+            onConnectionChange(v === "" ? null : parseInt(v, 10));
+          }}
+          style={{
+            padding: "6px 10px",
+            fontSize: "13px",
+            border: "1px solid var(--border-color, #2a2a2a)",
+            borderRadius: "var(--radius-sm, 6px)",
+            background: "var(--input-bg, #0d0d1a)",
+            color: "var(--text-primary, #e0e0e0)",
+            outline: "none",
+            cursor: "pointer",
+            minWidth: "220px",
+          }}
+        >
+          <option value="">All domains (global dashboard)</option>
+          {connections.filter((c) => c.enabled).map((c) => (
+            <option key={c.id} value={c.id}>
+              {c.name}
+              {c.domains && c.domains.length > 0 ? ` (${c.domains.join(", ")})` : ""}
+            </option>
+          ))}
+        </select>
+      </div>
+
+      <div className="card" style={{ padding: "8px", overflow: "hidden", height: "calc(100vh - 320px)" }}>
+        <iframe
+          key={src}
+          src={src}
+          style={{ border: "none", width: "100%", height: "100%", borderRadius: "var(--radius-md)" }}
+          title="Grafana Dashboard"
+          sandbox="allow-scripts allow-same-origin allow-forms allow-popups"
+        />
       </div>
     </div>
   );
@@ -394,6 +500,18 @@ export default function Dashboard() {
   const [visiblePanels, setVisiblePanels] = useState<Set<PanelKey>>(new Set(ALL_PANELS));
   const [gearOpen, setGearOpen] = useState(false);
   const gearPopoverRef = useRef<HTMLDivElement>(null);
+
+  // Connection picker (per-domain dashboard scope)
+  const [connections, setConnections] = useState<Connection[]>([]);
+  const [connectionId, setConnectionId] = useState<number | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    api.getConnections().then((data) => {
+      if (!cancelled) setConnections(data);
+    }).catch(() => { /* connections list is optional */ });
+    return () => { cancelled = true; };
+  }, []);
 
   function togglePanel(key: PanelKey) {
     setVisiblePanels((prev) => {
@@ -435,13 +553,15 @@ export default function Dashboard() {
 
     let cancelled = false;
 
-    const fetchAll = async (hours: number) => {
+    const fetchAll = async (hours: number, connId: number | null) => {
+      const connQuery = connId != null ? `&connection_id=${connId}` : "";
+
       // Metrics
       try {
         setMetricsLoading(true);
         const ctrl = new AbortController();
         const tid = setTimeout(() => ctrl.abort(), 8_000);
-        const res = await fetch(`/api/dashboard/metrics?hours=${hours}`, { signal: ctrl.signal });
+        const res = await fetch(`/api/dashboard/metrics?hours=${hours}${connQuery}`, { signal: ctrl.signal });
         clearTimeout(tid);
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         const data: Metrics = await res.json();
@@ -458,7 +578,7 @@ export default function Dashboard() {
         setTrafficLoading(true);
         const ctrl = new AbortController();
         const tid = setTimeout(() => ctrl.abort(), 8_000);
-        const res = await fetch(`/api/dashboard/traffic?hours=${hours}`, { signal: ctrl.signal });
+        const res = await fetch(`/api/dashboard/traffic?hours=${hours}${connQuery}`, { signal: ctrl.signal });
         clearTimeout(tid);
         if (res.ok) {
           const data: TrafficDataPoint[] = await res.json();
@@ -475,7 +595,7 @@ export default function Dashboard() {
         setThreatLoading(true);
         const ctrl = new AbortController();
         const tid = setTimeout(() => ctrl.abort(), 8_000);
-        const res = await fetch("/api/dashboard/threat-origins", { signal: ctrl.signal });
+        const res = await fetch(`/api/dashboard/threat-origins?hours=${hours}${connQuery}`, { signal: ctrl.signal });
         clearTimeout(tid);
         if (res.ok) {
           const data: ThreatOrigin[] = await res.json();
@@ -487,12 +607,15 @@ export default function Dashboard() {
         if (!cancelled) setThreatLoading(false);
       }
 
-      // Events
+      // Events (capped at 10 so the table doesn't dominate the page)
       try {
         setEventsLoading(true);
         const ctrl = new AbortController();
         const tid = setTimeout(() => ctrl.abort(), 8_000);
-        const res = await fetch("/api/dashboard/events?limit=20&severity=all", { signal: ctrl.signal });
+        const res = await fetch(
+          `/api/dashboard/events?limit=10&severity=all&hours=${hours}${connQuery}`,
+          { signal: ctrl.signal }
+        );
         clearTimeout(tid);
         if (res.ok) {
           const data: SecurityEvent[] = await res.json();
@@ -509,7 +632,7 @@ export default function Dashboard() {
         setGeoipLoading(true);
         const ctrl = new AbortController();
         const tid = setTimeout(() => ctrl.abort(), 8_000);
-        const res = await fetch(`/api/dashboard/geoip-map?hours=${hours}`, { signal: ctrl.signal });
+        const res = await fetch(`/api/dashboard/geoip-map?hours=${hours}${connQuery}`, { signal: ctrl.signal });
         clearTimeout(tid);
         if (res.ok) {
           const data: GeoipMapPoint[] = await res.json();
@@ -522,10 +645,10 @@ export default function Dashboard() {
       }
     };
 
-    fetchAll(selectedHours);
-    const interval = setInterval(() => fetchAll(selectedHours), 15_000);
+    fetchAll(selectedHours, connectionId);
+    const interval = setInterval(() => fetchAll(selectedHours, connectionId), 15_000);
     return () => { cancelled = true; clearInterval(interval); };
-  }, [activeTab, selectedHours]);
+  }, [activeTab, selectedHours, connectionId]);
 
   const totalRequests = metrics?.total_requests ?? null;
   const blockedThreats = metrics?.blocked_threats ?? null;
@@ -667,6 +790,38 @@ export default function Dashboard() {
               (stats for the last {timeValue} {timeUnit === "minutes" ? "min" : timeUnit === "hours" ? "hr" : "day"}
               {timeValue !== 1 ? "s" : ""})
             </span>
+
+            {/* Per-domain (connection) scope selector */}
+            <span style={{ fontSize: "13px", color: "var(--text-secondary, #888)", fontWeight: 500, marginLeft: "12px" }}>
+              Domain:
+            </span>
+            <select
+              data-testid="dashboard-connection-picker"
+              value={connectionId ?? ""}
+              onChange={(e) => {
+                const v = e.target.value;
+                setConnectionId(v === "" ? null : parseInt(v, 10));
+              }}
+              style={{
+                padding: "6px 10px",
+                fontSize: "13px",
+                border: "1px solid var(--border-color, #2a2a2a)",
+                borderRadius: "var(--radius-sm, 6px)",
+                background: "var(--input-bg, #0d0d1a)",
+                color: "var(--text-primary, #e0e0e0)",
+                outline: "none",
+                cursor: "pointer",
+                minWidth: "180px",
+              }}
+            >
+              <option value="">All domains</option>
+              {connections.filter((c) => c.enabled).map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.name}
+                  {c.domains && c.domains.length > 0 ? ` (${c.domains.join(", ")})` : ""}
+                </option>
+              ))}
+            </select>
 
             {/* Gear button */}
             <div style={{ position: "relative", marginLeft: "auto" }}>
@@ -930,14 +1085,11 @@ export default function Dashboard() {
 
       {/* Grafana Panels content */}
       {activeTab === "grafana" && (
-        <div className="card" style={{ padding: "8px", overflow: "hidden", height: "calc(100vh - 260px)" }}>
-          <iframe
-            src="/grafana/d/waf-nginx-dashboard/waf-and-nginx-security-dashboard-2?orgId=1&refresh=10s&theme=dark&kiosk=tv"
-            style={{ border: "none", width: "100%", height: "100%", borderRadius: "var(--radius-md)" }}
-            title="Grafana Dashboard"
-            sandbox="allow-scripts allow-same-origin allow-forms allow-popups"
-          />
-        </div>
+        <GrafanaTab
+          connections={connections}
+          connectionId={connectionId}
+          onConnectionChange={setConnectionId}
+        />
       )}
     </div>
   );

@@ -60,3 +60,4 @@ Dockerfile
 .roo/
 .claude/
 CLAUDE.md
+.mcp.json

@@ -214,6 +214,9 @@ transforms:
       .geoip_latitude = to_float(.geoip.latitude) ?? 0.0
       .geoip_longitude = to_float(.geoip.longitude) ?? 0.0
 
+      # Server-name / Host header — used for per-domain dashboard filtering
+      .host = to_string(.host) ?? ""
+
 # Sinks: Define where logs go
 sinks:
   # Sink for WAF audit logs to ClickHouse

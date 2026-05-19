@@ -14,7 +14,9 @@ DEFAULT_ADMIN_PASSWORD = "admin"
 
 
 async def _count_admins(session: AsyncSession) -> int:
-    result = await session.execute(select(func.count()).select_from(User).where(User.role == "admin"))
+    result = await session.execute(
+        select(func.count()).select_from(User).where(User.role == "admin")
+    )
     return int(result.scalar_one())
 
 

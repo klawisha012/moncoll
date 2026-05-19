@@ -61,16 +61,15 @@ def generate_self_signed_certificate(connection_id: int, domains: list[str]) -> 
 
     try:
         # Generate private key
-        subprocess.run([
-            "openssl", "genrsa", "-out", backend_key, "2048"
-        ], check=True, capture_output=True)
+        subprocess.run(
+            ["openssl", "genrsa", "-out", backend_key, "2048"], check=True, capture_output=True
+        )
 
         if Path(ca_cert_path).exists() and Path(ca_key_path).exists():
             # Sign with local CA
             import tempfile
-            with tempfile.NamedTemporaryFile(
-                mode="w", suffix=".cnf", delete=False
-            ) as cnf:
+
+            with tempfile.NamedTemporaryFile(mode="w", suffix=".cnf", delete=False) as cnf:
                 cnf.write("[req]\n")
                 cnf.write("distinguished_name = req_distinguished_name\n")
                 cnf.write("req_extensions = v3_req\n")
@@ -82,23 +81,46 @@ def generate_self_signed_certificate(connection_id: int, domains: list[str]) -> 
                 san_cnf = cnf.name
 
             csr_path = f"/tmp/conn_{connection_id}.csr"
-            subprocess.run([
-                "openssl", "req", "-new",
-                "-key", backend_key,
-                "-out", csr_path,
-                "-config", san_cnf,
-            ], check=True, capture_output=True)
+            subprocess.run(
+                [
+                    "openssl",
+                    "req",
+                    "-new",
+                    "-key",
+                    backend_key,
+                    "-out",
+                    csr_path,
+                    "-config",
+                    san_cnf,
+                ],
+                check=True,
+                capture_output=True,
+            )
 
-            subprocess.run([
-                "openssl", "x509", "-req", "-days", "365",
-                "-in", csr_path,
-                "-CA", ca_cert_path,
-                "-CAkey", ca_key_path,
-                "-CAcreateserial",
-                "-out", backend_cert,
-                "-extfile", san_cnf,
-                "-extensions", "v3_req",
-            ], check=True, capture_output=True)
+            subprocess.run(
+                [
+                    "openssl",
+                    "x509",
+                    "-req",
+                    "-days",
+                    "365",
+                    "-in",
+                    csr_path,
+                    "-CA",
+                    ca_cert_path,
+                    "-CAkey",
+                    ca_key_path,
+                    "-CAcreateserial",
+                    "-out",
+                    backend_cert,
+                    "-extfile",
+                    san_cnf,
+                    "-extensions",
+                    "v3_req",
+                ],
+                check=True,
+                capture_output=True,
+            )
 
             # Cleanup
             Path(csr_path).unlink(missing_ok=True)
@@ -107,10 +129,26 @@ def generate_self_signed_certificate(connection_id: int, domains: list[str]) -> 
             # Fallback: self-signed
             subj = f"/C=US/ST=State/L=City/O=Organization/CN={domains[0]}"
             alt_names = "subjectAltName=" + ",".join(f"DNS:{domain}" for domain in domains)
-            subprocess.run([
-                "openssl", "req", "-new", "-x509", "-key", backend_key, "-out", backend_cert,
-                "-days", "365", "-subj", subj, "-addext", alt_names
-            ], check=True, capture_output=True)
+            subprocess.run(
+                [
+                    "openssl",
+                    "req",
+                    "-new",
+                    "-x509",
+                    "-key",
+                    backend_key,
+                    "-out",
+                    backend_cert,
+                    "-days",
+                    "365",
+                    "-subj",
+                    subj,
+                    "-addext",
+                    alt_names,
+                ],
+                check=True,
+                capture_output=True,
+            )
 
         return {
             "success": True,
@@ -121,16 +159,15 @@ def generate_self_signed_certificate(connection_id: int, domains: list[str]) -> 
             "backend_key_path": backend_key,
         }
     except subprocess.CalledProcessError as e:
-        return {
-            "success": False,
-            "message": f"Failed to generate certificate: {e}"
-        }
+        return {"success": False, "message": f"Failed to generate certificate: {e}"}
 
 
 def _ensure_acme_challenge_dir(conn_id: int):
     """Create the ACME challenge directory inside the site folder
     so certbot can write HTTP-01 challenge tokens."""
-    challenge_dir = BACKEND_HTTPD_DIR / f"conn_{conn_id}" / "site" / ".well-known" / "acme-challenge"
+    challenge_dir = (
+        BACKEND_HTTPD_DIR / f"conn_{conn_id}" / "site" / ".well-known" / "acme-challenge"
+    )
     challenge_dir.mkdir(parents=True, exist_ok=True)
 
 
@@ -156,12 +193,15 @@ def _find_existing_le_cert(domains: list[str]) -> Path | None:
         try:
             result = subprocess.run(
                 ["openssl", "x509", "-in", str(fullchain), "-text", "-noout"],
-                capture_output=True, text=True, timeout=10,
+                capture_output=True,
+                text=True,
+                timeout=10,
             )
             if result.returncode != 0:
                 continue
             # Extract DNS names from the SAN extension and CN from Subject
             import re
+
             san_match = re.findall(r"DNS:([^\s,]+)", result.stdout)
             cn_match = re.search(r"Subject:.*?CN\s*=\s*([^\s,]+)", result.stdout)
             cert_domains = {d.lower().rstrip(".") for d in san_match}
@@ -213,7 +253,9 @@ def trigger_acme_request(connection_id: int, domains: list[str]) -> dict:
     if existing is not None:
         logger.info(
             "Conn %d: found matching LE cert at %s, copying to %s",
-            connection_id, existing, backend_cert,
+            connection_id,
+            existing,
+            backend_cert,
         )
         shutil.copy2(str(existing / "fullchain.pem"), backend_cert)
         shutil.copy2(str(existing / "privkey.pem"), backend_key)
@@ -221,8 +263,7 @@ def trigger_acme_request(connection_id: int, domains: list[str]) -> dict:
         return {
             "success": True,
             "message": (
-                f"Let's Encrypt certificate reused from {existing.name} "
-                f"for {', '.join(domains)}"
+                f"Let's Encrypt certificate reused from {existing.name} for {', '.join(domains)}"
             ),
             "certificate_path": angie_cert,
             "key_path": angie_key,
@@ -240,20 +281,28 @@ def trigger_acme_request(connection_id: int, domains: list[str]) -> dict:
     try:
         logger.info(
             "Requesting Let's Encrypt cert for conn %d: domains=%s, webroot=%s",
-            connection_id, domains, webroot,
+            connection_id,
+            domains,
+            webroot,
         )
         result = subprocess.run(
             [
-                "certbot", "certonly",
+                "certbot",
+                "certonly",
                 "--webroot",
-                "-w", webroot,
+                "-w",
+                webroot,
                 *domain_args,
                 "--non-interactive",
                 "--agree-tos",
-                "-m", email,
-                "--cert-name", cert_name,
-                "--key-type", "rsa",
-                "--preferred-challenges", "http",
+                "-m",
+                email,
+                "--cert-name",
+                cert_name,
+                "--key-type",
+                "rsa",
+                "--preferred-challenges",
+                "http",
             ],
             capture_output=True,
             text=True,

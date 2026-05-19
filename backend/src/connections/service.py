@@ -1,6 +1,7 @@
 import logging
 import re
 import shutil
+import subprocess
 from datetime import datetime
 from pathlib import Path
 
@@ -24,6 +25,9 @@ DEFAULT_STATIC_SOURCE = Path("/app/site-templates/examples")
 SITE_TEMPLATES_DIR = DEFAULT_STATIC_SOURCE.parent  # /app/site-templates
 UPLOADS_DIR = SITE_TEMPLATES_DIR / "uploads"
 
+# ── docker-compose projects (one per docker_compose connection) ──
+COMPOSE_PROJECTS_DIR = Path("/var/lib/waf/compose")
+
 # Directives stripped from extracted server blocks (we supply our own).
 _STRIP_DIRECTIVES = {"listen", "server_name", "ssl_certificate", "ssl_certificate_key"}
 
@@ -45,6 +49,9 @@ def _to_dict(c: ConnectionModel) -> dict:
         "nginx_config_path": c.nginx_config_path,
         "backend_url": c.backend_url,
         "static_dir": c.static_dir,
+        "compose_yaml": c.compose_yaml,
+        "compose_service": c.compose_service,
+        "compose_port": c.compose_port,
         "enabled": c.enabled,
         "ssl_enabled": c.ssl_enabled,
         "ssl_cert_path": c.ssl_cert_path,
@@ -94,6 +101,7 @@ def _reload_angie() -> None:
 # nginx config parsing helpers
 # ─────────────────────────────────────────────────────────────────────────────
 
+
 def _resolve_nginx_includes(
     config_path: Path,
     *,
@@ -129,7 +137,7 @@ def _resolve_nginx_includes(
 
     out: list[str] = []
     for line in text.splitlines():
-        m = re.match(r'^\s*include\s+([^;]+);\s*$', line)
+        m = re.match(r"^\s*include\s+([^;]+);\s*$", line)
         if not m:
             out.append(line)
             continue
@@ -152,18 +160,18 @@ def _resolve_nginx_includes(
 def _extract_nginx_server_blocks(config_text: str) -> list[str]:
     """Extract the body (between braces) of every ``server { … }`` block."""
     blocks: list[str] = []
-    for match in re.finditer(r'\bserver\s*\{', config_text):
+    for match in re.finditer(r"\bserver\s*\{", config_text):
         start = match.end()
         depth = 1
         i = start
         while i < len(config_text) and depth > 0:
             ch = config_text[i]
-            if ch == '{':
+            if ch == "{":
                 depth += 1
-            elif ch == '}':
+            elif ch == "}":
                 depth -= 1
             i += 1
-        body = config_text[start:i - 1].strip()
+        body = config_text[start : i - 1].strip()
         if body:
             blocks.append(body)
     return blocks
@@ -172,9 +180,9 @@ def _extract_nginx_server_blocks(config_text: str) -> list[str]:
 def _extract_server_names_from_body(body: str) -> list[str]:
     for line in body.splitlines():
         stripped = line.strip()
-        if re.match(r'\bserver_name\b', stripped):
+        if re.match(r"\bserver_name\b", stripped):
             parts = stripped.split()
-            return [tok.rstrip(';') for tok in parts[1:] if tok.rstrip(';')]
+            return [tok.rstrip(";") for tok in parts[1:] if tok.rstrip(";")]
     return []
 
 
@@ -184,14 +192,14 @@ def _clean_server_block_body(body: str, conn_id: int) -> str:
     out_lines: list[str] = []
     for raw_line in body.splitlines():
         stripped = raw_line.strip()
-        if not stripped or stripped.startswith('#'):
+        if not stripped or stripped.startswith("#"):
             out_lines.append(raw_line)
             continue
         tokens = stripped.split()
-        directive = tokens[0].rstrip(';') if tokens else ''
+        directive = tokens[0].rstrip(";") if tokens else ""
         if directive in _STRIP_DIRECTIVES:
             continue
-        if directive == 'root' and len(tokens) >= 2:
+        if directive == "root" and len(tokens) >= 2:
             leading = raw_line[: len(raw_line) - len(raw_line.lstrip())]
             out_lines.append(f"{leading}root {conn_site_root};")
             continue
@@ -202,6 +210,7 @@ def _clean_server_block_body(body: str, conn_id: int) -> str:
 # ─────────────────────────────────────────────────────────────────────────────
 # Static-site source resolution + copying
 # ─────────────────────────────────────────────────────────────────────────────
+
 
 def _resolve_static_source(source: str | Path | None) -> Path | None:
     """Resolve *source* to an existing backend-accessible directory.
@@ -288,8 +297,8 @@ def _write_fallback_index(site_dir: Path, conn_id: int) -> None:
     index_html = site_dir / "index.html"
     if not index_html.exists():
         index_html.write_text(
-            "<!DOCTYPE html>\n<html lang=\"en\">\n"
-            "<head><meta charset=\"utf-8\"><title>Site</title></head>\n"
+            '<!DOCTYPE html>\n<html lang="en">\n'
+            '<head><meta charset="utf-8"><title>Site</title></head>\n'
             f"<body><h1>Connection {conn_id}</h1><p>Site is being configured.</p></body>\n"
             "</html>\n"
         )
@@ -299,6 +308,7 @@ def _write_fallback_index(site_dir: Path, conn_id: int) -> None:
 # ─────────────────────────────────────────────────────────────────────────────
 # nginx config generation (per source_type)
 # ─────────────────────────────────────────────────────────────────────────────
+
 
 def _normalize_backend_url(url: str) -> str:
     url = (url or "").strip()
@@ -351,7 +361,8 @@ def _emit_nginx_config_body(conn: dict) -> list[str]:
     if not bodies:
         logger.warning(
             "Conn %s: no server{...} block found in %s — falling back to static body",
-            conn["id"], config_path,
+            conn["id"],
+            config_path,
         )
         return _emit_static_body(conn["id"])
     cleaned = _clean_server_block_body(bodies[0], conn["id"])
@@ -360,7 +371,7 @@ def _emit_nginx_config_body(conn: dict) -> list[str]:
 
 def _build_server_body(conn: dict) -> list[str]:
     st = conn.get("source_type", "static_generate")
-    if st == "container":
+    if st in ("container", "docker_compose"):
         return _emit_proxy_body(conn)
     if st == "nginx_config":
         return _emit_nginx_config_body(conn)
@@ -443,7 +454,9 @@ def _generate_nginx_config(conn: dict) -> str:
         lines.append(f"    ssl_certificate_key {ssl_key_path};")
         lines.append("")
         lines.append("    # HSTS (force HTTPS, prevent downgrade attacks)")
-        lines.append("    add_header Strict-Transport-Security \"max-age=31536000; includeSubDomains\" always;")
+        lines.append(
+            '    add_header Strict-Transport-Security "max-age=31536000; includeSubDomains" always;'
+        )
         _append_modsecurity(lines)
         lines.append("")
         lines.extend(body_lines)
@@ -489,6 +502,7 @@ def _delete_nginx_config(conn_id: int):
 # Source-prep dispatch (runs before config generation)
 # ─────────────────────────────────────────────────────────────────────────────
 
+
 def _prepare_source(row: ConnectionModel) -> bool:
     """Materialize on-disk artifacts for the connection's source_type.
 
@@ -528,7 +542,9 @@ def _prepare_source(row: ConnectionModel) -> bool:
                 _copy_dir_contents(overlay, site_dest)
                 logger.info(
                     "Conn %d: overlaid static_dir %s onto site %s",
-                    row.id, overlay, site_dest,
+                    row.id,
+                    overlay,
+                    site_dest,
                 )
 
         # ── Step 3: ensure site dir is never empty (prevents 403) ──
@@ -547,12 +563,148 @@ def _prepare_source(row: ConnectionModel) -> bool:
                 row.domains = parsed
                 mutated = True
                 logger.info(
-                    "Conn %d: auto-populated domains from nginx config: %s", row.id, parsed,
+                    "Conn %d: auto-populated domains from nginx config: %s",
+                    row.id,
+                    parsed,
                 )
     elif row.source_type == "container":
         site_dest.mkdir(parents=True, exist_ok=True)
+    elif row.source_type == "docker_compose":
+        site_dest.mkdir(parents=True, exist_ok=True)
+        derived = _bring_up_compose(row)
+        if derived and derived != row.backend_url:
+            row.backend_url = derived
+            mutated = True
 
     return mutated
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# docker-compose support
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+def _compose_project_dir(conn_id: int) -> Path:
+    return COMPOSE_PROJECTS_DIR / f"conn_{conn_id}"
+
+
+def _compose_project_name(conn_id: int) -> str:
+    return f"waf_conn_{conn_id}"
+
+
+def _run_compose(project_dir: Path, project_name: str, *args: str) -> tuple[int, str]:
+    """Run a docker-compose command. Returns (returncode, combined stdout+stderr).
+
+    Tries ``docker compose`` first, then falls back to ``docker-compose``.
+    """
+    cmds = [
+        ["docker", "compose", "-p", project_name, *args],
+        ["docker-compose", "-p", project_name, *args],
+    ]
+    last_out = ""
+    for cmd in cmds:
+        try:
+            proc = subprocess.run(
+                cmd,
+                cwd=project_dir,
+                capture_output=True,
+                text=True,
+                timeout=120,
+                check=False,
+            )
+            last_out = (proc.stdout or "") + (proc.stderr or "")
+            if proc.returncode == 0:
+                return 0, last_out
+        except FileNotFoundError:
+            continue
+        except Exception as exc:
+            return 1, f"{type(exc).__name__}: {exc}"
+    return 1, last_out or "docker compose not available"
+
+
+def _bring_up_compose(row: ConnectionModel) -> str | None:
+    """Materialize compose project, ``docker compose up -d``, return backend_url.
+
+    Returns the derived ``service:port`` backend URL, or ``None`` on failure
+    (caller keeps the existing ``backend_url`` so the connection is still
+    editable).
+    """
+    if not row.compose_yaml or not row.compose_service:
+        logger.warning(
+            "Conn %s: source_type=docker_compose but compose_yaml/service missing",
+            row.id,
+        )
+        return None
+
+    project_dir = _compose_project_dir(row.id)
+    project_dir.mkdir(parents=True, exist_ok=True)
+    (project_dir / "docker-compose.yml").write_text(row.compose_yaml)
+
+    project_name = _compose_project_name(row.id)
+    code, out = _run_compose(project_dir, project_name, "up", "-d", "--remove-orphans")
+    if code != 0:
+        logger.warning("Conn %s: docker compose up failed: %s", row.id, out.strip()[:500])
+        return row.backend_url or None
+
+    port = row.compose_port or _detect_compose_service_port(row.compose_yaml, row.compose_service)
+    if not port:
+        logger.warning(
+            "Conn %s: could not derive port for service %s — keeping backend_url=%s",
+            row.id,
+            row.compose_service,
+            row.backend_url,
+        )
+        return row.backend_url or None
+
+    return f"{row.compose_service}:{port}"
+
+
+def _detect_compose_service_port(yaml_text: str, service: str) -> int | None:
+    """Best-effort port detection without requiring PyYAML.
+
+    Scans for the ``services: <service>:`` block and the first port mapping
+    or ``expose`` entry. Returns the *container* port (right side of ``:``).
+    """
+    in_block = False
+    indent = 0
+    for raw_line in yaml_text.splitlines():
+        stripped = raw_line.rstrip()
+        if not stripped or stripped.lstrip().startswith("#"):
+            continue
+        leading = len(raw_line) - len(raw_line.lstrip())
+        if stripped.lstrip().startswith(f"{service}:") and leading <= 4:
+            in_block = True
+            indent = leading
+            continue
+        if in_block:
+            if (
+                leading <= indent
+                and stripped.lstrip().endswith(":")
+                and not stripped.lstrip().startswith(("ports", "expose"))
+            ):
+                # Reached the next service block
+                break
+            m = re.search(r'"?(\d{2,5})"?\s*$', stripped)
+            if m and ("- " in stripped or stripped.lstrip().startswith('"')):
+                try:
+                    port = int(m.group(1))
+                except ValueError:
+                    continue
+                if 1 <= port <= 65535:
+                    return port
+    return None
+
+
+def _bring_down_compose(conn_id: int) -> None:
+    project_dir = _compose_project_dir(conn_id)
+    if not project_dir.is_dir():
+        return
+    project_name = _compose_project_name(conn_id)
+    _run_compose(project_dir, project_name, "down", "-v", "--remove-orphans")
+    try:
+        shutil.rmtree(project_dir)
+    except OSError:
+        logger.warning("Conn %d: failed to remove compose project dir %s", conn_id, project_dir)
 
 
 def _ensure_site_not_empty(site_dir: Path, conn_id: int) -> None:
@@ -564,13 +716,31 @@ def _ensure_site_not_empty(site_dir: Path, conn_id: int) -> None:
     if not site_dir.exists():
         site_dir.mkdir(parents=True, exist_ok=True)
     # Count web-content files — ignore .conf, .well-known, and hidden files.
-    _web_exts = {".html", ".htm", ".css", ".js", ".json", ".xml",
-                 ".txt", ".png", ".jpg", ".jpeg", ".gif", ".svg",
-                 ".ico", ".woff", ".woff2", ".ttf", ".eot", ".pdf"}
-    has_web_content = any(
-        p.is_file() and p.suffix.lower() in _web_exts
-        for p in site_dir.iterdir()
-    ) if site_dir.exists() else False
+    _web_exts = {
+        ".html",
+        ".htm",
+        ".css",
+        ".js",
+        ".json",
+        ".xml",
+        ".txt",
+        ".png",
+        ".jpg",
+        ".jpeg",
+        ".gif",
+        ".svg",
+        ".ico",
+        ".woff",
+        ".woff2",
+        ".ttf",
+        ".eot",
+        ".pdf",
+    }
+    has_web_content = (
+        any(p.is_file() and p.suffix.lower() in _web_exts for p in site_dir.iterdir())
+        if site_dir.exists()
+        else False
+    )
     if not has_web_content:
         _write_fallback_index(site_dir, conn_id)
 
@@ -625,8 +795,12 @@ def parse_nginx_config_preview(nginx_config_path: str) -> dict:
                 result["root"] = m.group(1)
                 continue
 
-        logger.info("Parsed nginx config %s → domains=%s backend=%s",
-                     nginx_config_path, names, result["backend_url"])
+        logger.info(
+            "Parsed nginx config %s → domains=%s backend=%s",
+            nginx_config_path,
+            names,
+            result["backend_url"],
+        )
     except Exception:
         logger.exception("Failed to parse nginx config %s", nginx_config_path)
     return result
@@ -635,6 +809,7 @@ def parse_nginx_config_preview(nginx_config_path: str) -> dict:
 # ─────────────────────────────────────────────────────────────────────────────
 # Public API
 # ─────────────────────────────────────────────────────────────────────────────
+
 
 async def list_connections(session: AsyncSession) -> list[Connection]:
     result = await session.execute(select(ConnectionModel).order_by(ConnectionModel.id))
@@ -664,7 +839,8 @@ async def _generate_certs_and_update_connection(session: AsyncSession, row: Conn
     if not result.get("success"):
         logger.warning(
             "Conn %d: ACME request failed (%s), falling back to self-signed certificate",
-            row.id, result.get("message", "unknown error"),
+            row.id,
+            result.get("message", "unknown error"),
         )
         result = cert_service.generate_self_signed_certificate(row.id, domains)
 
@@ -679,7 +855,8 @@ async def _generate_certs_and_update_connection(session: AsyncSession, row: Conn
     else:
         logger.error(
             "Conn %d: both ACME and self-signed certificate generation failed: %s",
-            row.id, result.get("message", "unknown error"),
+            row.id,
+            result.get("message", "unknown error"),
         )
 
     # ── Phase 3: rewrite config with the newly-obtained certificate ──
@@ -696,6 +873,9 @@ async def create_connection(session: AsyncSession, conn_in: ConnectionCreate) ->
         nginx_config_path=conn_in.nginx_config_path,
         backend_url=conn_in.backend_url,
         static_dir=conn_in.static_dir,
+        compose_yaml=conn_in.compose_yaml,
+        compose_service=conn_in.compose_service,
+        compose_port=conn_in.compose_port,
         enabled=conn_in.enabled,
         ssl_enabled=conn_in.ssl_enabled,
         ssl_cert_path=conn_in.ssl_cert_path,
@@ -784,6 +964,8 @@ async def delete_connection(session: AsyncSession, conn_id: int) -> bool:
     await session.commit()
     _delete_nginx_config(conn_id)
     _delete_ssl_certs(conn_id)
+    if row.source_type == "docker_compose":
+        _bring_down_compose(conn_id)
     _reload_angie()
     return True
 
@@ -803,7 +985,9 @@ def _find_existing_template_dir(filename: str) -> str | None:
     return None
 
 
-def save_uploaded_static(file_content: bytes, filename: str, connection_id: int | None = None) -> dict:
+def save_uploaded_static(
+    file_content: bytes, filename: str, connection_id: int | None = None
+) -> dict:
     from datetime import datetime as dt
 
     safe_name = filename.rsplit("/", 1)[-1].rsplit("\\", 1)[-1] or "index.html"
@@ -880,7 +1064,9 @@ def save_uploaded_nginx_config(files: list[tuple[str, bytes]]) -> dict:
 
     logger.info(
         "Saved uploaded nginx config directory (%d files) → %s (main: %s)",
-        saved_count, upload_dir, main_conf_path,
+        saved_count,
+        upload_dir,
+        main_conf_path,
     )
 
     return {"path": main_conf_path, "filename": Path(main_conf_path).name}
