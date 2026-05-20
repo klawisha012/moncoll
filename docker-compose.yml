@@ -40,6 +40,15 @@ services:
     depends_on:
       - vector
       - crowdsec
+    # Healthcheck so `docker compose up --wait` blocks until Angie is
+    # actually serving — without this, --wait only checks "started" and
+    # CI can race past a crash-looping container.
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://127.0.0.1:80/healthz >/dev/null || wget -qO- http://127.0.0.1:80/healthz >/dev/null 2>&1"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+      start_period: 15s
     restart: unless-stopped
     env_file:
       - .env

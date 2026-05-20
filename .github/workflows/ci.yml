@@ -1,4 +1,4 @@
-name: CI/CD Pipeline
+name: CI
 
 on:
   pull_request:
@@ -9,315 +9,625 @@ on:
 permissions:
   contents: read
 
+# Silence the "Node.js 20 actions are deprecated" warnings until every
+# third-party action ships a Node-24 release. Safe to remove once all
+# pinned actions natively target Node 24.
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
+
+# Cancel in-flight PR runs when a new commit lands; NEVER cancel main builds
+# (we want the deploy-gating sequence to complete).
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+# Path filter primer — full pipeline runs only when production paths change.
+# Doc-only PRs are short-circuited by the `paths-filter` job below.
+defaults:
+  run:
+    shell: bash
 
 jobs:
-  # ─── Backend Lint ───────────────────────────────────────────
+  # ─────────────────────────────────────────────────────────────
+  # Pre-flight: decide which downstream stages need to run.
+  # Cheap (~5s) so we always run it and let it gate the rest.
+  # ─────────────────────────────────────────────────────────────
+  paths:
+    name: Pre-flight - Path filter
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    outputs:
+      backend:  ${{ steps.f.outputs.backend }}
+      frontend: ${{ steps.f.outputs.frontend }}
+      docker:   ${{ steps.f.outputs.docker }}
+      ci:       ${{ steps.f.outputs.ci }}
+      loadtest: ${{ steps.f.outputs.loadtest }}
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - id: f
+        # dorny/paths-filter@v3.0.2
+        uses: dorny/paths-filter@de90cc6fb38fc0963ad72b210f1f284cd68cea36
+        with:
+          filters: |
+            backend:
+              - 'backend/**'
+              - 'tests/unit/**'
+              - 'tests/integration/**'
+              - 'pyproject.toml'
+            frontend:
+              - 'frontend/**'
+            docker:
+              - 'configs/angie/**'
+              - 'backend/**'
+              - 'frontend/**'
+              - 'docker-compose.yml'
+            ci:
+              - '.github/**'
+            loadtest:
+              - 'tests/loadtest/**'
+              - 'configs/angie/**'
+
+  # ═════════════════════════════════════════════════════════════
+  # STAGE 1 — validate (fast, parallel, runs on every PR)
+  # ═════════════════════════════════════════════════════════════
+
   backend-lint:
-    name: Backend - Lint
+    name: 1. validate - backend lint
     runs-on: ubuntu-latest
     timeout-minutes: 5
-
-    defaults:
-      run:
-        working-directory: backend
-
+    needs: paths
+    # Run when backend/ci paths change OR on main push (full deploy gate).
+    if: |
+      needs.paths.outputs.backend == 'true'
+      || needs.paths.outputs.ci == 'true'
+      || (github.event_name == 'push' && github.ref == 'refs/heads/main')
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - name: Install ruff
+        run: pip install ruff==0.7.4
+      - name: Ruff check
+        run: ruff check backend/src
+      - name: Ruff format --check
+        run: ruff format --check backend/src
 
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.11"
-          cache: "pip"
-          cache-dependency-path: backend/requirements.txt
-
-      - name: Install lint tooling
-        run: pip install ruff
-
-      - name: Ruff lint
-        run: ruff check src/
-
-      - name: Ruff format check
-        run: ruff format --check src/
-
-  # ─── Backend Unit + Integration Tests ───────────────────────
-  backend-tests:
-    name: Backend - Unit & Integration
+  frontend-lint:
+    name: 1. validate - frontend lint
     runs-on: ubuntu-latest
-    timeout-minutes: 10
-
+    timeout-minutes: 5
+    needs: paths
+    if: |
+      needs.paths.outputs.frontend == 'true'
+      || needs.paths.outputs.ci == 'true'
+      || (github.event_name == 'push' && github.ref == 'refs/heads/main')
     steps:
-      - uses: actions/checkout@v4
-
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.11"
-          cache: "pip"
-          cache-dependency-path: |
-            backend/requirements.txt
-            tests/requirements.txt
-
-      - name: Install backend dependencies
-        run: pip install -r backend/requirements.txt
-
-      - name: Install test dependencies
-        run: pip install -r tests/requirements.txt
-
-      - name: Run unit tests
-        env:
-          PYTHONPATH: backend
-        run: pytest -m unit tests/unit -v --tb=short
-
-      - name: Run integration tests
-        env:
-          PYTHONPATH: backend
-        run: pytest -m integration tests/integration -v --tb=short
-
-  # ─── Frontend Lint & Build ───────────────────────────────
-  frontend-checks:
-    name: Frontend - Lint & Build
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-
-    defaults:
-      run:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - uses: ./.github/actions/setup-node
+      - name: ESLint (if configured)
         working-directory: frontend
+        run: |
+          if [ -f .eslintrc.cjs ] || [ -f .eslintrc.json ] || [ -f eslint.config.js ]; then
+            npx eslint . --max-warnings=0
+          else
+            echo "::notice::No ESLint config — skipping"
+          fi
 
+  frontend-typecheck:
+    name: 1. validate - frontend typecheck
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    needs: paths
+    if: |
+      needs.paths.outputs.frontend == 'true'
+      || needs.paths.outputs.ci == 'true'
+      || (github.event_name == 'push' && github.ref == 'refs/heads/main')
     steps:
-      - uses: actions/checkout@v4
-
-      - name: Set up Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: "20"
-          cache: "npm"
-          cache-dependency-path: frontend/package-lock.json
-
-      - name: Install dependencies
-        run: npm ci
-
-      - name: TypeScript type check
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - uses: ./.github/actions/setup-node
+      - name: tsc --noEmit
+        working-directory: frontend
         run: npx tsc --noEmit
 
-      - name: Build
-        run: npm run build
+  workflow-lint:
+    name: 1. validate - workflow lint (actionlint)
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    needs: paths
+    if: |
+      needs.paths.outputs.ci == 'true'
+      || (github.event_name == 'push' && github.ref == 'refs/heads/main')
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - name: Install actionlint
+        run: |
+          bash <(curl -sSfL https://raw.githubusercontent.com/rhysd/actionlint/main/scripts/download-actionlint.bash) 1.7.4
+      - name: Run actionlint
+        run: ./actionlint -color
 
-  # ─── Docker Build Verification ──────────────────────────
-  docker-build:
-    name: Docker - Build Images
+  # ═════════════════════════════════════════════════════════════
+  # STAGE 2 — test (depends on validate; jobs parallelise inside)
+  # ═════════════════════════════════════════════════════════════
+
+  backend-unit:
+    name: 2. test - backend unit
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    needs: [paths, backend-lint]
+    # !cancelled() && !contains(...,'failure') lets this run when upstream
+    # was SKIPPED (default success() treats SKIPPED as blocking).
+    if: |
+      !cancelled() && !contains(needs.*.result, 'failure') && (
+        needs.paths.outputs.backend == 'true'
+        || needs.paths.outputs.ci == 'true'
+        || (github.event_name == 'push' && github.ref == 'refs/heads/main')
+      )
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - uses: ./.github/actions/setup-python
+        with:
+          install-test-deps: "true"
+      - name: pytest -m unit
+        env:
+          PYTHONPATH: backend
+        run: pytest -m unit tests/unit -v --tb=short --junitxml=junit-unit.xml
+      - name: Upload junit (unit)
+        if: always()
+        # actions/upload-artifact@v4.4.3
+        uses: actions/upload-artifact@b4b15b8c7c6ac21ea08fcf65892d2ee8f75cf882
+        with:
+          name: junit-backend-unit
+          path: junit-unit.xml
+          retention-days: 7
+
+  backend-integration:
+    name: 2. test - backend integration
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    needs: [paths, backend-lint]
+    if: |
+      !cancelled() && !contains(needs.*.result, 'failure') && (
+        needs.paths.outputs.backend == 'true'
+        || needs.paths.outputs.ci == 'true'
+        || (github.event_name == 'push' && github.ref == 'refs/heads/main')
+      )
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: waf
+          POSTGRES_PASSWORD: waf
+          POSTGRES_DB: waf
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U waf"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - uses: ./.github/actions/setup-python
+        with:
+          install-test-deps: "true"
+      - name: pytest -m integration
+        env:
+          PYTHONPATH: backend
+          DATABASE_URL: postgresql+asyncpg://waf:waf@localhost:5432/waf
+        run: pytest -m integration tests/integration -v --tb=short --junitxml=junit-int.xml
+      - name: Upload junit (integration)
+        if: always()
+        uses: actions/upload-artifact@b4b15b8c7c6ac21ea08fcf65892d2ee8f75cf882 # v4.4.3
+        with:
+          name: junit-backend-integration
+          path: junit-int.xml
+          retention-days: 7
+
+  frontend-build:
+    name: 2. test - frontend build
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    needs: [paths, frontend-lint, frontend-typecheck]
+    if: |
+      !cancelled() && !contains(needs.*.result, 'failure') && (
+        needs.paths.outputs.frontend == 'true'
+        || needs.paths.outputs.ci == 'true'
+        || (github.event_name == 'push' && github.ref == 'refs/heads/main')
+      )
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - uses: ./.github/actions/setup-node
+      - name: Build
+        working-directory: frontend
+        run: npm run build
+      - name: Upload dist artifact
+        uses: actions/upload-artifact@b4b15b8c7c6ac21ea08fcf65892d2ee8f75cf882 # v4.4.3
+        with:
+          name: frontend-dist
+          path: frontend/dist
+          retention-days: 7
+
+  # ═════════════════════════════════════════════════════════════
+  # STAGE 3 — build (matrix; depends on test passing)
+  # ═════════════════════════════════════════════════════════════
+
+  images:
+    name: 3. build - ${{ matrix.image }}
     runs-on: ubuntu-latest
     timeout-minutes: 15
-    needs: [backend-lint, backend-tests, frontend-checks]
-
+    needs: [paths, backend-unit, backend-integration, frontend-build]
+    # Skip the matrix entirely on doc-only PRs.
+    # !cancelled() + failure-check pattern prevents the cascading-skip bug:
+    # if frontend-build is SKIPPED (e.g. backend-only PR), default success()
+    # would also skip this job. We want it to run when its OWN paths matched.
+    if: |
+      !cancelled() && !contains(needs.*.result, 'failure') && (
+        needs.paths.outputs.docker == 'true'
+        || needs.paths.outputs.ci == 'true'
+        || (github.event_name == 'push' && github.ref == 'refs/heads/main')
+      )
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - image: backend
+            context: ./backend
+          - image: frontend
+            context: ./frontend
+          - image: angie
+            context: ./configs/angie
+    permissions:
+      contents: read
+      packages: read
+      # Required by github/codeql-action/upload-sarif below — without this
+      # the Trivy image scan step fails with "Resource not accessible by
+      # integration".
+      security-events: write
     steps:
-      - uses: actions/checkout@v4
-
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-
-      - name: Build backend image
-        uses: docker/build-push-action@v5
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - name: Set up Buildx
+        # docker/setup-buildx-action@v3.7.1
+        uses: docker/setup-buildx-action@c47758b77c9736f4b2ef4073d4d51994fabfe349
+      - name: Build ${{ matrix.image }}
+        id: build
+        # docker/build-push-action@v6.9.0
+        uses: docker/build-push-action@4f58ea79222b3b9dc2c8bbdd6debcef730109a75
         with:
-          context: ./backend
+          context: ${{ matrix.context }}
           push: false
-          tags: waf-backend:${{ github.sha }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
-
-      - name: Build frontend image
-        uses: docker/build-push-action@v5
+          load: true
+          tags: waf-${{ matrix.image }}:${{ github.sha }}
+          cache-from: type=gha,scope=${{ matrix.image }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.image }}
+          outputs: type=docker,name=waf-${{ matrix.image }}:${{ github.sha }}
+      - name: Save image digest
+        run: |
+          mkdir -p .digests
+          echo "waf-${{ matrix.image }}@${{ steps.build.outputs.digest || 'no-digest' }}" \
+            > .digests/${{ matrix.image }}.txt
+      - name: Upload digest
+        uses: actions/upload-artifact@b4b15b8c7c6ac21ea08fcf65892d2ee8f75cf882 # v4.4.3
         with:
-          context: ./frontend
-          push: false
-          tags: waf-frontend:${{ github.sha }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
-
-      - name: Build angie image
-        uses: docker/build-push-action@v5
+          name: digest-${{ matrix.image }}
+          path: .digests/${{ matrix.image }}.txt
+          retention-days: 7
+      # Trivy must run in this matrix job (not a downstream one) because the
+      # built image lives on this runner's local Docker daemon. A separate
+      # job on a fresh runner would scan an empty daemon and fail to find
+      # waf-${{ matrix.image }}:${{ github.sha }}.
+      - name: Trivy image scan (${{ matrix.image }})
+        # aquasecurity/trivy-action@0.28.0
+        uses: aquasecurity/trivy-action@6e7b7d1fd3e4fef0c5fa8cce1229c54b2c9bd0d8
         with:
-          context: ./configs/angie
-          push: false
-          tags: waf-angie:${{ github.sha }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          scan-type: image
+          image-ref: "waf-${{ matrix.image }}:${{ github.sha }}"
+          format: sarif
+          output: "trivy-image-${{ matrix.image }}.sarif"
+          severity: "CRITICAL,HIGH"
+          exit-code: "0"
+      - name: Upload SARIF (image ${{ matrix.image }})
+        # github/codeql-action/upload-sarif@v3.27.0
+        uses: github/codeql-action/upload-sarif@4f3212b61783c3c68e8309a0f18a699764811cda
+        continue-on-error: true
+        with:
+          sarif_file: "trivy-image-${{ matrix.image }}.sarif"
+          category: "trivy-image-${{ matrix.image }}"
 
-  # ─── E2E Tests (full Docker stack) ───────────────────────
-  e2e-tests:
-    name: E2E Tests
+  # ═════════════════════════════════════════════════════════════
+  # STAGE 4 — quality (parallel; depends on build for image scans)
+  # ═════════════════════════════════════════════════════════════
+
+  trivy-fs:
+    name: 4. quality - trivy fs
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    needs: paths
+    if: |
+      !cancelled() && !contains(needs.*.result, 'failure') && (
+        needs.paths.outputs.backend == 'true'
+        || needs.paths.outputs.frontend == 'true'
+        || needs.paths.outputs.ci == 'true'
+        || (github.event_name == 'push' && github.ref == 'refs/heads/main')
+      )
+    permissions:
+      contents: read
+      security-events: write
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - name: Trivy filesystem scan
+        # aquasecurity/trivy-action@0.28.0
+        uses: aquasecurity/trivy-action@6e7b7d1fd3e4fef0c5fa8cce1229c54b2c9bd0d8
+        with:
+          scan-type: fs
+          scan-ref: "."
+          format: sarif
+          output: trivy-fs.sarif
+          severity: "CRITICAL,HIGH"
+          exit-code: "0"
+      - name: Upload SARIF
+        # github/codeql-action/upload-sarif@v3.27.0
+        uses: github/codeql-action/upload-sarif@4f3212b61783c3c68e8309a0f18a699764811cda
+        continue-on-error: true
+        with:
+          sarif_file: trivy-fs.sarif
+          category: trivy-fs
+
+  audit-python:
+    name: 4. quality - pip-audit
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    needs: [paths, backend-lint]
+    if: |
+      !cancelled() && !contains(needs.*.result, 'failure') && (
+        needs.paths.outputs.backend == 'true'
+        || needs.paths.outputs.ci == 'true'
+        || (github.event_name == 'push' && github.ref == 'refs/heads/main')
+      )
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - uses: ./.github/actions/setup-python
+      - name: pip-audit
+        run: |
+          pip install pip-audit
+          pip-audit -r backend/requirements.txt --strict || true
+
+  audit-node:
+    name: 4. quality - npm audit
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    needs: [paths, frontend-lint]
+    if: |
+      !cancelled() && !contains(needs.*.result, 'failure') && (
+        needs.paths.outputs.frontend == 'true'
+        || needs.paths.outputs.ci == 'true'
+        || (github.event_name == 'push' && github.ref == 'refs/heads/main')
+      )
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - uses: ./.github/actions/setup-node
+      - name: npm audit (high+)
+        working-directory: frontend
+        run: npm audit --audit-level=high || true
+
+  gitleaks:
+    name: 4. quality - gitleaks
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    needs: paths
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          fetch-depth: 0
+      - name: Install gitleaks
+        # Direct binary install — avoids the gitleaks-action license gate
+        # that fails for org accounts without GITLEAKS_LICENSE.
+        # NOTE: 8.22+ is required for top-level [[allowlists]] syntax in
+        # .gitleaks.toml; older versions silently ignore it and produce
+        # false positives on already-handled paths.
+        run: |
+          GL_VERSION=8.28.0
+          curl -sSL "https://github.com/gitleaks/gitleaks/releases/download/v${GL_VERSION}/gitleaks_${GL_VERSION}_linux_x64.tar.gz" \
+            | sudo tar -xz -C /usr/local/bin gitleaks
+          gitleaks version
+      - name: Run gitleaks
+        # exit-code 1 → fail the job on any finding;
+        # --redact → don't print secrets in logs.
+        run: gitleaks detect --source . --redact --no-banner --exit-code 1 --report-format sarif --report-path gitleaks.sarif
+      - name: Upload gitleaks SARIF
+        if: always()
+        uses: actions/upload-artifact@b4b15b8c7c6ac21ea08fcf65892d2ee8f75cf882 # v4.4.3
+        with:
+          name: gitleaks-sarif
+          path: gitleaks.sarif
+          retention-days: 14
+
+  # ═════════════════════════════════════════════════════════════
+  # STAGE 5 — acceptance (main pushes only; runs the full stack)
+  # ═════════════════════════════════════════════════════════════
+
+  e2e:
+    name: 5. acceptance - e2e
     runs-on: ubuntu-latest
     timeout-minutes: 25
-    needs: [docker-build]
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-
+    needs: [paths, images]
+    # Without !cancelled() + failure-check, a SKIPPED `images` (doc-only push)
+    # would cascade-skip this job. We still gate on main-push semantically.
+    if: |
+      !cancelled() && !contains(needs.*.result, 'failure') && (
+        (github.event_name == 'push' && github.ref == 'refs/heads/main')
+      )
     steps:
-      - uses: actions/checkout@v4
-
-      - name: Set up Python
-        uses: actions/setup-python@v5
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - uses: ./.github/actions/setup-python
         with:
-          python-version: "3.11"
-
-      - name: Install test dependencies
+          install-test-deps: "true"
+      - name: Install Playwright
         run: |
-          pip install -r tests/requirements.txt
           pip install playwright
           playwright install --with-deps chromium
-
       - name: Generate .env
         run: bash scripts/generate-env.sh
-
-      - name: Start Docker stack
-        run: docker compose up -d --build --wait
-        timeout-minutes: 12
-
-      - name: Wait for services healthy
+      - name: Provision GeoLite2 test fixtures (gitignored .mmdb)
+        # The real GeoLite2 DBs are MaxMind-licensed and excluded by
+        # .gitignore. Without them Angie aborts at startup on the
+        # `geoip2 ... .mmdb` directives, which is what made the e2e
+        # job time out on "Angie did not become reachable on :80".
         run: |
-          echo "Waiting for services to be ready..."
+          mkdir -p configs/angie/geoip2
+          base=https://raw.githubusercontent.com/maxmind/MaxMind-DB/main/test-data
+          for f in GeoLite2-Country-Test.mmdb GeoLite2-City-Test.mmdb GeoLite2-ASN-Test.mmdb; do
+            curl -sSfL "$base/$f" -o "configs/angie/geoip2/${f/-Test/}"
+          done
+          ls -la configs/angie/geoip2/
+      - name: Start full stack
+        id: stack-up
+        # `--wait` blocks until every service reports healthy; if a service
+        # has no healthcheck compose just waits for "started". `--wait-timeout`
+        # caps the wait so a stuck service doesn't burn the whole job budget.
+        run: docker compose up -d --build --wait --wait-timeout 300
+        timeout-minutes: 12
+      - name: Dump compose state on startup failure
+        if: failure() && steps.stack-up.conclusion == 'failure'
+        run: |
+          echo "::group::docker compose ps"
+          docker compose ps
+          echo "::endgroup::"
+          echo "::group::docker compose logs (last 400 lines)"
+          docker compose logs --tail=400 || true
+          echo "::endgroup::"
+      - name: Wait for Angie to accept traffic
+        run: |
           for i in $(seq 1 30); do
             if curl -sf --no-keepalive http://localhost:80/ > /dev/null 2>&1; then
-              echo "WAF is ready"
-              break
+              echo "WAF ready"; break
             fi
-            echo "Attempt $i/30..."
-            sleep 5
+            echo "Attempt $i/30..."; sleep 5
+            if [ "$i" -eq 30 ]; then
+              echo "::error::Angie did not become reachable on :80 within 150s"
+              docker compose logs --tail=200 angie || true
+              exit 1
+            fi
           done
-
-      - name: Ensure audit log exists
+      - name: Ensure modsec audit log exists
         run: |
-          docker exec waf-angie-1 mkdir -p /var/log/angie
-          docker exec waf-angie-1 touch /var/log/angie/modsec_audit.log
-
-      - name: Run modsecurity e2e suite
+          docker exec waf-angie-1 mkdir -p /var/log/angie || true
+          docker exec waf-angie-1 touch /var/log/angie/modsec_audit.log || true
+      - name: ModSecurity e2e suite
+        id: e2e-waf
+        continue-on-error: true
         run: |
           pytest -m e2e \
             tests/e2e/modsecurity/test_sqli_942.py \
             tests/e2e/modsecurity/test_xss_941.py \
             tests/e2e/modsecurity/test_lfi_930.py \
             -v --tb=short -x
-        continue-on-error: true
-        id: e2e-waf
-
-      - name: Run connections e2e suite (nginx, static, container, docker_compose)
-        run: |
-          pytest -m e2e tests/e2e/connections -v --tb=short
-        continue-on-error: true
+      - name: Connections e2e suite
         id: e2e-conn
-
-      - name: Collect logs on failure
+        continue-on-error: true
+        run: pytest -m e2e tests/e2e/connections -v --tb=short
+      - name: Collect docker logs on failure
         if: steps.e2e-waf.outcome == 'failure' || steps.e2e-conn.outcome == 'failure'
-        run: |
-          docker compose logs --tail=200 > docker-logs.txt 2>&1
-          echo "::warning::E2E tests failed. Check docker-logs.txt artifact."
-
-      - name: Upload logs artifact
+        run: docker compose logs --tail=300 > docker-logs.txt 2>&1
+      - name: Upload docker logs
         if: steps.e2e-waf.outcome == 'failure' || steps.e2e-conn.outcome == 'failure'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@b4b15b8c7c6ac21ea08fcf65892d2ee8f75cf882 # v4.4.3
         with:
-          name: docker-logs
+          name: docker-logs-e2e
           path: docker-logs.txt
-          retention-days: 7
-
-      - name: Stop Docker stack
+          retention-days: 14
+      - name: Tear down
         if: always()
         run: docker compose down -v
 
-  # ─── Load Test Smoke (k6) ───────────────────────────────
-  loadtest-smoke:
-    name: Load Test - Smoke (k6)
+  loadtest:
+    name: 5. acceptance - k6 smoke
     runs-on: ubuntu-latest
     timeout-minutes: 15
-    needs: [docker-build]
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-
+    needs: [paths, images]
+    if: |
+      !cancelled() && !contains(needs.*.result, 'failure') && (
+        (github.event_name == 'push' && github.ref == 'refs/heads/main' && needs.paths.outputs.loadtest == 'true')
+      )
     steps:
-      - uses: actions/checkout@v4
-
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
       - name: Generate .env
         run: bash scripts/generate-env.sh
-
-      - name: Start Docker stack (angie only)
+      - name: Provision GeoLite2 test fixtures (gitignored .mmdb)
+        run: |
+          mkdir -p configs/angie/geoip2
+          base=https://raw.githubusercontent.com/maxmind/MaxMind-DB/main/test-data
+          for f in GeoLite2-Country-Test.mmdb GeoLite2-City-Test.mmdb GeoLite2-ASN-Test.mmdb; do
+            curl -sSfL "$base/$f" -o "configs/angie/geoip2/${f/-Test/}"
+          done
+      - name: Start angie + backend + postgres
         run: docker compose up -d --build --wait angie backend postgres
         timeout-minutes: 10
-
-      - name: Wait for WAF to accept connections
+      - name: Wait for WAF
         run: |
           for i in $(seq 1 30); do
             if curl -sf --no-keepalive http://localhost:80/ > /dev/null 2>&1; then
-              echo "WAF is ready"
-              break
+              echo "WAF ready"; break
             fi
-            echo "Attempt $i/30..."
-            sleep 5
+            echo "Attempt $i/30..."; sleep 5
           done
-
-      - name: Run k6 smoke
+      - name: k6 smoke
         run: docker compose --profile loadtest run --rm k6 run /scripts/smoke.js
-
-      - name: Stop Docker stack
+      - name: Tear down
         if: always()
         run: docker compose down -v
 
-  # ─── Security Scan ──────────────────────────────────────
-  security-scan:
-    name: Security - Trivy
+  # ═════════════════════════════════════════════════════════════
+  # Single required gate for branch protection.
+  # Add `ci-required` to your protected-branch settings — that's it.
+  # ═════════════════════════════════════════════════════════════
+  ci-required:
+    name: ci-required
     runs-on: ubuntu-latest
-    timeout-minutes: 15
-    needs: [backend-lint, backend-tests, frontend-checks]
-
-    permissions:
-      security-events: write
-
+    timeout-minutes: 2
+    if: always()
+    needs:
+      - paths
+      - backend-lint
+      - frontend-lint
+      - frontend-typecheck
+      - workflow-lint
+      - backend-unit
+      - backend-integration
+      - frontend-build
+      - images
+      - trivy-fs
+      - audit-python
+      - audit-node
+      - gitleaks
     steps:
-      - uses: actions/checkout@v4
-
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-
-      - name: Build backend image for scan
-        uses: docker/build-push-action@v5
-        with:
-          context: ./backend
-          load: true
-          tags: waf-backend:scan
-
-      - name: Run Trivy on backend
-        uses: aquasecurity/trivy-action@master
-        with:
-          image-ref: waf-backend:scan
-          format: "sarif"
-          output: "trivy-backend.sarif"
-          severity: "CRITICAL,HIGH"
-
-      - name: Upload Trivy backend results
-        uses: github/codeql-action/upload-sarif@v4
-        continue-on-error: true
-        with:
-          sarif_file: "trivy-backend.sarif"
-          category: backend
-
-      - name: Build frontend image for scan
-        uses: docker/build-push-action@v5
-        with:
-          context: ./frontend
-          load: true
-          tags: waf-frontend:scan
-
-      - name: Run Trivy on frontend
-        uses: aquasecurity/trivy-action@master
-        with:
-          image-ref: waf-frontend:scan
-          format: "sarif"
-          output: "trivy-frontend.sarif"
-          severity: "CRITICAL,HIGH"
-
-      - name: Upload Trivy frontend results
-        uses: github/codeql-action/upload-sarif@v4
-        continue-on-error: true
-        with:
-          sarif_file: "trivy-frontend.sarif"
-          category: frontend
+      - name: Fail if any dependency failed
+        run: |
+          echo "Aggregated job results:"
+          echo "  backend-lint:        ${{ needs.backend-lint.result }}"
+          echo "  frontend-lint:       ${{ needs.frontend-lint.result }}"
+          echo "  frontend-typecheck:  ${{ needs.frontend-typecheck.result }}"
+          echo "  workflow-lint:       ${{ needs.workflow-lint.result }}"
+          echo "  backend-unit:        ${{ needs.backend-unit.result }}"
+          echo "  backend-integration: ${{ needs.backend-integration.result }}"
+          echo "  frontend-build:      ${{ needs.frontend-build.result }}"
+          echo "  images:              ${{ needs.images.result }}"
+          echo "  trivy-fs:            ${{ needs.trivy-fs.result }}"
+          echo "  audit-python:        ${{ needs.audit-python.result }}"
+          echo "  audit-node:          ${{ needs.audit-node.result }}"
+          echo "  gitleaks:            ${{ needs.gitleaks.result }}"
+          for r in \
+            "${{ needs.backend-lint.result }}" \
+            "${{ needs.frontend-lint.result }}" \
+            "${{ needs.frontend-typecheck.result }}" \
+            "${{ needs.workflow-lint.result }}" \
+            "${{ needs.backend-unit.result }}" \
+            "${{ needs.backend-integration.result }}" \
+            "${{ needs.frontend-build.result }}" \
+            "${{ needs.images.result }}" \
+            "${{ needs.trivy-fs.result }}" \
+            "${{ needs.audit-python.result }}" \
+            "${{ needs.audit-node.result }}" \
+            "${{ needs.gitleaks.result }}"; do
+            case "$r" in
+              success|skipped) ;;
+              *) echo "::error::Dependency failed with result=$r"; exit 1 ;;
+            esac
+          done
+          echo "All required checks passed."

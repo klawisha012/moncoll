@@ -21,7 +21,7 @@ def _normalize_http_versions(value: object) -> str:
         return "h1,h2"
     if isinstance(value, str):
         tokens = [t.strip() for t in value.split(",") if t.strip()]
-    elif isinstance(value, (list, tuple, set)):
+    elif isinstance(value, list | tuple | set):
         tokens = [str(t).strip() for t in value if str(t).strip()]
     else:
         raise ValueError(f"http_versions must be string or list, got {type(value).__name__}")
