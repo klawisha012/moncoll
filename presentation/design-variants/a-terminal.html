@@ -1,0 +1,325 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<title>WAF — Variant A — Terminal / Industrial</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=JetBrains+Mono:wght@300;400;500;700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #0a0c0d;
+    --surface: #101315;
+    --surface-2: #161a1c;
+    --border: #1f2426;
+    --border-strong: #2a3134;
+    --text: #e8e7e2;
+    --text-dim: #7d8488;
+    --text-faint: #4a4f52;
+    --signal-on: #00d986;
+    --signal-warn: #ffa629;
+    --signal-off: #ff4d6d;
+    --signal-info: #8ec3ff;
+    --grid-line: rgba(255,255,255,0.025);
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { height: 100%; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'IBM Plex Sans', system-ui, sans-serif;
+    font-size: 14px;
+    line-height: 1.5;
+    -webkit-font-smoothing: antialiased;
+    background-image:
+      linear-gradient(var(--grid-line) 1px, transparent 1px),
+      linear-gradient(90deg, var(--grid-line) 1px, transparent 1px);
+    background-size: 32px 32px;
+  }
+  .mono { font-family: 'JetBrains Mono', ui-monospace, monospace; }
+  .shell {
+    min-height: 100vh;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 520px minmax(0, 1fr);
+    grid-template-rows: 36px 1fr 28px;
+  }
+  /* top bar */
+  .topbar {
+    grid-column: 1 / -1;
+    border-bottom: 1px solid var(--border);
+    background: var(--bg);
+    display: flex;
+    align-items: center;
+    padding: 0 20px;
+    gap: 28px;
+    font-family: 'JetBrains Mono', ui-monospace, monospace;
+    font-size: 11px;
+    color: var(--text-dim);
+    letter-spacing: 0.04em;
+  }
+  .topbar .brand { color: var(--text); font-weight: 700; letter-spacing: 0.18em; }
+  .topbar .sep { color: var(--text-faint); }
+  .topbar .blink { color: var(--signal-on); animation: blink 1.2s steps(2) infinite; }
+  @keyframes blink { 50% { opacity: 0.15; } }
+  /* status bar */
+  .statusbar {
+    grid-column: 1 / -1;
+    border-top: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    padding: 0 20px;
+    gap: 24px;
+    font-family: 'JetBrains Mono', ui-monospace, monospace;
+    font-size: 10.5px;
+    color: var(--text-dim);
+    letter-spacing: 0.04em;
+  }
+  .statusbar .ok { color: var(--signal-on); }
+  /* form column */
+  .form-wrap {
+    grid-column: 2;
+    grid-row: 2;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 60px 0;
+  }
+  .panel {
+    width: 100%;
+    border: 1px solid var(--border-strong);
+    background: var(--surface);
+    position: relative;
+  }
+  .panel::before {
+    content: "";
+    position: absolute; inset: 0;
+    background:
+      linear-gradient(180deg, rgba(255,255,255,0.02), transparent 60px),
+      radial-gradient(900px 200px at 50% -10%, rgba(0,217,134,0.05), transparent 70%);
+    pointer-events: none;
+  }
+  .panel-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 11px 18px;
+    border-bottom: 1px solid var(--border);
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    color: var(--text-dim);
+    letter-spacing: 0.06em;
+  }
+  .panel-head .left { display: flex; gap: 14px; align-items: center; }
+  .dots { display: inline-flex; gap: 5px; }
+  .dots span { width: 7px; height: 7px; border: 1px solid var(--border-strong); }
+  .panel-body { padding: 38px 40px 32px; }
+  .ascii {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    line-height: 1.15;
+    color: var(--signal-on);
+    white-space: pre;
+    margin-bottom: 28px;
+  }
+  .eyebrow {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10.5px;
+    color: var(--text-dim);
+    letter-spacing: 0.22em;
+    text-transform: uppercase;
+    margin-bottom: 10px;
+  }
+  .eyebrow .accent { color: var(--signal-on); }
+  h1 {
+    font-family: 'IBM Plex Sans', sans-serif;
+    font-weight: 500;
+    font-size: 28px;
+    letter-spacing: -0.01em;
+    line-height: 1.1;
+    margin-bottom: 8px;
+  }
+  .sub {
+    color: var(--text-dim);
+    font-size: 13.5px;
+    margin-bottom: 28px;
+    max-width: 36ch;
+  }
+  .creds-strip {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 10px 14px;
+    border: 1px dashed var(--border-strong);
+    background: rgba(0,217,134,0.03);
+    margin-bottom: 26px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11.5px;
+    color: var(--text-dim);
+    letter-spacing: 0.04em;
+  }
+  .creds-strip .tag { color: var(--signal-on); }
+  .creds-strip .val { color: var(--text); }
+  .field { margin-bottom: 18px; }
+  .field label {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10.5px;
+    color: var(--text-dim);
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    margin-bottom: 6px;
+  }
+  .field label .req { color: var(--signal-on); }
+  .input {
+    display: flex;
+    align-items: center;
+    border: 1px solid var(--border-strong);
+    background: var(--bg);
+    transition: border-color 120ms;
+  }
+  .input:focus-within { border-color: var(--signal-on); }
+  .input .prefix {
+    padding: 0 14px;
+    border-right: 1px solid var(--border);
+    color: var(--text-faint);
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 12px;
+    align-self: stretch;
+    display: flex;
+    align-items: center;
+  }
+  .input input {
+    background: transparent;
+    border: 0;
+    outline: 0;
+    padding: 12px 14px;
+    color: var(--text);
+    flex: 1;
+    font: inherit;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 13.5px;
+    letter-spacing: 0.02em;
+  }
+  .input input::placeholder { color: var(--text-faint); }
+  .input .suffix {
+    padding: 0 14px;
+    color: var(--text-faint);
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    cursor: pointer;
+  }
+  .submit {
+    margin-top: 14px;
+    width: 100%;
+    background: transparent;
+    border: 1px solid var(--signal-on);
+    color: var(--signal-on);
+    padding: 14px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 12.5px;
+    letter-spacing: 0.24em;
+    text-transform: uppercase;
+    cursor: pointer;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    transition: background 120ms;
+  }
+  .submit:hover { background: rgba(0,217,134,0.08); }
+  .submit .arrow { font-family: 'JetBrains Mono', monospace; }
+  .hint {
+    margin-top: 20px;
+    padding-top: 18px;
+    border-top: 1px solid var(--border);
+    display: flex;
+    justify-content: space-between;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10.5px;
+    color: var(--text-faint);
+    letter-spacing: 0.06em;
+  }
+</style>
+</head>
+<body>
+<div class="shell">
+  <div class="topbar">
+    <span class="brand">WAF/CTRL</span>
+    <span class="sep">│</span>
+    <span>session: anonymous</span>
+    <span class="sep">│</span>
+    <span>build: 0.4.2-rc1</span>
+    <span class="sep">│</span>
+    <span>2026-05-20T19:14:22Z</span>
+    <span style="margin-left:auto"><span class="blink">●</span> engine.online</span>
+  </div>
+
+  <div class="form-wrap">
+    <div class="panel">
+      <div class="panel-head">
+        <div class="left">
+          <span class="dots"><span></span><span></span><span></span></span>
+          <span>~/auth/login</span>
+        </div>
+        <div>iam.v1</div>
+      </div>
+      <div class="panel-body">
+
+        <div class="ascii">██     ██  █████  ███████
+██     ██ ██   ██ ██
+██  █  ██ ███████ █████
+██ ███ ██ ██   ██ ██
+ ███ ███  ██   ██ ██</div>
+
+        <div class="eyebrow"><span class="accent">01.</span>&nbsp;&nbsp;Authentication</div>
+        <h1>Вход в систему</h1>
+        <p class="sub">Введите учётные данные для управления фаерволом и просмотра событий безопасности.</p>
+
+        <div class="creds-strip">
+          <span class="tag">[default]</span>
+          <span class="val">admin&nbsp;/&nbsp;admin</span>
+          <span style="margin-left:auto">↳ смена при первом входе</span>
+        </div>
+
+        <div class="field">
+          <label>username <span class="req">*</span></label>
+          <div class="input">
+            <span class="prefix">$</span>
+            <input value="admin" autocomplete="username">
+          </div>
+        </div>
+
+        <div class="field">
+          <label>password <span class="req">*</span></label>
+          <div class="input">
+            <span class="prefix">#</span>
+            <input type="password" value="●●●●●" autocomplete="current-password">
+            <span class="suffix">show</span>
+          </div>
+        </div>
+
+        <button class="submit">
+          <span>Authorize</span>
+          <span class="arrow">→ /dashboard</span>
+        </button>
+
+        <div class="hint">
+          <span>RBAC: admin · viewer</span>
+          <span>TLS · session 30m</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="statusbar">
+    <span>WAF Engine</span>
+    <span class="ok">● ACTIVE</span>
+    <span>├ ModSecurity 3.0.13</span>
+    <span>├ CrowdSec 1.7.7</span>
+    <span>├ Angie 1.10.1</span>
+    <span style="margin-left:auto" class="mono">↑ 7h 12m</span>
+  </div>
+</div>
+</body>
+</html>

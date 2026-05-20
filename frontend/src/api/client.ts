@@ -241,6 +241,76 @@ export interface GeoipMapPoint {
   hits: number;
 }
 
+// ── Extended analytics types (mirror Grafana panel set) ───────────
+
+export interface TimelinePoint {
+  timestamp: string;
+  hits: number;
+}
+
+export interface RuleHit {
+  rule: string;
+  hits: number;
+}
+
+export interface SeveritySlice {
+  severity: string;
+  hits: number;
+}
+
+export interface IpHit {
+  ip: string;
+  hits: number;
+}
+
+export interface AnomalyPoint {
+  timestamp: string;
+  score: number;
+}
+
+export interface TagHit {
+  tag: string;
+  hits: number;
+}
+
+export interface UriHit {
+  uri: string;
+  hits: number;
+}
+
+export interface RuleFileHit {
+  file: string;
+  hits: number;
+}
+
+export interface StatusCodePoint {
+  timestamp: string;
+  c2xx: number;
+  c3xx: number;
+  c4xx: number;
+  c5xx: number;
+}
+
+export interface UserAgentHit {
+  user_agent: string;
+  hits: number;
+}
+
+export interface BytesPoint {
+  timestamp: string;
+  bytes: number;
+}
+
+export interface RpsPoint {
+  timestamp: string;
+  rps: number;
+}
+
+export interface CountryHit {
+  country_code: string;
+  hits: number;
+}
+
 function buildDashboardQuery(
   hours?: number,
   connectionId?: number | null
@@ -382,6 +452,64 @@ export const api = {
     if (connectionId != null) params.set("connection_id", String(connectionId));
     return fetchApi<SecurityEvent[]>(`/api/dashboard/events?${params.toString()}`);
   },
+
+  // ── Extended analytics getters ──
+  getWafEventsTimeline: (hours?: number, connectionId?: number | null) =>
+    fetchApi<TimelinePoint[]>(
+      `/api/dashboard/waf-events-timeline${buildDashboardQuery(hours, connectionId)}`
+    ),
+  getTopRules: (hours?: number, connectionId?: number | null) =>
+    fetchApi<RuleHit[]>(
+      `/api/dashboard/top-rules${buildDashboardQuery(hours, connectionId)}`
+    ),
+  getSeverityDistribution: (hours?: number, connectionId?: number | null) =>
+    fetchApi<SeveritySlice[]>(
+      `/api/dashboard/severity-distribution${buildDashboardQuery(hours, connectionId)}`
+    ),
+  getTopAttackingIps: (hours?: number, connectionId?: number | null) =>
+    fetchApi<IpHit[]>(
+      `/api/dashboard/top-attacking-ips${buildDashboardQuery(hours, connectionId)}`
+    ),
+  getAnomalyScore: (hours?: number, connectionId?: number | null) =>
+    fetchApi<AnomalyPoint[]>(
+      `/api/dashboard/anomaly-score${buildDashboardQuery(hours, connectionId)}`
+    ),
+  getTopTags: (hours?: number, connectionId?: number | null) =>
+    fetchApi<TagHit[]>(
+      `/api/dashboard/top-tags${buildDashboardQuery(hours, connectionId)}`
+    ),
+  getTopUris: (hours?: number, connectionId?: number | null) =>
+    fetchApi<UriHit[]>(
+      `/api/dashboard/top-uris${buildDashboardQuery(hours, connectionId)}`
+    ),
+  getTopRuleFiles: (hours?: number, connectionId?: number | null) =>
+    fetchApi<RuleFileHit[]>(
+      `/api/dashboard/top-rule-files${buildDashboardQuery(hours, connectionId)}`
+    ),
+  getStatusCodes: (hours?: number, connectionId?: number | null) =>
+    fetchApi<StatusCodePoint[]>(
+      `/api/dashboard/status-codes${buildDashboardQuery(hours, connectionId)}`
+    ),
+  getTopUserAgents: (hours?: number, connectionId?: number | null) =>
+    fetchApi<UserAgentHit[]>(
+      `/api/dashboard/top-user-agents${buildDashboardQuery(hours, connectionId)}`
+    ),
+  getTrafficVolume: (hours?: number, connectionId?: number | null) =>
+    fetchApi<BytesPoint[]>(
+      `/api/dashboard/traffic-volume${buildDashboardQuery(hours, connectionId)}`
+    ),
+  getRequestsPerSecond: (hours?: number, connectionId?: number | null) =>
+    fetchApi<RpsPoint[]>(
+      `/api/dashboard/requests-per-second${buildDashboardQuery(hours, connectionId)}`
+    ),
+  getRequestsByCountry: (hours?: number, connectionId?: number | null) =>
+    fetchApi<CountryHit[]>(
+      `/api/dashboard/requests-by-country${buildDashboardQuery(hours, connectionId)}`
+    ),
+  getTopClientIps: (hours?: number, connectionId?: number | null) =>
+    fetchApi<IpHit[]>(
+      `/api/dashboard/top-client-ips${buildDashboardQuery(hours, connectionId)}`
+    ),
 
   // Connections API
   getConnections: () => fetchApi<Connection[]>("/api/connections/"),

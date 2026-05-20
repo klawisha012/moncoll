@@ -138,8 +138,13 @@ jobs:
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
       - name: Install actionlint
+        # Pinned to the v1.7.4 release tag instead of `main` HEAD so a
+        # compromise of rhysd/actionlint's main branch can't tamper with
+        # the install script. Tag is effectively immutable; for stronger
+        # guarantees pin to a commit SHA. See
+        # .gstack/security-reports/2026-05-20-043200.json F5.
         run: |
-          bash <(curl -sSfL https://raw.githubusercontent.com/rhysd/actionlint/main/scripts/download-actionlint.bash) 1.7.4
+          bash <(curl -sSfL https://raw.githubusercontent.com/rhysd/actionlint/v1.7.4/scripts/download-actionlint.bash) 1.7.4
       - name: Run actionlint
         run: ./actionlint -color
 
@@ -421,10 +426,22 @@ jobs:
         # NOTE: 8.22+ is required for top-level [[allowlists]] syntax in
         # .gitleaks.toml; older versions silently ignore it and produce
         # false positives on already-handled paths.
+        # Checksum verified via the release's own checksums.txt: a
+        # release-account compromise would have to tamper with both the
+        # binary AND the checksums file (same release tag), narrowing the
+        # supply chain risk. For a stronger guarantee hardcode the SHA256
+        # below instead of fetching it.
+        # See .gstack/security-reports/2026-05-20-043200.json F8.
         run: |
+          set -euo pipefail
           GL_VERSION=8.28.0
-          curl -sSL "https://github.com/gitleaks/gitleaks/releases/download/v${GL_VERSION}/gitleaks_${GL_VERSION}_linux_x64.tar.gz" \
-            | sudo tar -xz -C /usr/local/bin gitleaks
+          GL_TARBALL="gitleaks_${GL_VERSION}_linux_x64.tar.gz"
+          BASE="https://github.com/gitleaks/gitleaks/releases/download/v${GL_VERSION}"
+          curl -sSL -o "$GL_TARBALL" "${BASE}/${GL_TARBALL}"
+          curl -sSL -o gitleaks_checksums.txt "${BASE}/gitleaks_${GL_VERSION}_checksums.txt"
+          grep " ${GL_TARBALL}\$" gitleaks_checksums.txt | sha256sum -c -
+          sudo tar -xz -C /usr/local/bin -f "$GL_TARBALL" gitleaks
+          rm -f "$GL_TARBALL" gitleaks_checksums.txt
           gitleaks version
       - name: Run gitleaks
         # exit-code 1 → fail the job on any finding;

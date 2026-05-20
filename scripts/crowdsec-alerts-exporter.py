@@ -22,9 +22,11 @@ def get_token():
     """Read client credentials and fetch JWT token."""
     with open(CREDENTIALS_FILE, 'r') as f:
         cred = yaml.safe_load(f)
-    client_id = cred.get('client_id', 'localhost')
-    client_secret = cred.get('client_secret', '')
-    resp = requests.post(TOKEN_ENDPOINT, json={'client_id': client_id, 'client_secret': client_secret}, timeout=10)
+    # CrowdSec writes its local-API creds with `login`/`password` keys.
+    # `/v1/watchers/login` expects {"machine_id": ..., "password": ...}.
+    machine_id = cred.get('login') or cred.get('client_id') or 'localhost'
+    password = cred.get('password') or cred.get('client_secret') or ''
+    resp = requests.post(TOKEN_ENDPOINT, json={'machine_id': machine_id, 'password': password}, timeout=10)
     resp.raise_for_status()
     token = resp.json().get('token')
     return token
@@ -47,7 +49,7 @@ def get_last_timestamp():
 
 def fetch_alerts(token, since=None):
     """Call CrowdSec API to get alerts since given timestamp."""
-    params = {'include_capi': 'false', 'output': 'json'}
+    params = {'include_capi': 'false'}
     if since:
         params['since'] = since
     headers = {'Authorization': f'Bearer {token}'}

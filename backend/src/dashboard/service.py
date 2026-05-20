@@ -9,6 +9,8 @@ Endpoints are designed to degrade gracefully:
 
 import logging
 import os
+import threading
+import time
 from collections.abc import Iterable
 from typing import Any
 
@@ -19,41 +21,62 @@ logger = logging.getLogger(__name__)
 
 _NO_DOMAINS_SENTINEL = "__none__"
 
-
+# ClickHouse connection parameters — resolved once from env vars.
+# _get_client() creates a fresh Client per call so concurrent threads never
+# share a connection. clickhouse-driver raises PartiallyConsumedQueryError
+# when two threads call execute() on the same Client simultaneously.
+# The 30 s TTL cache (below) means most calls return before reaching execute(),
+# so the per-call connect cost is negligible in practice.
 def _get_client() -> ClickHouseClient:
-    """Create a ClickHouse client using the native TCP protocol (port 9000)."""
+    """Return a fresh ClickHouse client (thread-safe by construction)."""
     http_endpoint = os.getenv("CLICKHOUSE_ENDPOINT", "http://clickhouse:8123")
     if "://" in http_endpoint:
         http_endpoint = http_endpoint.split("://", 1)[1]
     host = http_endpoint.rsplit(":", 1)[0] if ":" in http_endpoint else http_endpoint
-    native_port = int(os.getenv("CLICKHOUSE_NATIVE_PORT", "9000"))
-
     return ClickHouseClient(
         host=host,
-        port=native_port,
+        port=int(os.getenv("CLICKHOUSE_NATIVE_PORT", "9000")),
         user=os.getenv("CLICKHOUSE_USER", "default"),
         password=os.getenv("CLICKHOUSE_PASSWORD", ""),
         database=os.getenv("CLICKHOUSE_DB", "logs"),
         connect_timeout=5,
-        send_receive_timeout=10,
+        send_receive_timeout=30,
     )
 
 
-def _safe_execute(client: ClickHouseClient, query: str, default: Any = None) -> Any:
-    """Run *query* and swallow ClickHouse errors, returning *default* on failure.
+# Small in-process TTL cache for ClickHouse query results. The dashboard
+# polls every 15 s × 19 panels — without this, every poll hits ClickHouse
+# from scratch and the heaviest queries (joins, ARRAY JOINs over the full
+# audit log) drove the container to 30+ cores.
+_QUERY_TTL_S = float(os.getenv("DASHBOARD_QUERY_TTL", "30"))
+_cache_lock = threading.Lock()
+_cache: dict[str, tuple[float, Any]] = {}
 
-    Without this, a missing table during initial bring-up (or an extension
-    column added by a newer migration) takes the whole dashboard down with
-    a 500.
-    """
+
+def _safe_execute(client: ClickHouseClient, query: str, default: Any = None) -> Any:
+    """Run *query* with a short TTL cache and swallow ClickHouse errors."""
+    now = time.monotonic()
+    with _cache_lock:
+        hit = _cache.get(query)
+        if hit is not None and now - hit[0] < _QUERY_TTL_S:
+            return hit[1]
     try:
-        return client.execute(query)
+        result = client.execute(query)
     except ClickHouseError as exc:
         logger.warning("ClickHouse query failed (%s): %s", exc.__class__.__name__, query)
         return default
     except Exception:
         logger.exception("Unexpected error executing ClickHouse query: %s", query)
         return default
+
+    with _cache_lock:
+        _cache[query] = (now, result)
+        # Evict expired entries opportunistically to keep the dict small.
+        if len(_cache) > 256:
+            cutoff = now - _QUERY_TTL_S
+            for k in [k for k, (ts, _) in _cache.items() if ts < cutoff]:
+                _cache.pop(k, None)
+    return result
 
 
 def _scalar(rows: Any, default: int = 0) -> int:
@@ -298,12 +321,23 @@ def get_threat_origins(hours: float = 24, connection_id: int | None = None) -> l
     if total_blocks == 0:
         return []
 
+    # Faster alternative to ANY LEFT JOIN: filter nginx_access_log to only
+    # the attacker IPs seen in the WAF log (small set), then join.
+    # The original ANY LEFT JOIN scanned all 600K+ nginx rows; this IN-subquery
+    # lets ClickHouse prune the scan to just matching IPs.
     rows = _safe_execute(
         client,
-        "SELECT a.geoip_country_code AS country_code, count() AS cnt "
+        "SELECT any(n.geoip_country_code) AS country_code, count() AS cnt "
         "FROM logs.waf_audit_log AS w "
-        "INNER JOIN logs.nginx_access_log AS a "
-        "ON toString(w.client_ip) = toString(a.remote_addr) "
+        "INNER JOIN ("
+        "  SELECT toString(remote_addr) AS ip, any(geoip_country_code) AS geoip_country_code "
+        "  FROM logs.nginx_access_log "
+        f"  WHERE time_local >= now() - INTERVAL {minutes} MINUTE "
+        "  AND toString(remote_addr) IN ("
+        "    SELECT DISTINCT toString(client_ip) FROM logs.waf_audit_log "
+        f"   WHERE timestamp >= now() - INTERVAL {minutes} MINUTE{waf_filter}"
+        "  ) GROUP BY ip"
+        ") AS n ON toString(w.client_ip) = n.ip "
         f"WHERE w.timestamp >= now() - INTERVAL {minutes} MINUTE{waf_filter} "
         "GROUP BY country_code "
         "ORDER BY cnt DESC "
@@ -311,11 +345,10 @@ def get_threat_origins(hours: float = 24, connection_id: int | None = None) -> l
         default=None,
     )
     if rows is None:
-        # JOIN failed (e.g. IP type mismatch) — fall back to a single bucket.
         rows = [("UNKNOWN", total_blocks)]
 
     result = []
-    for country_code, cnt in rows:
+    for country_code, cnt in (rows or []):
         if not country_code:
             country_code = "UNKNOWN"
         result.append(
@@ -420,3 +453,363 @@ def get_security_events(
             }
         )
     return result
+
+
+# ── Extended analytics: panels mirrored from the Grafana dashboard ──
+
+
+_SEVERITY_NAMES = {
+    0: "EMERGENCY",
+    1: "ALERT",
+    2: "CRITICAL",
+    3: "ERROR",
+    4: "WARNING",
+    5: "NOTICE",
+    6: "INFO",
+    7: "DEBUG",
+}
+
+
+def get_waf_events_timeline(
+    hours: float = 24, connection_id: int | None = None
+) -> list[dict[str, Any]]:
+    """WAF audit events bucketed per minute."""
+    try:
+        client = _get_client()
+    except Exception:
+        return []
+    minutes = _clamp_minutes(hours)
+    waf_filter = _host_filter_waf(_domains_for_connection(connection_id))
+    rows = (
+        _safe_execute(
+            client,
+            "SELECT toStartOfMinute(timestamp) AS t, count() AS hits "
+            "FROM logs.waf_audit_log "
+            f"WHERE timestamp >= now() - INTERVAL {minutes} MINUTE{waf_filter} "
+            "GROUP BY t ORDER BY t",
+            default=[],
+        )
+        or []
+    )
+    return [{"timestamp": t.isoformat(), "hits": int(hits)} for t, hits in rows]
+
+
+def get_top_rules(
+    hours: float = 24, connection_id: int | None = None, limit: int = 10
+) -> list[dict[str, Any]]:
+    """Top WAF rules by trigger count."""
+    try:
+        client = _get_client()
+    except Exception:
+        return []
+    minutes = _clamp_minutes(hours)
+    waf_filter = _host_filter_waf(_domains_for_connection(connection_id))
+    rows = (
+        _safe_execute(
+            client,
+            "SELECT m.ruleId AS rule, count() AS hits FROM logs.waf_audit_log "
+            "ARRAY JOIN messages AS m "
+            f"WHERE timestamp >= now() - INTERVAL {minutes} MINUTE{waf_filter} "
+            f"GROUP BY rule ORDER BY hits DESC LIMIT {int(limit)}",
+            default=[],
+        )
+        or []
+    )
+    return [{"rule": str(rule or "unknown"), "hits": int(hits)} for rule, hits in rows]
+
+
+def get_severity_distribution(
+    hours: float = 24, connection_id: int | None = None
+) -> list[dict[str, Any]]:
+    """Severity-level counts across WAF messages."""
+    try:
+        client = _get_client()
+    except Exception:
+        return []
+    minutes = _clamp_minutes(hours)
+    waf_filter = _host_filter_waf(_domains_for_connection(connection_id))
+    rows = (
+        _safe_execute(
+            client,
+            "SELECT m.severity AS sev, count() AS hits FROM logs.waf_audit_log "
+            "ARRAY JOIN messages AS m "
+            f"WHERE timestamp >= now() - INTERVAL {minutes} MINUTE{waf_filter} "
+            "GROUP BY sev ORDER BY sev",
+            default=[],
+        )
+        or []
+    )
+    return [
+        {"severity": _SEVERITY_NAMES.get(int(sev), str(sev)), "hits": int(hits)}
+        for sev, hits in rows
+    ]
+
+
+def get_top_attacking_ips(
+    hours: float = 24, connection_id: int | None = None, limit: int = 15
+) -> list[dict[str, Any]]:
+    """Top attacking IPs (WAF audit log)."""
+    try:
+        client = _get_client()
+    except Exception:
+        return []
+    minutes = _clamp_minutes(hours)
+    waf_filter = _host_filter_waf(_domains_for_connection(connection_id))
+    rows = (
+        _safe_execute(
+            client,
+            "SELECT client_ip, count() AS hits FROM logs.waf_audit_log "
+            f"WHERE timestamp >= now() - INTERVAL {minutes} MINUTE{waf_filter} "
+            f"GROUP BY client_ip ORDER BY hits DESC LIMIT {int(limit)}",
+            default=[],
+        )
+        or []
+    )
+    return [{"ip": str(ip or "0.0.0.0"), "hits": int(hits)} for ip, hits in rows]
+
+
+def get_anomaly_score_timeline(
+    hours: float = 24, connection_id: int | None = None
+) -> list[dict[str, Any]]:
+    """Max anomaly score per minute."""
+    try:
+        client = _get_client()
+    except Exception:
+        return []
+    minutes = _clamp_minutes(hours)
+    waf_filter = _host_filter_waf(_domains_for_connection(connection_id))
+    rows = (
+        _safe_execute(
+            client,
+            "SELECT toStartOfMinute(timestamp) AS t, max(anomaly_score) AS score "
+            "FROM logs.waf_audit_log "
+            f"WHERE timestamp >= now() - INTERVAL {minutes} MINUTE{waf_filter} "
+            "GROUP BY t ORDER BY t",
+            default=[],
+        )
+        or []
+    )
+    return [{"timestamp": t.isoformat(), "score": int(score)} for t, score in rows]
+
+
+def get_top_tags(
+    hours: float = 24, connection_id: int | None = None, limit: int = 10
+) -> list[dict[str, Any]]:
+    """Top WAF tags."""
+    try:
+        client = _get_client()
+    except Exception:
+        return []
+    minutes = _clamp_minutes(hours)
+    waf_filter = _host_filter_waf(_domains_for_connection(connection_id))
+    rows = (
+        _safe_execute(
+            client,
+            "SELECT tag, count() AS hits FROM logs.waf_audit_log "
+            "ARRAY JOIN messages_tags AS tags ARRAY JOIN tags AS tag "
+            f"WHERE timestamp >= now() - INTERVAL {minutes} MINUTE{waf_filter} "
+            f"GROUP BY tag ORDER BY hits DESC LIMIT {int(limit)}",
+            default=[],
+        )
+        or []
+    )
+    return [{"tag": str(tag), "hits": int(hits)} for tag, hits in rows]
+
+
+def get_top_uris(
+    hours: float = 24, connection_id: int | None = None, limit: int = 10
+) -> list[dict[str, Any]]:
+    """Top blocked URIs from WAF audit log."""
+    try:
+        client = _get_client()
+    except Exception:
+        return []
+    minutes = _clamp_minutes(hours)
+    waf_filter = _host_filter_waf(_domains_for_connection(connection_id))
+    rows = (
+        _safe_execute(
+            client,
+            "SELECT request_uri AS uri, count() AS hits FROM logs.waf_audit_log "
+            f"WHERE timestamp >= now() - INTERVAL {minutes} MINUTE{waf_filter} "
+            f"GROUP BY uri ORDER BY hits DESC LIMIT {int(limit)}",
+            default=[],
+        )
+        or []
+    )
+    return [{"uri": str(uri or "/"), "hits": int(hits)} for uri, hits in rows]
+
+
+def get_top_rule_files(
+    hours: float = 24, connection_id: int | None = None, limit: int = 10
+) -> list[dict[str, Any]]:
+    """Top rule files involved in WAF events."""
+    try:
+        client = _get_client()
+    except Exception:
+        return []
+    minutes = _clamp_minutes(hours)
+    waf_filter = _host_filter_waf(_domains_for_connection(connection_id))
+    rows = (
+        _safe_execute(
+            client,
+            "SELECT replaceRegexpOne(replaceRegexpOne(m.file, '\\.conf$', ''), '^.*/', '') AS rf, "
+            "count() AS hits FROM logs.waf_audit_log "
+            "ARRAY JOIN messages AS m "
+            f"WHERE timestamp >= now() - INTERVAL {minutes} MINUTE{waf_filter} "
+            f"GROUP BY rf ORDER BY hits DESC LIMIT {int(limit)}",
+            default=[],
+        )
+        or []
+    )
+    return [{"file": str(rf or "unknown"), "hits": int(hits)} for rf, hits in rows]
+
+
+def get_status_codes_timeline(
+    hours: float = 24, connection_id: int | None = None  # noqa: ARG001 nginx log lacks host col
+) -> list[dict[str, Any]]:
+    """HTTP status-code distribution per minute (nginx access log)."""
+    try:
+        client = _get_client()
+    except Exception:
+        return []
+    minutes = _clamp_minutes(hours)
+    rows = (
+        _safe_execute(
+            client,
+            "SELECT toStartOfMinute(time_local) AS t, "
+            "countIf(status >= 200 AND status < 300) AS c2xx, "
+            "countIf(status >= 300 AND status < 400) AS c3xx, "
+            "countIf(status >= 400 AND status < 500) AS c4xx, "
+            "countIf(status >= 500) AS c5xx "
+            "FROM logs.nginx_access_log "
+            f"WHERE time_local >= now() - INTERVAL {minutes} MINUTE "
+            "GROUP BY t ORDER BY t",
+            default=[],
+        )
+        or []
+    )
+    return [
+        {
+            "timestamp": t.isoformat(),
+            "c2xx": int(a),
+            "c3xx": int(b),
+            "c4xx": int(c),
+            "c5xx": int(d),
+        }
+        for t, a, b, c, d in rows
+    ]
+
+
+def get_top_user_agents(
+    hours: float = 24, connection_id: int | None = None, limit: int = 15  # noqa: ARG001
+) -> list[dict[str, Any]]:
+    """Top user-agents (nginx access log)."""
+    try:
+        client = _get_client()
+    except Exception:
+        return []
+    minutes = _clamp_minutes(hours)
+    rows = (
+        _safe_execute(
+            client,
+            "SELECT http_user_agent AS ua, count() AS hits "
+            "FROM logs.nginx_access_log "
+            f"WHERE time_local >= now() - INTERVAL {minutes} MINUTE "
+            f"GROUP BY ua ORDER BY hits DESC LIMIT {int(limit)}",
+            default=[],
+        )
+        or []
+    )
+    return [{"user_agent": str(ua or "-"), "hits": int(hits)} for ua, hits in rows]
+
+
+def get_traffic_volume(
+    hours: float = 24, connection_id: int | None = None  # noqa: ARG001
+) -> list[dict[str, Any]]:
+    """Bytes sent per minute (nginx access log)."""
+    try:
+        client = _get_client()
+    except Exception:
+        return []
+    minutes = _clamp_minutes(hours)
+    rows = (
+        _safe_execute(
+            client,
+            "SELECT toStartOfMinute(time_local) AS t, sum(body_bytes_sent) AS bytes "
+            "FROM logs.nginx_access_log "
+            f"WHERE time_local >= now() - INTERVAL {minutes} MINUTE "
+            "GROUP BY t ORDER BY t",
+            default=[],
+        )
+        or []
+    )
+    return [{"timestamp": t.isoformat(), "bytes": int(b or 0)} for t, b in rows]
+
+
+def get_requests_per_second(
+    hours: float = 24, connection_id: int | None = None  # noqa: ARG001
+) -> list[dict[str, Any]]:
+    """Requests per second derived from per-minute counts."""
+    try:
+        client = _get_client()
+    except Exception:
+        return []
+    minutes = _clamp_minutes(hours)
+    rows = (
+        _safe_execute(
+            client,
+            "SELECT toStartOfMinute(time_local) AS t, count() / 60.0 AS rps "
+            "FROM logs.nginx_access_log "
+            f"WHERE time_local >= now() - INTERVAL {minutes} MINUTE "
+            "GROUP BY t ORDER BY t",
+            default=[],
+        )
+        or []
+    )
+    return [{"timestamp": t.isoformat(), "rps": float(rps)} for t, rps in rows]
+
+
+def get_requests_by_country(
+    hours: float = 24, connection_id: int | None = None, limit: int = 15  # noqa: ARG001
+) -> list[dict[str, Any]]:
+    """Top countries by request count (nginx access log)."""
+    try:
+        client = _get_client()
+    except Exception:
+        return []
+    minutes = _clamp_minutes(hours)
+    rows = (
+        _safe_execute(
+            client,
+            "SELECT if(geoip_country_code = '' OR geoip_country_code IS NULL, 'Unknown', geoip_country_code) "
+            "AS country, count() AS hits FROM logs.nginx_access_log "
+            f"WHERE time_local >= now() - INTERVAL {minutes} MINUTE "
+            f"GROUP BY country ORDER BY hits DESC LIMIT {int(limit)}",
+            default=[],
+        )
+        or []
+    )
+    return [{"country_code": str(c), "hits": int(hits)} for c, hits in rows]
+
+
+def get_top_client_ips(
+    hours: float = 24, connection_id: int | None = None, limit: int = 15  # noqa: ARG001
+) -> list[dict[str, Any]]:
+    """Top client IPs from nginx access log."""
+    try:
+        client = _get_client()
+    except Exception:
+        return []
+    minutes = _clamp_minutes(hours)
+    rows = (
+        _safe_execute(
+            client,
+            "SELECT toString(remote_addr) AS ip, count() AS hits "
+            "FROM logs.nginx_access_log "
+            f"WHERE time_local >= now() - INTERVAL {minutes} MINUTE "
+            f"GROUP BY ip ORDER BY hits DESC LIMIT {int(limit)}",
+            default=[],
+        )
+        or []
+    )
+    return [{"ip": str(ip or "0.0.0.0"), "hits": int(hits)} for ip, hits in rows]

@@ -86,3 +86,5 @@ vllm
 .claude/
 CLAUDE.md
 .mcp.json
+.playwright-mcp/
+.gstack/

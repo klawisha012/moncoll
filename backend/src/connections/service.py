@@ -465,13 +465,39 @@ def _emit_nginx_config_body(conn: dict) -> list[str]:
     return cleaned.splitlines()
 
 
+_SAFE_LOCATION_RE = re.compile(
+    r"^(?P<indent>\s*)location\s+(?:=\s+|\^~\s+|~\*?\s+)?"
+    r"/(?:probe|healthz|health|ping|liveness|readiness)"
+    r"/?\s*\{\s*$"
+)
+
+
+def _inject_modsec_bypass(body_lines: list[str]) -> list[str]:
+    """Insert ``modsecurity off;`` inside benign healthcheck location blocks.
+
+    Healthcheck/liveness endpoints don't carry user-controlled payloads, so
+    running OWASP CRS on them only burns CPU. Bypass ModSecurity on any
+    location matching /probe, /healthz, /health, /ping, /liveness, /readiness.
+    """
+    out: list[str] = []
+    for line in body_lines:
+        out.append(line)
+        match = _SAFE_LOCATION_RE.match(line)
+        if match:
+            inner_indent = match.group("indent") + "    "
+            out.append(f"{inner_indent}modsecurity off;")
+    return out
+
+
 def _build_server_body(conn: dict) -> list[str]:
     st = conn.get("source_type", "static_generate")
     if st in ("container", "docker_compose"):
-        return _emit_proxy_body(conn)
-    if st == "nginx_config":
-        return _emit_nginx_config_body(conn)
-    return _emit_static_body(conn["id"])
+        body = _emit_proxy_body(conn)
+    elif st == "nginx_config":
+        body = _emit_nginx_config_body(conn)
+    else:
+        body = _emit_static_body(conn["id"])
+    return _inject_modsec_bypass(body)
 
 
 def _generate_nginx_config(conn: dict) -> str:

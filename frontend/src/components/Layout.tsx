@@ -117,27 +117,30 @@ export default function Layout() {
           {user && (
             <div
               style={{
-                padding: "10px 16px",
+                padding: "14px 18px",
                 display: "flex",
                 alignItems: "center",
-                gap: 10,
+                gap: 12,
                 fontSize: 12,
-                borderTop: "1px solid var(--border-subtle)",
+                borderTop: "3px solid var(--ink)",
               }}
             >
               <div
                 style={{
-                  width: 28,
-                  height: 28,
-                  borderRadius: "50%",
-                  background: "var(--accent-primary)",
-                  color: "#fff",
+                  width: 36,
+                  height: 36,
+                  borderRadius: 0,
+                  background: "var(--red)",
+                  color: "var(--cream)",
                   display: "flex",
                   alignItems: "center",
                   justifyContent: "center",
-                  fontWeight: 600,
-                  fontSize: 12,
+                  fontFamily: "var(--font-display)",
+                  fontWeight: 900,
+                  fontSize: 16,
+                  border: "2px solid var(--ink)",
                   flexShrink: 0,
+                  letterSpacing: "-0.02em",
                 }}
               >
                 {user.username.slice(0, 1).toUpperCase()}
@@ -148,12 +151,17 @@ export default function Layout() {
                   flexDirection: "column",
                   flex: 1,
                   overflow: "hidden",
+                  lineHeight: 1.2,
                 }}
               >
                 <span
                   style={{
-                    color: "var(--text-primary)",
-                    fontWeight: 500,
+                    color: "var(--ink)",
+                    fontFamily: "var(--font-cond)",
+                    fontWeight: 700,
+                    fontSize: 13,
+                    letterSpacing: "0.08em",
+                    textTransform: "uppercase",
                     overflow: "hidden",
                     textOverflow: "ellipsis",
                     whiteSpace: "nowrap",
@@ -161,7 +169,14 @@ export default function Layout() {
                 >
                   {user.username}
                 </span>
-                <span style={{ color: "var(--text-muted)", fontSize: 11 }}>
+                <span
+                  style={{
+                    color: "var(--ink-soft)",
+                    fontFamily: "var(--font-mono)",
+                    fontSize: 10.5,
+                    letterSpacing: "0.04em",
+                  }}
+                >
                   {user.role}
                 </span>
               </div>
@@ -169,15 +184,23 @@ export default function Layout() {
                 onClick={handleLogout}
                 title={t("auth.logout")}
                 style={{
-                  background: "transparent",
-                  border: "1px solid var(--border-subtle)",
-                  borderRadius: 6,
-                  padding: 6,
-                  color: "var(--text-muted)",
+                  background: "var(--cream)",
+                  border: "2px solid var(--ink)",
+                  borderRadius: 0,
+                  padding: "6px 8px",
+                  color: "var(--ink)",
                   cursor: "pointer",
                   display: "flex",
                   alignItems: "center",
                   justifyContent: "center",
+                }}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.background = "var(--red)";
+                  e.currentTarget.style.color = "var(--cream)";
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.background = "var(--cream)";
+                  e.currentTarget.style.color = "var(--ink)";
                 }}
               >
                 <LogOut size={14} />
@@ -186,16 +209,20 @@ export default function Layout() {
           )}
           <div
             style={{
-              padding: "16px",
-              borderTop: "1px solid var(--border-subtle)",
+              padding: "14px 18px",
+              borderTop: "3px solid var(--ink)",
               display: "flex",
               alignItems: "center",
               gap: "10px",
-              fontSize: "12px",
-              color: "var(--text-muted)",
+              fontFamily: "var(--font-cond)",
+              fontSize: "11px",
+              fontWeight: 700,
+              letterSpacing: "0.18em",
+              textTransform: "uppercase",
+              color: "var(--ink)",
             }}
           >
-            <Shield size={14} />
+            <Shield size={15} />
             <span>{t("status.engine")}</span>
             <span className="status-dot active" style={{ marginLeft: "auto" }} />
             <button

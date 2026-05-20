@@ -114,7 +114,7 @@
       "fieldConfig": {
         "defaults": {
           "color": {
-            "mode": "palette-classic"
+            "mode": "continuous-GrYlRd"
           },
           "custom": {
             "axisBorderShow": false,
@@ -123,7 +123,7 @@
             "axisLabel": "",
             "axisPlacement": "auto",
             "fillOpacity": 80,
-            "gradientMode": "none",
+            "gradientMode": "scheme",
             "hideFrom": {
               "legend": false,
               "tooltip": false,
@@ -162,19 +162,26 @@
       },
       "id": 2,
       "options": {
-        "displayMode": "gradient",
-        "minVizHeight": 16,
-        "minVizWidth": 8,
-        "namePlacement": "left",
-        "orientation": "horizontal",
-        "reduceOptions": {
-          "calcs": ["lastNotNull"],
-          "fields": "",
-          "values": false
+        "barRadius": 0,
+        "barWidth": 0.85,
+        "fullHighlight": false,
+        "groupWidth": 0.7,
+        "legend": {
+          "calcs": [],
+          "displayMode": "hidden",
+          "placement": "bottom",
+          "showLegend": false
         },
-        "showUnfilled": true,
-        "sizing": "auto",
-        "valueMode": "color"
+        "orientation": "horizontal",
+        "showValue": "always",
+        "stacking": "none",
+        "tooltip": {
+          "hideZeros": false,
+          "mode": "single",
+          "sort": "none"
+        },
+        "xTickLabelRotation": 0,
+        "xTickLabelSpacing": 0
       },
       "pluginVersion": "12.3.1",
       "targets": [
@@ -184,7 +191,7 @@
         }
       ],
       "title": "🚨 Top Rules by Trigger Count",
-      "type": "bargauge"
+      "type": "barchart"
     },
     {
       "datasource": {
@@ -206,14 +213,126 @@
           "unit": "short"
         },
         "overrides": [
-          { "matcher": { "id": "byName", "options": "EMERGENCY" }, "properties": [{ "id": "color", "value": { "fixedColor": "dark-red", "mode": "fixed" } }] },
-          { "matcher": { "id": "byName", "options": "ALERT" },     "properties": [{ "id": "color", "value": { "fixedColor": "red",       "mode": "fixed" } }] },
-          { "matcher": { "id": "byName", "options": "CRITICAL" },  "properties": [{ "id": "color", "value": { "fixedColor": "orange",    "mode": "fixed" } }] },
-          { "matcher": { "id": "byName", "options": "ERROR" },     "properties": [{ "id": "color", "value": { "fixedColor": "yellow",    "mode": "fixed" } }] },
-          { "matcher": { "id": "byName", "options": "WARNING" },   "properties": [{ "id": "color", "value": { "fixedColor": "super-light-yellow", "mode": "fixed" } }] },
-          { "matcher": { "id": "byName", "options": "NOTICE" },    "properties": [{ "id": "color", "value": { "fixedColor": "blue",      "mode": "fixed" } }] },
-          { "matcher": { "id": "byName", "options": "INFO" },      "properties": [{ "id": "color", "value": { "fixedColor": "green",     "mode": "fixed" } }] },
-          { "matcher": { "id": "byName", "options": "DEBUG" },     "properties": [{ "id": "color", "value": { "fixedColor": "dark-green", "mode": "fixed" } }] }
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "EMERGENCY"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "fixedColor": "dark-red",
+                  "mode": "fixed"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "ALERT"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "fixedColor": "red",
+                  "mode": "fixed"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "CRITICAL"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "fixedColor": "orange",
+                  "mode": "fixed"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "ERROR"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "fixedColor": "yellow",
+                  "mode": "fixed"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "WARNING"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "fixedColor": "super-light-yellow",
+                  "mode": "fixed"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "NOTICE"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "fixedColor": "blue",
+                  "mode": "fixed"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "INFO"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "fixedColor": "green",
+                  "mode": "fixed"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "DEBUG"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "fixedColor": "dark-green",
+                  "mode": "fixed"
+                }
+              }
+            ]
+          }
         ]
       },
       "gridPos": {
@@ -228,15 +347,18 @@
           "displayMode": "table",
           "placement": "right",
           "showLegend": true,
-          "values": ["value", "percent"]
+          "values": [
+            "value",
+            "percent"
+          ]
         },
         "pieType": "donut",
         "reduceOptions": {
           "calcs": [
             "lastNotNull"
           ],
-          "fields": "",
-          "values": false
+          "fields": "/^hits$/",
+          "values": true
         },
         "sort": "desc",
         "tooltip": {
@@ -261,29 +383,59 @@
       },
       "fieldConfig": {
         "defaults": {
-          "color": { "mode": "continuous-RdYlGr" },
+          "color": {
+            "mode": "continuous-RdYlGr"
+          },
           "custom": {
             "align": "auto",
-            "cellOptions": { "type": "auto" },
+            "cellOptions": {
+              "type": "auto"
+            },
             "filterable": true,
-            "footer": { "reducers": [] },
+            "footer": {
+              "reducers": []
+            },
             "inspect": false
           },
           "mappings": []
         },
         "overrides": [
           {
-            "matcher": { "id": "byName", "options": "hits" },
+            "matcher": {
+              "id": "byName",
+              "options": "hits"
+            },
             "properties": [
-              { "id": "custom.cellOptions", "value": { "type": "gauge", "mode": "gradient", "valueDisplayMode": "color" } },
-              { "id": "color", "value": { "mode": "continuous-YlRd" } },
-              { "id": "custom.width", "value": 220 }
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "gauge",
+                  "mode": "gradient",
+                  "valueDisplayMode": "color"
+                }
+              },
+              {
+                "id": "color",
+                "value": {
+                  "mode": "continuous-YlRd"
+                }
+              },
+              {
+                "id": "custom.width",
+                "value": 220
+              }
             ]
           },
           {
-            "matcher": { "id": "byName", "options": "client_ip" },
+            "matcher": {
+              "id": "byName",
+              "options": "client_ip"
+            },
             "properties": [
-              { "id": "displayName", "value": "Client IP" }
+              {
+                "id": "displayName",
+                "value": "Client IP"
+              }
             ]
           }
         ]
@@ -298,7 +450,12 @@
       "options": {
         "cellHeight": "sm",
         "showHeader": true,
-        "sortBy": [{ "displayName": "hits", "desc": true }]
+        "sortBy": [
+          {
+            "displayName": "hits",
+            "desc": true
+          }
+        ]
       },
       "pluginVersion": "12.3.1",
       "targets": [
@@ -316,7 +473,9 @@
       },
       "fieldConfig": {
         "defaults": {
-          "color": { "mode": "thresholds" },
+          "color": {
+            "mode": "thresholds"
+          },
           "custom": {
             "axisBorderShow": false,
             "axisCenteredZero": false,
@@ -328,26 +487,49 @@
             "drawStyle": "line",
             "fillOpacity": 20,
             "gradientMode": "scheme",
-            "hideFrom": { "legend": false, "tooltip": false, "viz": false },
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
             "insertNulls": false,
             "lineInterpolation": "stepAfter",
             "lineWidth": 2,
             "pointSize": 5,
-            "scaleDistribution": { "type": "linear" },
+            "scaleDistribution": {
+              "type": "linear"
+            },
             "showPoints": "never",
             "showValues": false,
             "spanNulls": false,
-            "stacking": { "group": "A", "mode": "none" },
-            "thresholdsStyle": { "mode": "dashed" }
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "dashed"
+            }
           },
           "mappings": [],
           "thresholds": {
             "mode": "absolute",
             "steps": [
-              { "color": "green",  "value": null },
-              { "color": "yellow", "value": 5 },
-              { "color": "orange", "value": 10 },
-              { "color": "red",    "value": 20 }
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 5
+              },
+              {
+                "color": "orange",
+                "value": 10
+              },
+              {
+                "color": "red",
+                "value": 20
+              }
             ]
           },
           "unit": "short"
@@ -391,7 +573,7 @@
       "fieldConfig": {
         "defaults": {
           "color": {
-            "mode": "palette-classic"
+            "mode": "continuous-GrYlRd"
           },
           "custom": {
             "axisBorderShow": false,
@@ -400,7 +582,7 @@
             "axisLabel": "",
             "axisPlacement": "auto",
             "fillOpacity": 80,
-            "gradientMode": "none",
+            "gradientMode": "scheme",
             "hideFrom": {
               "legend": false,
               "tooltip": false,
@@ -432,26 +614,33 @@
         "overrides": []
       },
       "gridPos": {
-        "h": 6,
+        "h": 9,
         "w": 12,
         "x": 0,
         "y": 19
       },
       "id": 6,
       "options": {
-        "displayMode": "gradient",
-        "minVizHeight": 16,
-        "minVizWidth": 8,
-        "namePlacement": "left",
-        "orientation": "horizontal",
-        "reduceOptions": {
-          "calcs": ["lastNotNull"],
-          "fields": "",
-          "values": false
+        "barRadius": 0,
+        "barWidth": 0.85,
+        "fullHighlight": false,
+        "groupWidth": 0.7,
+        "legend": {
+          "calcs": [],
+          "displayMode": "hidden",
+          "placement": "bottom",
+          "showLegend": false
         },
-        "showUnfilled": true,
-        "sizing": "auto",
-        "valueMode": "color"
+        "orientation": "horizontal",
+        "showValue": "always",
+        "stacking": "none",
+        "tooltip": {
+          "hideZeros": false,
+          "mode": "single",
+          "sort": "none"
+        },
+        "xTickLabelRotation": 0,
+        "xTickLabelSpacing": 0
       },
       "pluginVersion": "12.3.1",
       "targets": [
@@ -461,7 +650,7 @@
         }
       ],
       "title": "🏷 Top Tags",
-      "type": "bargauge"
+      "type": "barchart"
     },
     {
       "datasource": {
@@ -470,7 +659,7 @@
       "fieldConfig": {
         "defaults": {
           "color": {
-            "mode": "palette-classic"
+            "mode": "continuous-GrYlRd"
           },
           "custom": {
             "axisBorderShow": false,
@@ -479,7 +668,7 @@
             "axisLabel": "",
             "axisPlacement": "auto",
             "fillOpacity": 80,
-            "gradientMode": "none",
+            "gradientMode": "scheme",
             "hideFrom": {
               "legend": false,
               "tooltip": false,
@@ -511,26 +700,33 @@
         "overrides": []
       },
       "gridPos": {
-        "h": 6,
+        "h": 9,
         "w": 12,
         "x": 12,
         "y": 19
       },
       "id": 7,
       "options": {
-        "displayMode": "gradient",
-        "minVizHeight": 16,
-        "minVizWidth": 8,
-        "namePlacement": "left",
-        "orientation": "horizontal",
-        "reduceOptions": {
-          "calcs": ["lastNotNull"],
-          "fields": "",
-          "values": false
+        "barRadius": 0,
+        "barWidth": 0.85,
+        "fullHighlight": false,
+        "groupWidth": 0.7,
+        "legend": {
+          "calcs": [],
+          "displayMode": "hidden",
+          "placement": "bottom",
+          "showLegend": false
         },
-        "showUnfilled": true,
-        "sizing": "auto",
-        "valueMode": "color"
+        "orientation": "horizontal",
+        "showValue": "always",
+        "stacking": "none",
+        "tooltip": {
+          "hideZeros": false,
+          "mode": "single",
+          "sort": "none"
+        },
+        "xTickLabelRotation": 0,
+        "xTickLabelSpacing": 0
       },
       "pluginVersion": "12.3.1",
       "targets": [
@@ -540,7 +736,7 @@
         }
       ],
       "title": "📄 Top Blocked URIs",
-      "type": "bargauge"
+      "type": "barchart"
     },
     {
       "datasource": {
@@ -549,7 +745,7 @@
       "fieldConfig": {
         "defaults": {
           "color": {
-            "mode": "palette-classic"
+            "mode": "continuous-GrYlRd"
           },
           "custom": {
             "axisBorderShow": false,
@@ -558,7 +754,7 @@
             "axisLabel": "",
             "axisPlacement": "auto",
             "fillOpacity": 80,
-            "gradientMode": "none",
+            "gradientMode": "scheme",
             "hideFrom": {
               "legend": false,
               "tooltip": false,
@@ -590,26 +786,33 @@
         "overrides": []
       },
       "gridPos": {
-        "h": 6,
+        "h": 9,
         "w": 24,
         "x": 0,
-        "y": 25
+        "y": 28
       },
       "id": 8,
       "options": {
-        "displayMode": "gradient",
-        "minVizHeight": 16,
-        "minVizWidth": 8,
-        "namePlacement": "left",
-        "orientation": "horizontal",
-        "reduceOptions": {
-          "calcs": ["lastNotNull"],
-          "fields": "",
-          "values": false
+        "barRadius": 0,
+        "barWidth": 0.85,
+        "fullHighlight": false,
+        "groupWidth": 0.7,
+        "legend": {
+          "calcs": [],
+          "displayMode": "hidden",
+          "placement": "bottom",
+          "showLegend": false
         },
-        "showUnfilled": true,
-        "sizing": "auto",
-        "valueMode": "color"
+        "orientation": "horizontal",
+        "showValue": "always",
+        "stacking": "none",
+        "tooltip": {
+          "hideZeros": false,
+          "mode": "single",
+          "sort": "none"
+        },
+        "xTickLabelRotation": 0,
+        "xTickLabelSpacing": 0
       },
       "pluginVersion": "12.3.1",
       "targets": [
@@ -619,7 +822,7 @@
         }
       ],
       "title": "🧩 Top Rule Files",
-      "type": "bargauge"
+      "type": "barchart"
     },
     {
       "datasource": {
@@ -627,7 +830,9 @@
       },
       "fieldConfig": {
         "defaults": {
-          "color": { "mode": "palette-classic" },
+          "color": {
+            "mode": "palette-classic"
+          },
           "custom": {
             "axisBorderShow": false,
             "axisCenteredZero": false,
@@ -638,46 +843,119 @@
             "drawStyle": "bars",
             "fillOpacity": 80,
             "gradientMode": "none",
-            "hideFrom": { "legend": false, "tooltip": false, "viz": false },
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
             "lineInterpolation": "linear",
             "lineWidth": 0,
             "pointSize": 5,
-            "scaleDistribution": { "type": "linear" },
+            "scaleDistribution": {
+              "type": "linear"
+            },
             "showPoints": "never",
             "spanNulls": false,
-            "stacking": { "group": "A", "mode": "normal" },
-            "thresholdsStyle": { "mode": "off" }
+            "stacking": {
+              "group": "A",
+              "mode": "normal"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
           },
           "mappings": [],
           "unit": "short"
         },
         "overrides": [
-          { "matcher": { "id": "byName", "options": "2xx" }, "properties": [{ "id": "color", "value": { "fixedColor": "green",  "mode": "fixed" } }] },
-          { "matcher": { "id": "byName", "options": "3xx" }, "properties": [{ "id": "color", "value": { "fixedColor": "blue",   "mode": "fixed" } }] },
-          { "matcher": { "id": "byName", "options": "4xx" }, "properties": [{ "id": "color", "value": { "fixedColor": "orange", "mode": "fixed" } }] },
-          { "matcher": { "id": "byName", "options": "5xx" }, "properties": [{ "id": "color", "value": { "fixedColor": "red",    "mode": "fixed" } }] }
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "2xx"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "fixedColor": "green",
+                  "mode": "fixed"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "3xx"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "fixedColor": "blue",
+                  "mode": "fixed"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "4xx"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "fixedColor": "orange",
+                  "mode": "fixed"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "5xx"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "fixedColor": "red",
+                  "mode": "fixed"
+                }
+              }
+            ]
+          }
         ]
       },
       "gridPos": {
         "h": 6,
         "w": 24,
         "x": 0,
-        "y": 31
+        "y": 37
       },
       "id": 9,
       "options": {
         "legend": {
-          "calcs": ["sum"],
+          "calcs": [
+            "sum"
+          ],
           "displayMode": "table",
           "placement": "right",
           "showLegend": true
         },
-        "tooltip": { "hideZeros": false, "mode": "multi", "sort": "desc" }
+        "tooltip": {
+          "hideZeros": false,
+          "mode": "multi",
+          "sort": "desc"
+        }
       },
       "pluginVersion": "12.3.1",
       "targets": [
         {
-          "rawSql": "SELECT toStartOfMinute(time_local) AS time, countIf(status >= 200 AND status < 300) AS \"2xx\", countIf(status >= 300 AND status < 400) AS \"3xx\", countIf(status >= 400 AND status < 500) AS \"4xx\", countIf(status >= 500) AS \"5xx\" FROM logs.nginx_access_log PREWHERE $__timeFilter(time_local) WHERE match(host, '${connection:regex}') GROUP BY time ORDER BY time",
+          "rawSql": "SELECT toStartOfMinute(time_local) AS time, countIf(status >= 200 AND status < 300) AS \"2xx\", countIf(status >= 300 AND status < 400) AS \"3xx\", countIf(status >= 400 AND status < 500) AS \"4xx\", countIf(status >= 500) AS \"5xx\" FROM logs.nginx_access_log PREWHERE $__timeFilter(time_local) GROUP BY time ORDER BY time",
           "refId": "A"
         }
       ],
@@ -690,28 +968,60 @@
       },
       "fieldConfig": {
         "defaults": {
-          "color": { "mode": "continuous-BlPu" },
+          "color": {
+            "mode": "continuous-BlPu"
+          },
           "custom": {
             "align": "auto",
-            "cellOptions": { "type": "auto" },
+            "cellOptions": {
+              "type": "auto"
+            },
             "filterable": true,
-            "footer": { "reducers": [] },
+            "footer": {
+              "reducers": []
+            },
             "inspect": false
           },
           "mappings": []
         },
         "overrides": [
           {
-            "matcher": { "id": "byName", "options": "hits" },
+            "matcher": {
+              "id": "byName",
+              "options": "hits"
+            },
             "properties": [
-              { "id": "custom.cellOptions", "value": { "type": "gauge", "mode": "gradient", "valueDisplayMode": "color" } },
-              { "id": "color", "value": { "mode": "continuous-BlPu" } },
-              { "id": "custom.width", "value": 220 }
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "gauge",
+                  "mode": "gradient",
+                  "valueDisplayMode": "color"
+                }
+              },
+              {
+                "id": "color",
+                "value": {
+                  "mode": "continuous-BlPu"
+                }
+              },
+              {
+                "id": "custom.width",
+                "value": 220
+              }
             ]
           },
           {
-            "matcher": { "id": "byName", "options": "ip" },
-            "properties": [{ "id": "displayName", "value": "Client IP" }]
+            "matcher": {
+              "id": "byName",
+              "options": "ip"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "Client IP"
+              }
+            ]
           }
         ]
       },
@@ -719,18 +1029,23 @@
         "h": 6,
         "w": 12,
         "x": 0,
-        "y": 37
+        "y": 43
       },
       "id": 10,
       "options": {
         "cellHeight": "sm",
         "showHeader": true,
-        "sortBy": [{ "displayName": "hits", "desc": true }]
+        "sortBy": [
+          {
+            "displayName": "hits",
+            "desc": true
+          }
+        ]
       },
       "pluginVersion": "12.3.1",
       "targets": [
         {
-          "rawSql": "SELECT remote_addr AS ip, count() AS hits FROM logs.nginx_access_log PREWHERE $__timeFilter(time_local) WHERE match(host, '${connection:regex}') GROUP BY ip ORDER BY hits DESC LIMIT 15",
+          "rawSql": "SELECT remote_addr AS ip, count() AS hits FROM logs.nginx_access_log PREWHERE $__timeFilter(time_local) GROUP BY ip ORDER BY hits DESC LIMIT 15",
           "refId": "A"
         }
       ],
@@ -743,28 +1058,60 @@
       },
       "fieldConfig": {
         "defaults": {
-          "color": { "mode": "continuous-GrYlRd" },
+          "color": {
+            "mode": "continuous-GrYlRd"
+          },
           "custom": {
             "align": "auto",
-            "cellOptions": { "type": "auto" },
+            "cellOptions": {
+              "type": "auto"
+            },
             "filterable": true,
-            "footer": { "reducers": [] },
+            "footer": {
+              "reducers": []
+            },
             "inspect": false
           },
           "mappings": []
         },
         "overrides": [
           {
-            "matcher": { "id": "byName", "options": "hits" },
+            "matcher": {
+              "id": "byName",
+              "options": "hits"
+            },
             "properties": [
-              { "id": "custom.cellOptions", "value": { "type": "gauge", "mode": "gradient", "valueDisplayMode": "color" } },
-              { "id": "color", "value": { "mode": "continuous-GrYlRd" } },
-              { "id": "custom.width", "value": 160 }
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "gauge",
+                  "mode": "gradient",
+                  "valueDisplayMode": "color"
+                }
+              },
+              {
+                "id": "color",
+                "value": {
+                  "mode": "continuous-GrYlRd"
+                }
+              },
+              {
+                "id": "custom.width",
+                "value": 160
+              }
             ]
           },
           {
-            "matcher": { "id": "byName", "options": "ua" },
-            "properties": [{ "id": "displayName", "value": "User-Agent" }]
+            "matcher": {
+              "id": "byName",
+              "options": "ua"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "User-Agent"
+              }
+            ]
           }
         ]
       },
@@ -772,18 +1119,23 @@
         "h": 6,
         "w": 12,
         "x": 12,
-        "y": 37
+        "y": 43
       },
       "id": 11,
       "options": {
         "cellHeight": "sm",
         "showHeader": true,
-        "sortBy": [{ "displayName": "hits", "desc": true }]
+        "sortBy": [
+          {
+            "displayName": "hits",
+            "desc": true
+          }
+        ]
       },
       "pluginVersion": "12.3.1",
       "targets": [
         {
-          "rawSql": "SELECT if(length(http_user_agent) > 80, concat(substring(http_user_agent, 1, 77), '…'), http_user_agent) AS ua, count() AS hits FROM logs.nginx_access_log PREWHERE $__timeFilter(time_local) WHERE match(host, '${connection:regex}') GROUP BY ua ORDER BY hits DESC LIMIT 15",
+          "rawSql": "SELECT if(length(http_user_agent) > 80, concat(substring(http_user_agent, 1, 77), '…'), http_user_agent) AS ua, count() AS hits FROM logs.nginx_access_log PREWHERE $__timeFilter(time_local) GROUP BY ua ORDER BY hits DESC LIMIT 15",
           "refId": "A"
         }
       ],
@@ -796,43 +1148,73 @@
       },
       "fieldConfig": {
         "defaults": {
-          "color": { "mode": "continuous-GrYlRd" },
+          "color": {
+            "mode": "continuous-GrYlRd"
+          },
           "mappings": [],
-          "unit": "short"
+          "unit": "short",
+          "custom": {
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "fillOpacity": 80,
+            "gradientMode": "scheme",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "lineWidth": 1,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          }
         },
         "overrides": []
       },
       "gridPos": {
-        "h": 6,
+        "h": 9,
         "w": 12,
         "x": 0,
-        "y": 43
+        "y": 49
       },
       "id": 12,
       "options": {
-        "displayMode": "gradient",
-        "minVizHeight": 16,
-        "minVizWidth": 8,
-        "namePlacement": "left",
-        "orientation": "horizontal",
-        "reduceOptions": {
-          "calcs": ["lastNotNull"],
-          "fields": "",
-          "values": false
+        "barRadius": 0,
+        "barWidth": 0.85,
+        "fullHighlight": false,
+        "groupWidth": 0.7,
+        "legend": {
+          "calcs": [],
+          "displayMode": "hidden",
+          "placement": "bottom",
+          "showLegend": false
         },
-        "showUnfilled": true,
-        "sizing": "auto",
-        "valueMode": "color"
+        "orientation": "horizontal",
+        "showValue": "always",
+        "stacking": "none",
+        "tooltip": {
+          "hideZeros": false,
+          "mode": "single",
+          "sort": "none"
+        },
+        "xTickLabelRotation": 0,
+        "xTickLabelSpacing": 0
       },
       "pluginVersion": "12.3.1",
       "targets": [
         {
-          "rawSql": "SELECT if(geoip_country_code = '' OR geoip_country_code IS NULL, 'Unknown', geoip_country_code) AS country, count() AS hits FROM logs.nginx_access_log PREWHERE $__timeFilter(time_local) WHERE match(host, '${connection:regex}') GROUP BY country ORDER BY hits DESC LIMIT 15",
+          "rawSql": "SELECT if(geoip_country_code = '' OR geoip_country_code IS NULL, 'Unknown', geoip_country_code) AS country, count() AS hits FROM logs.nginx_access_log PREWHERE $__timeFilter(time_local) GROUP BY country ORDER BY hits DESC LIMIT 15",
           "refId": "A"
         }
       ],
       "title": "🌍 Requests by Country",
-      "type": "bargauge"
+      "type": "barchart"
     },
     {
       "datasource": {
@@ -840,7 +1222,9 @@
       },
       "fieldConfig": {
         "defaults": {
-          "color": { "mode": "palette-classic" },
+          "color": {
+            "mode": "palette-classic"
+          },
           "custom": {
             "axisBorderShow": false,
             "axisCenteredZero": false,
@@ -851,16 +1235,27 @@
             "drawStyle": "line",
             "fillOpacity": 30,
             "gradientMode": "opacity",
-            "hideFrom": { "legend": false, "tooltip": false, "viz": false },
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
             "insertNulls": false,
             "lineInterpolation": "smooth",
             "lineWidth": 2,
             "pointSize": 5,
-            "scaleDistribution": { "type": "linear" },
+            "scaleDistribution": {
+              "type": "linear"
+            },
             "showPoints": "never",
             "spanNulls": false,
-            "stacking": { "group": "A", "mode": "none" },
-            "thresholdsStyle": { "mode": "off" }
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
           },
           "mappings": [],
           "unit": "bytes"
@@ -871,7 +1266,7 @@
         "h": 6,
         "w": 12,
         "x": 12,
-        "y": 43
+        "y": 49
       },
       "id": 13,
       "options": {
@@ -890,7 +1285,7 @@
       "pluginVersion": "12.3.1",
       "targets": [
         {
-          "rawSql": "SELECT toStartOfMinute(time_local) AS time, sum(body_bytes_sent) AS \"bytes sent\" FROM logs.nginx_access_log PREWHERE $__timeFilter(time_local) WHERE match(host, '${connection:regex}') GROUP BY time ORDER BY time",
+          "rawSql": "SELECT toStartOfMinute(time_local) AS time, sum(body_bytes_sent) AS \"bytes sent\" FROM logs.nginx_access_log PREWHERE $__timeFilter(time_local) GROUP BY time ORDER BY time",
           "refId": "A"
         }
       ],
@@ -903,7 +1298,9 @@
       },
       "fieldConfig": {
         "defaults": {
-          "color": { "mode": "palette-classic" },
+          "color": {
+            "mode": "palette-classic"
+          },
           "custom": {
             "axisBorderShow": false,
             "axisCenteredZero": false,
@@ -914,16 +1311,27 @@
             "drawStyle": "line",
             "fillOpacity": 25,
             "gradientMode": "opacity",
-            "hideFrom": { "legend": false, "tooltip": false, "viz": false },
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
             "insertNulls": false,
             "lineInterpolation": "smooth",
             "lineWidth": 2,
             "pointSize": 5,
-            "scaleDistribution": { "type": "linear" },
+            "scaleDistribution": {
+              "type": "linear"
+            },
             "showPoints": "never",
             "spanNulls": false,
-            "stacking": { "group": "A", "mode": "none" },
-            "thresholdsStyle": { "mode": "off" }
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
           },
           "mappings": [],
           "unit": "reqps"
@@ -934,7 +1342,7 @@
         "h": 7,
         "w": 24,
         "x": 0,
-        "y": 49
+        "y": 58
       },
       "id": 14,
       "options": {
@@ -953,7 +1361,7 @@
       "pluginVersion": "12.3.1",
       "targets": [
         {
-          "rawSql": "SELECT toStartOfMinute(time_local) AS time, count() / 60.0 AS \"req/s\" FROM logs.nginx_access_log PREWHERE $__timeFilter(time_local) WHERE match(host, '${connection:regex}') GROUP BY time ORDER BY time",
+          "rawSql": "SELECT toStartOfMinute(time_local) AS time, count() / 60.0 AS \"req/s\" FROM logs.nginx_access_log PREWHERE $__timeFilter(time_local) GROUP BY time ORDER BY time",
           "refId": "A"
         }
       ],
@@ -979,15 +1387,19 @@
         "datasource": {
           "uid": "bfbcca0459mo0f"
         },
-        "definition": "SELECT DISTINCT host FROM logs.nginx_access_log WHERE host != '' ORDER BY host",
-        "query": "SELECT DISTINCT host FROM logs.nginx_access_log WHERE host != '' ORDER BY host",
+        "definition": "SELECT domain FROM logs.connection_domains ORDER BY domain",
+        "query": "SELECT domain FROM logs.connection_domains ORDER BY domain",
         "includeAll": true,
         "allValue": ".*",
         "multi": true,
         "current": {
           "selected": true,
-          "text": ["All"],
-          "value": ["$__all"]
+          "text": [
+            "All"
+          ],
+          "value": [
+            "$__all"
+          ]
         },
         "refresh": 2,
         "sort": 1,
@@ -1003,5 +1415,5 @@
   "timezone": "utc",
   "title": "WAF & Nginx Security Dashboard 2",
   "uid": "waf-nginx-dashboard",
-  "version": 3
+  "version": 6
 }

@@ -150,3 +150,26 @@ CREATE TABLE IF NOT EXISTS logs.crowdsec_manual_blocks
 PARTITION BY toYYYYMM(timestamp)
 ORDER BY (timestamp, ip, action)
 TTL timestamp + INTERVAL 12 MONTH;
+
+
+-- =====================================================================
+-- View of all enabled connection domains, sourced from PostgreSQL.
+-- Used by the Grafana dashboard `connection` templating variable
+-- (label: "Domain") so the dropdown lists only domains belonging to
+-- active WAF connections — not every Host header ever seen in
+-- waf_audit_log (which leaks Docker bridge IPs, "angie", "localhost").
+--
+-- ClickHouse reads `connections.domains` (PG JSON column) as text via
+-- the postgresql() table function; JSONExtract unpacks it into an
+-- Array(String), and arrayJoin fans it out to one row per domain.
+-- =====================================================================
+-- Credentials come from configs/clickhouse/config.d/named_collections.xml
+-- (the `postgres_waf` named collection reads POSTGRES_USER/PASSWORD/DB
+-- via from_env so .env regeneration doesn't desync this view).
+CREATE OR REPLACE VIEW logs.connection_domains AS
+SELECT DISTINCT
+    arrayJoin(JSONExtract(toString(domains), 'Array(String)')) AS domain
+FROM postgresql(postgres_waf, table='connections')
+WHERE enabled = true
+  AND length(toString(domains)) > 2  -- skip empty '[]' / NULL rows
+ORDER BY domain;

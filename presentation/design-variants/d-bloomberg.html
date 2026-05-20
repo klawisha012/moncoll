@@ -1,0 +1,486 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<title>WAF — Variant D — Bloomberg Trading Terminal</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Berkeley+Mono:wght@400;500;700&family=Fira+Code:wght@300;400;500;700&family=Inter+Tight:wght@400;500;700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #000000;
+    --bg-1: #0a0a0e;
+    --row-alt: #0e0e14;
+    --rule: #1c1c26;
+    --rule-strong: #2c2c3a;
+    --ink: #f0eee6;
+    --ink-dim: #7a7a8a;
+    --ink-faint: #4a4a5a;
+    --amber: #ffb000;
+    --cyan: #00d4ff;
+    --lime: #b7ff3a;
+    --magenta: #ff3a8c;
+    --orange: #ff7a1a;
+    --header-bg: #1b1407;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { height: 100%; }
+  body {
+    background: var(--bg);
+    color: var(--ink);
+    font-family: 'Fira Code', ui-monospace, monospace;
+    font-size: 13px;
+    line-height: 1.4;
+    -webkit-font-smoothing: antialiased;
+  }
+  .sans { font-family: 'Inter Tight', system-ui, sans-serif; }
+  .term {
+    min-height: 100vh;
+    display: grid;
+    grid-template-rows: 28px 32px 1fr 24px;
+  }
+
+  /* command bar */
+  .cmd {
+    background: var(--header-bg);
+    color: var(--amber);
+    border-bottom: 1px solid var(--rule-strong);
+    display: flex;
+    align-items: center;
+    gap: 20px;
+    padding: 0 14px;
+    font-size: 11.5px;
+    letter-spacing: 0.04em;
+  }
+  .cmd .prompt { color: var(--amber); }
+  .cmd .typed { color: var(--ink); }
+  .cmd .blink { animation: blink 1s steps(2) infinite; color: var(--amber); }
+  @keyframes blink { 50% { opacity: 0; } }
+  .cmd .right { margin-left: auto; display: flex; gap: 20px; color: var(--ink-dim); }
+  .cmd .right .ok { color: var(--lime); }
+
+  /* tabs */
+  .tabs {
+    display: flex;
+    background: var(--bg-1);
+    border-bottom: 1px solid var(--rule-strong);
+  }
+  .tabs .t {
+    padding: 0 16px;
+    display: flex; align-items: center; gap: 8px;
+    font-size: 10.5px;
+    letter-spacing: 0.12em;
+    color: var(--ink-dim);
+    border-right: 1px solid var(--rule);
+    cursor: pointer;
+  }
+  .tabs .t.active { background: var(--bg); color: var(--amber); border-top: 1px solid var(--amber); }
+  .tabs .t .num { color: var(--ink-faint); }
+  .tabs .spacer { flex: 1; border-right: 1px solid var(--rule); }
+  .tabs .key {
+    padding: 0 14px; display: flex; align-items: center; gap: 6px;
+    font-size: 10px; color: var(--ink-dim); border-left: 1px solid var(--rule);
+    letter-spacing: 0.08em;
+  }
+  .tabs .key kbd {
+    font-family: inherit; background: var(--rule); color: var(--ink); padding: 1px 5px; font-size: 9.5px;
+    border: 1px solid var(--rule-strong);
+  }
+
+  /* body grid */
+  .grid {
+    display: grid;
+    grid-template-columns: 260px 1fr 320px;
+    border-bottom: 1px solid var(--rule-strong);
+    min-height: 0;
+  }
+  .col { border-right: 1px solid var(--rule-strong); display: flex; flex-direction: column; }
+  .col:last-child { border-right: 0; }
+  .panel-h {
+    background: var(--bg-1);
+    padding: 7px 12px;
+    border-bottom: 1px solid var(--rule);
+    font-size: 10px;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: var(--amber);
+    display: flex;
+    justify-content: space-between;
+  }
+  .panel-h .ctl { color: var(--ink-faint); }
+
+  /* left col — system feed */
+  .feed { padding: 8px 12px; font-size: 11px; flex: 1; }
+  .feed .ln { display: grid; grid-template-columns: 70px 1fr; gap: 10px; padding: 2px 0; border-bottom: 1px dashed transparent; }
+  .feed .ln:hover { background: var(--bg-1); }
+  .feed .ts { color: var(--ink-faint); }
+  .feed .ev .lab { color: var(--amber); }
+  .feed .ev .lab.ok { color: var(--lime); }
+  .feed .ev .lab.warn { color: var(--orange); }
+  .feed .ev .lab.danger { color: var(--magenta); }
+  .feed .ev .lab.info { color: var(--cyan); }
+  .feed .ev .det { color: var(--ink-dim); }
+
+  /* center col — login */
+  .center { display: flex; flex-direction: column; }
+  .ticker {
+    background: var(--bg-1);
+    border-bottom: 1px solid var(--rule);
+    padding: 6px 14px;
+    display: flex;
+    gap: 28px;
+    font-size: 11px;
+    overflow: hidden;
+    white-space: nowrap;
+  }
+  .ticker .it { display: inline-flex; gap: 8px; }
+  .ticker .lab { color: var(--ink-dim); }
+  .ticker .v { color: var(--ink); }
+  .ticker .v.up { color: var(--lime); }
+  .ticker .v.dn { color: var(--magenta); }
+
+  .login-wrap {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 30px;
+    background:
+      repeating-linear-gradient(0deg, transparent 0, transparent 47px, var(--bg-1) 47px, var(--bg-1) 48px);
+  }
+  .login {
+    width: 100%;
+    max-width: 540px;
+    border: 1px solid var(--amber);
+    background: var(--bg);
+    position: relative;
+  }
+  .login .corner {
+    position: absolute;
+    width: 14px; height: 14px;
+    border: 1px solid var(--amber);
+  }
+  .login .corner.tl { top: -1px; left: -1px; border-right: 0; border-bottom: 0; }
+  .login .corner.tr { top: -1px; right: -1px; border-left: 0; border-bottom: 0; }
+  .login .corner.bl { bottom: -1px; left: -1px; border-right: 0; border-top: 0; }
+  .login .corner.br { bottom: -1px; right: -1px; border-left: 0; border-top: 0; }
+  .login-h {
+    padding: 10px 18px;
+    border-bottom: 1px solid var(--rule-strong);
+    background: linear-gradient(90deg, rgba(255,176,0,0.08), transparent);
+    display: flex; justify-content: space-between;
+    font-size: 10.5px;
+    letter-spacing: 0.2em;
+    color: var(--amber);
+  }
+  .login-body { padding: 30px 32px 26px; }
+  .h-row {
+    display: grid;
+    grid-template-columns: auto 1fr;
+    gap: 18px;
+    align-items: baseline;
+    margin-bottom: 22px;
+  }
+  .h-row .num {
+    font-family: 'Berkeley Mono', 'Fira Code', monospace;
+    font-size: 56px;
+    font-weight: 500;
+    line-height: 0.9;
+    color: var(--amber);
+    letter-spacing: -0.02em;
+  }
+  .h-row .meta {
+    display: flex; flex-direction: column; gap: 4px;
+    border-left: 1px solid var(--rule); padding-left: 14px;
+  }
+  .h-row .meta .top {
+    font-size: 10px; letter-spacing: 0.2em; text-transform: uppercase; color: var(--ink-dim);
+  }
+  .h-row .meta .lo {
+    font-family: 'Inter Tight', sans-serif;
+    font-size: 24px;
+    font-weight: 700;
+    letter-spacing: -0.01em;
+    color: var(--ink);
+  }
+  .h-row .meta .deck { font-size: 12px; color: var(--ink-dim); margin-top: 4px; max-width: 38ch; }
+
+  .keyline {
+    height: 1px; background:
+      repeating-linear-gradient(90deg, var(--rule-strong) 0, var(--rule-strong) 4px, transparent 4px, transparent 8px);
+    margin-bottom: 20px;
+  }
+
+  .creds-bar {
+    display: grid;
+    grid-template-columns: auto 1fr auto auto;
+    gap: 14px;
+    align-items: center;
+    padding: 10px 12px;
+    border: 1px solid var(--cyan);
+    background: rgba(0,212,255,0.04);
+    margin-bottom: 22px;
+    font-size: 11.5px;
+  }
+  .creds-bar .lab { color: var(--cyan); letter-spacing: 0.18em; text-transform: uppercase; font-size: 10px; }
+  .creds-bar .val { color: var(--ink); }
+  .creds-bar .note { color: var(--ink-dim); font-size: 10.5px; }
+  .creds-bar .arrow { color: var(--cyan); }
+
+  .row2 { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-bottom: 18px; }
+  .field { display: flex; flex-direction: column; }
+  .field label {
+    display: flex; justify-content: space-between; align-items: baseline;
+    font-size: 9.5px; letter-spacing: 0.22em; text-transform: uppercase;
+    color: var(--ink-dim); margin-bottom: 5px;
+  }
+  .field label .req { color: var(--amber); }
+  .field .inp {
+    display: flex; align-items: center;
+    border: 1px solid var(--rule-strong);
+    background: var(--bg-1);
+  }
+  .field .inp:focus-within { border-color: var(--amber); }
+  .field .inp .lt { padding: 0 10px; color: var(--ink-faint); border-right: 1px solid var(--rule); font-size: 11px; align-self: stretch; display: flex; align-items: center; }
+  .field .inp input {
+    flex: 1; background: transparent; border: 0; outline: 0; padding: 9px 10px;
+    color: var(--ink); font: inherit;
+  }
+  .field .inp .rt {
+    padding: 0 10px; color: var(--ink-dim); cursor: pointer; border-left: 1px solid var(--rule);
+    align-self: stretch; display: flex; align-items: center;
+    font-size: 9.5px; letter-spacing: 0.16em; text-transform: uppercase;
+  }
+  .field .inp .rt:hover { color: var(--amber); }
+
+  .submit-row { display: grid; grid-template-columns: 1fr auto; gap: 12px; margin-top: 4px; align-items: stretch; }
+  .submit {
+    background: var(--amber);
+    color: var(--bg);
+    border: 1px solid var(--amber);
+    padding: 13px 18px;
+    font-family: 'Berkeley Mono', monospace;
+    font-size: 13px;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    font-weight: 700;
+    cursor: pointer;
+    display: flex; justify-content: space-between; align-items: center;
+  }
+  .submit:hover { filter: brightness(1.1); }
+  .submit-row .kb {
+    padding: 12px 14px;
+    border: 1px solid var(--rule-strong);
+    color: var(--ink-dim);
+    font-size: 11px;
+    letter-spacing: 0.12em;
+    display: flex; align-items: center;
+  }
+  .submit-row .kb kbd {
+    background: var(--rule); color: var(--ink); padding: 2px 7px;
+    border: 1px solid var(--rule-strong); margin-left: 6px; font-family: inherit; font-size: 10px;
+  }
+
+  /* right col — metric strip */
+  .right-pane { flex: 1; display: flex; flex-direction: column; }
+  .stat {
+    padding: 16px 14px;
+    border-bottom: 1px solid var(--rule);
+    display: grid;
+    grid-template-columns: 1fr auto;
+    gap: 4px;
+    row-gap: 6px;
+  }
+  .stat .lab { font-size: 10px; letter-spacing: 0.16em; text-transform: uppercase; color: var(--ink-dim); }
+  .stat .delta { font-size: 10.5px; letter-spacing: 0.04em; }
+  .stat .delta.up { color: var(--lime); }
+  .stat .delta.dn { color: var(--magenta); }
+  .stat .v {
+    grid-column: 1 / -1;
+    font-family: 'Berkeley Mono', monospace;
+    font-size: 30px; font-weight: 500;
+    color: var(--ink);
+    letter-spacing: -0.01em;
+  }
+  .stat .v.amber { color: var(--amber); }
+  .stat .v.cyan { color: var(--cyan); }
+  .stat .v.magenta { color: var(--magenta); }
+  .stat .v.lime { color: var(--lime); }
+  .stat .spark {
+    grid-column: 1 / -1;
+    height: 24px;
+    background: linear-gradient(90deg, transparent 0%, rgba(255,176,0,0.05) 100%);
+    border-bottom: 1px solid var(--rule);
+    position: relative;
+  }
+  .stat .spark svg { width: 100%; height: 100%; display: block; }
+
+  /* footer */
+  .ftr {
+    background: var(--bg-1);
+    border-top: 1px solid var(--rule-strong);
+    display: flex;
+    align-items: center;
+    padding: 0 14px;
+    gap: 24px;
+    font-size: 10.5px;
+    color: var(--ink-dim);
+    letter-spacing: 0.08em;
+  }
+  .ftr .key { color: var(--amber); }
+  .ftr .ok { color: var(--lime); }
+</style>
+</head>
+<body>
+<div class="term">
+  <div class="cmd">
+    <span class="prompt">CMD:&gt;</span>
+    <span class="typed">AUTH&nbsp;GO&nbsp;</span>
+    <span class="blink">▌</span>
+    <span class="right">
+      <span>HELP F1</span>
+      <span>SCREEN F4</span>
+      <span class="ok">● LIVE</span>
+    </span>
+  </div>
+
+  <div class="tabs">
+    <div class="t active"><span class="num">01</span> AUTH</div>
+    <div class="t"><span class="num">02</span> DASHBOARD</div>
+    <div class="t"><span class="num">03</span> MON</div>
+    <div class="t"><span class="num">04</span> CONN</div>
+    <div class="t"><span class="num">05</span> CONF</div>
+    <div class="t"><span class="num">06</span> CSEC</div>
+    <div class="spacer"></div>
+    <div class="key">CYCLE <kbd>⇥</kbd></div>
+    <div class="key">QUIT <kbd>Esc</kbd></div>
+  </div>
+
+  <div class="grid">
+    <!-- left feed -->
+    <div class="col">
+      <div class="panel-h"><span>SYSTEM FEED · LIVE</span><span class="ctl">⏵ ⏸</span></div>
+      <div class="feed">
+        <div class="ln"><span class="ts">19:14:22</span><span class="ev"><span class="lab info">INFO</span> session.candidate localhost</span></div>
+        <div class="ln"><span class="ts">19:14:18</span><span class="ev"><span class="lab ok">OK</span> engine.heartbeat ok</span></div>
+        <div class="ln"><span class="ts">19:14:11</span><span class="ev"><span class="lab warn">WARN</span> 172.18.0.15 anomaly +8</span></div>
+        <div class="ln"><span class="ts">19:13:54</span><span class="ev"><span class="lab danger">BLOCK</span> rule 942100 sql.injection</span></div>
+        <div class="ln"><span class="ts">19:13:48</span><span class="ev"><span class="lab ok">OK</span> crs.reload 22 rules</span></div>
+        <div class="ln"><span class="ts">19:13:31</span><span class="ev"><span class="lab info">INFO</span> ch.connect waf_audit_log</span></div>
+        <div class="ln"><span class="ts">19:13:12</span><span class="ev"><span class="lab danger">BLOCK</span> rule 941100 xss.attack</span></div>
+        <div class="ln"><span class="ts">19:12:58</span><span class="ev"><span class="lab warn">WARN</span> tls.handshake retry</span></div>
+        <div class="ln"><span class="ts">19:12:40</span><span class="ev"><span class="lab ok">OK</span> crowdsec.bouncer up</span></div>
+        <div class="ln"><span class="ts">19:12:21</span><span class="ev"><span class="lab info">INFO</span> grafana.provisioning ok</span></div>
+        <div class="ln"><span class="ts">19:12:08</span><span class="ev"><span class="lab danger">BLOCK</span> rule 920350 host.header</span></div>
+        <div class="ln"><span class="ts">19:11:55</span><span class="ev"><span class="lab info">INFO</span> session.expire user_91</span></div>
+        <div class="ln"><span class="ts">19:11:32</span><span class="ev"><span class="lab ok">OK</span> backup snapshot ok</span></div>
+      </div>
+    </div>
+
+    <!-- center login -->
+    <div class="col center">
+      <div class="ticker">
+        <span class="it"><span class="lab">REQ24H</span><span class="v">684,003</span></span>
+        <span class="it"><span class="lab">BLOCK</span><span class="v dn">481,712</span></span>
+        <span class="it"><span class="lab">LAT</span><span class="v">0.0ms</span></span>
+        <span class="it"><span class="lab">RULES</span><span class="v up">22</span></span>
+        <span class="it"><span class="lab">ANOM</span><span class="v">8.3</span></span>
+        <span class="it"><span class="lab">UPTIME</span><span class="v">7h12m</span></span>
+      </div>
+
+      <div class="login-wrap">
+        <div class="login">
+          <span class="corner tl"></span><span class="corner tr"></span>
+          <span class="corner bl"></span><span class="corner br"></span>
+          <div class="login-h">
+            <span>WAF // AUTH GATE</span>
+            <span>F-04 SIGN-IN</span>
+          </div>
+          <div class="login-body">
+            <div class="h-row">
+              <div class="num">01</div>
+              <div class="meta">
+                <span class="top">AUTHENTICATION</span>
+                <span class="lo sans">Вход в систему</span>
+                <span class="deck">Введите учётные данные для управления фаерволом и доступа к событиям безопасности.</span>
+              </div>
+            </div>
+            <div class="keyline"></div>
+
+            <div class="creds-bar">
+              <span class="lab">DEFAULT</span>
+              <span class="val">admin&nbsp;&nbsp;·&nbsp;&nbsp;admin</span>
+              <span class="note">first-login resets pwd</span>
+              <span class="arrow">↳</span>
+            </div>
+
+            <div class="row2">
+              <div class="field">
+                <label>USERNAME <span class="req">REQ</span></label>
+                <div class="inp">
+                  <span class="lt">$</span>
+                  <input value="admin">
+                </div>
+              </div>
+              <div class="field">
+                <label>PASSWORD <span class="req">REQ</span></label>
+                <div class="inp">
+                  <span class="lt">#</span>
+                  <input type="password" value="●●●●●">
+                  <span class="rt">show</span>
+                </div>
+              </div>
+            </div>
+
+            <div class="submit-row">
+              <button class="submit"><span>AUTHORIZE</span><span>→ /DASHBOARD</span></button>
+              <div class="kb">SUBMIT <kbd>↵</kbd></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- right metrics -->
+    <div class="col right-pane">
+      <div class="panel-h"><span>METRICS · 24H</span><span class="ctl">REFRESH 10s</span></div>
+      <div class="stat">
+        <span class="lab">TOTAL REQUESTS</span><span class="delta up">▲ +5699758%</span>
+        <span class="v amber">684,003</span>
+        <span class="spark"><svg viewBox="0 0 100 24" preserveAspectRatio="none"><polyline fill="none" stroke="#ffb000" stroke-width="1.2" points="0,20 5,22 10,18 15,21 20,15 25,8 30,20 35,2 40,18 45,21 50,17 55,19 60,16 65,20 70,15 75,18 80,12 85,17 90,9 95,14 100,11"/></svg></span>
+      </div>
+      <div class="stat">
+        <span class="lab">BLOCKED THREATS</span><span class="delta dn">▼ −0.3%</span>
+        <span class="v magenta">481,712</span>
+        <span class="spark"><svg viewBox="0 0 100 24" preserveAspectRatio="none"><polyline fill="none" stroke="#ff3a8c" stroke-width="1.2" points="0,15 6,17 12,12 18,8 24,3 30,5 36,2 42,7 48,4 54,9 60,6 66,11 72,7 78,13 84,10 90,15 96,12 100,18"/></svg></span>
+      </div>
+      <div class="stat">
+        <span class="lab">AVG LATENCY</span><span class="delta">— flat</span>
+        <span class="v cyan">0.0 ms</span>
+        <span class="spark"><svg viewBox="0 0 100 24" preserveAspectRatio="none"><polyline fill="none" stroke="#00d4ff" stroke-width="1.2" points="0,15 100,15"/></svg></span>
+      </div>
+      <div class="stat">
+        <span class="lab">CRS RULES ACTIVE</span><span class="delta up">+0</span>
+        <span class="v lime">22</span>
+        <span class="spark"></span>
+      </div>
+      <div class="stat" style="border-bottom:0;">
+        <span class="lab">ANOMALY SCORE</span><span class="delta up">▲ 1.2</span>
+        <span class="v">8.3 / 30</span>
+        <span class="spark"><svg viewBox="0 0 100 24" preserveAspectRatio="none"><polyline fill="none" stroke="#b7ff3a" stroke-width="1.2" points="0,18 10,17 20,16 30,14 40,11 50,13 60,9 70,11 80,7 90,9 100,6"/></svg></span>
+      </div>
+    </div>
+  </div>
+
+  <div class="ftr">
+    <span>ROLES: <span style="color:var(--ink)">admin · viewer</span></span>
+    <span>SESSION: <span style="color:var(--ink)">30m TLS 1.3</span></span>
+    <span class="ok">● ENGINE ACTIVE</span>
+    <span style="margin-left:auto">F1 HELP</span>
+    <span>F4 SCREEN</span>
+    <span>F12 LOGOUT</span>
+    <span>2026-05-20 19:14:22 UTC</span>
+  </div>
+</div>
+</body>
+</html>
