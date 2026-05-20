@@ -584,6 +584,51 @@ export const api = {
     return response.json();
   },
 
+  // Upload a static-site **directory** (e.g. an Astro/Vite `dist/`) via the
+  // browser folder picker. Files keep their subdirectory structure via
+  // webkitRelativePath.
+  //
+  // When `connectionId` is provided, files land **directly** under that
+  // connection's site dir (no temp staging) and Angie reloads. Otherwise
+  // files are staged in site-templates/uploads/ and the returned path can
+  // be used as static_dir when creating a new connection.
+  uploadStaticDir: async (
+    files: FileList | File[],
+    connectionId?: number,
+  ): Promise<{ path: string; filename?: string; files?: number }> => {
+    const formData = new FormData();
+    for (let i = 0; i < files.length; i++) {
+      const file = files[i];
+      const relativePath = (file as any).webkitRelativePath || file.name;
+      formData.append("files", file, relativePath);
+    }
+    const url =
+      connectionId !== undefined
+        ? `${API_BASE}/api/connections/${connectionId}/upload-static-dir`
+        : `${API_BASE}/api/connections/upload-static-dir`;
+    const response = await fetch(url, {
+      method: "POST",
+      body: formData,
+      credentials: "include",
+    });
+    if (!response.ok) {
+      if (response.status === 401) {
+        window.dispatchEvent(new CustomEvent("auth:unauthorized"));
+      }
+      const body = await response.json().catch(() => null);
+      let message = "Upload failed";
+      if (body) {
+        if (Array.isArray(body.detail)) {
+          message = body.detail.map((e: any) => e.msg || JSON.stringify(e)).join("; ");
+        } else if (typeof body.detail === "string") {
+          message = body.detail;
+        }
+      }
+      throw new Error(message);
+    }
+    return response.json();
+  },
+
   // Parse an uploaded nginx config and return extracted fields
   // (domains, backend_url, index, root) for form auto-fill.
   parseNginxConfig: async (nginxConfigPath: string): Promise<{

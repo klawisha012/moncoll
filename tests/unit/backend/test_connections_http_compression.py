@@ -79,7 +79,11 @@ def test_emit_listen_h3_emits_quic_and_alt_svc():
     plain, tls = cs._emit_listen_directives(
         http_versions=["h1", "h2", "h3"], has_ssl=True
     )
-    assert any("listen 443 quic reuseport" in line for line in tls)
+    # reuseport is intentionally NOT emitted per-connection — it must appear
+    # on only one listen directive across the entire angie config, so the
+    # global angie.conf owns it (see service.py:_emit_listen_directives).
+    assert any("listen 443 quic" in line for line in tls)
+    assert not any("reuseport" in line for line in tls)
     assert any("http3 on;" in line for line in tls)
     assert any("Alt-Svc" in line and 'h3=":443"' in line for line in tls)
 
@@ -152,7 +156,8 @@ def test_generate_config_h3_emits_quic_when_ssl():
     out = cs._generate_nginx_config(conn)
     assert "listen 80;" in out
     assert "listen 443 ssl;" in out
-    assert "listen 443 quic reuseport;" in out
+    assert "listen 443 quic;" in out
+    assert "reuseport" not in out
     assert "http3 on;" in out
     assert 'h3=":443"' in out
 

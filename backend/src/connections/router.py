@@ -74,6 +74,53 @@ async def upload_static_file(
     return result
 
 
+@connections_router.post("/{connection_id}/upload-static-dir")
+async def upload_static_dir_to_connection(
+    connection_id: int,
+    files: list[UploadFile] = File(...),
+    session: AsyncSession = Depends(get_session),
+):
+    """Upload a static-site directory **directly into** the connection's
+    site dir (``/etc/angie/http.d/conn_<id>/site/``).
+
+    Skips the intermediate ``site-templates/uploads/`` round-trip — the
+    files land where Angie serves them and the running Angie process is
+    reloaded immediately.
+    """
+    conn = await connection_service.get_connection(session, connection_id)
+    if not conn:
+        raise HTTPException(status_code=404, detail="Connection not found")
+    if not files:
+        raise HTTPException(status_code=400, detail="No files uploaded")
+    file_tuples = [(f.filename or "index.html", await f.read()) for f in files]
+    try:
+        result = connection_service.write_static_dir_to_conn(connection_id, file_tuples)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return result
+
+
+@connections_router.post("/upload-static-dir")
+async def upload_static_dir(
+    files: list[UploadFile] = File(...),
+):
+    """Upload a static-site **directory** (e.g. an Astro/Vite ``dist/``)
+    via the browser folder picker.
+
+    All files in the selected folder are stored, preserving subdirectory
+    structure. Returns ``{path, filename}`` where ``path`` is suitable
+    for ``static_dir`` (resolved under ``/app/site-templates/``).
+    """
+    if not files:
+        raise HTTPException(status_code=400, detail="No files uploaded")
+    file_tuples = [(f.filename or "index.html", await f.read()) for f in files]
+    try:
+        result = connection_service.save_uploaded_static_dir(file_tuples)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return result
+
+
 @connections_router.post("/upload-nginx-config")
 async def upload_nginx_config(
     files: list[UploadFile] = File(...),

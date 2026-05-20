@@ -151,7 +151,12 @@ def _emit_listen_directives(
         tls.append("    http2 on;")
 
     if has_ssl and "h3" in http_versions:
-        tls.append("    listen 443 quic reuseport;")
+        # reuseport must appear on only ONE listen directive across the entire
+        # angie config — emitting it per-connection caused "duplicate listen
+        # options" errors when more than one h3-enabled site existed. Without
+        # reuseport all workers share a single UDP socket, which still serves
+        # HTTP/3 correctly (just without per-worker socket affinity).
+        tls.append("    listen 443 quic;")
         tls.append("    http3 on;")
         # Advertise HTTP/3 via Alt-Svc so HTTP/2 clients upgrade on subsequent hits.
         tls.append("    add_header Alt-Svc 'h3=\":443\"; ma=86400' always;")
@@ -203,12 +208,21 @@ def _resolve_nginx_includes(
     *,
     _visited: set[Path] | None = None,
     _depth: int = 0,
+    _prefix: Path | None = None,
 ) -> str:
     """Read *config_path* and recursively expand ``include`` directives.
 
-    Includes are resolved relative to the directory of the file that contains
-    them. Globs (``*.conf``) are supported. Cyclic includes and depths above
-    ``_MAX_INCLUDE_DEPTH`` are silently skipped (with a log line).
+    Relative includes are resolved against the *prefix* directory — i.e. the
+    parent of the top-level config file (mirroring nginx's ``--prefix`` /
+    ``-p`` flag). This matches real nginx behavior: e.g. ``h5bp/basic.conf``
+    itself contains ``include h5bp/security/referrer-policy.conf;`` and
+    expects that path to resolve from the same prefix as the entrypoint,
+    not from its own parent dir.
+
+    Globs (``*.conf``) are supported. Cyclic includes and depths above
+    ``_MAX_INCLUDE_DEPTH`` are silently skipped (with a log line). If the
+    prefix-relative resolution misses, we fall back to the including file's
+    directory so simple flat configs still work.
     """
     if _visited is None:
         _visited = set()
@@ -229,6 +243,10 @@ def _resolve_nginx_includes(
         return ""
 
     _visited.add(resolved)
+    # The prefix is fixed at the first (top-level) call and inherited by
+    # every nested include — matching `nginx -p <prefix>` semantics.
+    if _prefix is None:
+        _prefix = resolved.parent
     base_dir = resolved.parent
 
     out: list[str] = []
@@ -239,24 +257,83 @@ def _resolve_nginx_includes(
             continue
         pattern = m.group(1).strip().strip('"').strip("'")
         inc_path = Path(pattern)
-        if not inc_path.is_absolute():
-            inc_path = base_dir / inc_path
-        if any(ch in pattern for ch in "*?["):
-            for match in sorted(inc_path.parent.glob(inc_path.name)):
+
+        if inc_path.is_absolute():
+            candidates = [inc_path]
+        else:
+            # Prefix-anchored first (real nginx semantics), then fall back
+            # to including-file's dir for flat layouts that worked under
+            # the old behavior.
+            candidates = [_prefix / inc_path]
+            if base_dir != _prefix:
+                candidates.append(base_dir / inc_path)
+
+        is_glob = any(ch in pattern for ch in "*?[")
+
+        # Resolve to the first candidate that actually has a match — both
+        # for globs and exact paths. This keeps the fallback behavior
+        # contained: if the prefix-anchored path is wrong, we don't echo
+        # an empty include marker.
+        chosen: Path | None = None
+        for cand in candidates:
+            if is_glob:
+                if any(cand.parent.glob(cand.name)):
+                    chosen = cand
+                    break
+            elif cand.exists():
+                chosen = cand
+                break
+        if chosen is None:
+            chosen = candidates[0]
+
+        if is_glob:
+            for match in sorted(chosen.parent.glob(chosen.name)):
                 out.append(f"# >>> include {match}")
-                out.append(_resolve_nginx_includes(match, _visited=_visited, _depth=_depth + 1))
+                out.append(
+                    _resolve_nginx_includes(
+                        match, _visited=_visited, _depth=_depth + 1, _prefix=_prefix
+                    )
+                )
                 out.append(f"# <<< include {match}")
         else:
-            out.append(f"# >>> include {inc_path}")
-            out.append(_resolve_nginx_includes(inc_path, _visited=_visited, _depth=_depth + 1))
-            out.append(f"# <<< include {inc_path}")
+            out.append(f"# >>> include {chosen}")
+            out.append(
+                _resolve_nginx_includes(
+                    chosen, _visited=_visited, _depth=_depth + 1, _prefix=_prefix
+                )
+            )
+            out.append(f"# <<< include {chosen}")
     return "\n".join(out)
 
 
+def _is_in_line_comment(config_text: str, pos: int) -> bool:
+    """Return True if *pos* lies inside a ``# …`` line comment.
+
+    Walks back to the previous newline and looks for an un-escaped ``#`` on
+    the same line at an earlier column. Conservative: a ``#`` that is itself
+    inside an nginx regex (e.g. ``location ~* (?:#…)`` ) would be flagged as
+    a comment, so we accept a small false-positive risk where a regex with
+    ``#`` precedes a ``server {`` on the same line — which is implausible in
+    practice (regex location blocks never carry an inline ``server {``).
+    """
+    line_start = config_text.rfind("\n", 0, pos) + 1
+    return "#" in config_text[line_start:pos]
+
+
 def _extract_nginx_server_blocks(config_text: str) -> list[str]:
-    """Extract the body (between braces) of every ``server { … }`` block."""
+    """Extract the body (between braces) of every ``server { ... }`` block.
+
+    A ``server`` keyword appearing inside a ``# …`` line comment is skipped
+    so a stray comment like ``# example: server { proxy_pass … }`` cannot
+    masquerade as a real block.  Brace-counting runs on the original text
+    (untouched) so embedded regexes / comments inside the real block do not
+    perturb the depth counter — the assumption is that real nginx configs
+    keep their braces balanced.
+    """
     blocks: list[str] = []
     for match in re.finditer(r"\bserver\s*\{", config_text):
+        if _is_in_line_comment(config_text, match.start()):
+            continue
         start = match.end()
         depth = 1
         i = start
@@ -348,6 +425,51 @@ def _existing_or_none(path: Path) -> Path | None:
     return path if path.is_dir() else None
 
 
+# Common SSG output directories — if an uploaded site contains exactly one
+# of these and nothing else at the top level (besides hidden files), we
+# transparently hoist its contents to fix the "user uploaded the project
+# root instead of the build output" pitfall. Order doesn't matter; it's a
+# set of recognised wrappers.
+_BUILD_WRAPPER_DIRS = {"dist", "build", "out", "public", "_site"}
+
+
+def _smart_flatten_site_dir(site_dir: Path) -> None:
+    """If *site_dir* looks like ``<wrapper>/…`` for a known SSG wrapper,
+    hoist the wrapper's contents into *site_dir* and remove the wrapper.
+
+    Triggers only when:
+      * exactly one visible entry exists at the top of *site_dir*,
+      * that entry is a directory named ``dist`` / ``build`` / ``out`` /
+        ``public`` / ``_site``, and
+      * the wrapper itself contains an ``index.html``.
+
+    No-op otherwise — a flat layout (index.html at the root) or anything
+    ambiguous is left untouched so we never reshape a layout the user
+    deliberately chose.
+    """
+    if not site_dir.is_dir():
+        return
+    visible = [p for p in site_dir.iterdir() if not p.name.startswith(".")]
+    if len(visible) != 1:
+        return
+    wrapper = visible[0]
+    if not wrapper.is_dir() or wrapper.name not in _BUILD_WRAPPER_DIRS:
+        return
+    if not (wrapper / "index.html").is_file():
+        return
+
+    for item in list(wrapper.iterdir()):
+        target = site_dir / item.name
+        if target.exists():
+            if target.is_dir():
+                shutil.rmtree(target)
+            else:
+                target.unlink()
+        shutil.move(str(item), str(target))
+    wrapper.rmdir()
+    logger.info("Smart-flattened %s wrapper inside %s", wrapper.name, site_dir)
+
+
 def _copy_dir_contents(src: Path, dest: Path) -> None:
     """Copy files and subdirectories from *src* into *dest* (overlay/merge).
 
@@ -385,6 +507,7 @@ def _copy_static_site(conn_id: int, source: str | Path) -> Path | None:
     except Exception:
         logger.exception("Failed to copy static site %s → %s", source_path, dest)
         _write_fallback_index(dest, conn_id)
+    _smart_flatten_site_dir(dest)
     return dest
 
 
@@ -437,10 +560,15 @@ def _emit_proxy_body(conn: dict) -> list[str]:
 
 def _emit_static_body(conn_id: int) -> list[str]:
     root = f"/etc/angie/http.d/conn_{conn_id}/site"
+    # Route fallback chain covers the common static-site-generator shapes:
+    #   $uri        — exact file match (asset, /index.html)
+    #   $uri.html   — file-format SSGs (Astro build.format='file', /blog → /blog.html)
+    #   $uri/       — directory-format SSGs (Astro default, /blog → /blog/ + index)
+    #   =404        — give up
     return [
         f"    root {root};",
         "    index index.html index.htm;",
-        "    try_files $uri $uri/ =404;",
+        "    try_files $uri $uri.html $uri/ =404;",
     ]
 
 
@@ -780,6 +908,14 @@ def _validate_compose_yaml(yaml_text: str) -> str | None:
     return None
 
 
+# Compose timeouts are sized for the slow case: cold-pulling a multi-hundred-MB
+# image plus running its initial setup (e.g. umami runs `prisma migrate deploy`
+# on first boot, which can take 30-60s on its own). 120s used to be the limit
+# and routinely timed out on first deploy of real-world apps; 600s is a safe
+# upper bound that still surfaces genuine hangs.
+_COMPOSE_TIMEOUT_SECONDS = 600
+
+
 def _run_compose(project_dir: Path, project_name: str, *args: str) -> tuple[int, str]:
     """Run a docker-compose command. Returns (returncode, combined stdout+stderr).
 
@@ -797,7 +933,7 @@ def _run_compose(project_dir: Path, project_name: str, *args: str) -> tuple[int,
                 cwd=project_dir,
                 capture_output=True,
                 text=True,
-                timeout=120,
+                timeout=_COMPOSE_TIMEOUT_SECONDS,
                 check=False,
             )
             last_out = (proc.stdout or "") + (proc.stderr or "")
@@ -1215,6 +1351,111 @@ def save_uploaded_static(
     if existing:
         return {"path": existing, "filename": safe_name}
     return {"path": f"uploads/{dir_name}", "filename": safe_name}
+
+
+def write_static_dir_to_conn(conn_id: int, files: list[tuple[str, bytes]]) -> dict:
+    """Write an uploaded static-site directory **straight into**
+    ``conn_<id>/site/``, replacing whatever was there.
+
+    Used by the per-connection upload endpoint so users don't need a
+    round-trip through ``site-templates/uploads/``. Smart-flattens common
+    SSG wrappers (``dist``/``build``/``out``/``public``/``_site``) and
+    reloads Angie so the new content goes live immediately.
+
+    Returns ``{"path": "<absolute conn site path>", "files": <count>}``.
+    """
+    if not files:
+        raise ValueError("No files provided for static directory upload")
+
+    site_dir = _site_dir(conn_id)
+    # Replace any existing site content — a partial overlay would leave
+    # stale files from a previous build (e.g. an old hashed asset) lying
+    # around forever.
+    if site_dir.exists():
+        shutil.rmtree(site_dir)
+    site_dir.mkdir(parents=True, exist_ok=True)
+
+    saved_count = 0
+    for rel_path, content in files:
+        clean = rel_path.replace("\\", "/").lstrip("/")
+        if clean.startswith("__MACOSX") or clean.startswith("."):
+            continue
+        parts = [p for p in clean.split("/") if p and p != ".."]
+        if not parts:
+            continue
+        safe_name = parts[-1]
+        sub_dir = site_dir
+        for part in parts[:-1]:
+            sub_dir = sub_dir / part
+        sub_dir.mkdir(parents=True, exist_ok=True)
+        (sub_dir / safe_name).write_bytes(content)
+        saved_count += 1
+
+    if saved_count == 0:
+        raise ValueError("No usable files found in uploaded directory")
+
+    _smart_flatten_site_dir(site_dir)
+    _ensure_site_not_empty(site_dir, conn_id)
+    _reload_angie()
+
+    logger.info(
+        "Conn %d: wrote %d files directly into %s",
+        conn_id,
+        saved_count,
+        site_dir,
+    )
+    return {"path": str(site_dir), "files": saved_count}
+
+
+def save_uploaded_static_dir(files: list[tuple[str, bytes]]) -> dict:
+    """Save an uploaded static-site directory (e.g. an Astro/Vite ``dist/``).
+
+    Accepts a list of ``(relative_path, content)`` tuples — typically from a
+    folder picker (``webkitdirectory``). All files are stored under one
+    timestamped directory, preserving subdirectory structure. Returns
+    ``{"path": "uploads/static_<ts>", "filename": "<dir_name>"}`` — the
+    ``path`` is a backend-template-relative directory suitable for use as
+    ``static_dir`` on a connection (resolved against
+    ``/app/site-templates/``).
+    """
+    from datetime import datetime as dt
+
+    if not files:
+        raise ValueError("No files provided for static directory upload")
+
+    ts = dt.utcnow().strftime("%Y%m%d_%H%M%S")
+    dir_name = f"static_{ts}"
+    upload_dir = UPLOADS_DIR / dir_name
+    upload_dir.mkdir(parents=True, exist_ok=True)
+
+    saved_count = 0
+    for rel_path, content in files:
+        clean = rel_path.replace("\\", "/").lstrip("/")
+        if clean.startswith("__MACOSX") or clean.startswith("."):
+            continue
+        parts = [p for p in clean.split("/") if p and p != ".."]
+        if not parts:
+            continue
+        safe_name = parts[-1]
+        sub_dir = upload_dir
+        for part in parts[:-1]:
+            sub_dir = sub_dir / part
+        sub_dir.mkdir(parents=True, exist_ok=True)
+        file_path = sub_dir / safe_name
+        file_path.write_bytes(content)
+        saved_count += 1
+        logger.debug("Saved uploaded static file %s → %s", clean, file_path)
+
+    if saved_count == 0:
+        raise ValueError("No usable files found in uploaded directory")
+
+    logger.info(
+        "Saved uploaded static directory (%d files) → %s",
+        saved_count,
+        upload_dir,
+    )
+
+    return {"path": f"uploads/{dir_name}", "filename": dir_name}
 
 
 def save_uploaded_nginx_config(files: list[tuple[str, bytes]]) -> dict:

@@ -47,7 +47,7 @@ const DEFAULT_FORM: ConnectionCreate = {
   compose_yaml: null,
   compose_service: null,
   compose_port: null,
-  http_versions: "h1,h2",
+  http_versions: "h1,h2,h3",
   compression_algo: "auto",
   enabled: true,
   ssl_enabled: false,
@@ -56,37 +56,6 @@ const DEFAULT_FORM: ConnectionCreate = {
   preserve_host: true,
   custom_nginx_config: null,
 };
-
-const HTTP_VERSION_OPTIONS: { value: "h1" | "h2" | "h3"; label: string; hint: string }[] = [
-  { value: "h1", label: "HTTP/1.1", hint: "port 80 plain + 443 TLS fallback" },
-  { value: "h2", label: "HTTP/2",   hint: "ALPN-negotiated over TLS on 443" },
-  { value: "h3", label: "HTTP/3",   hint: "QUIC over UDP/443 (advertised via Alt-Svc)" },
-];
-
-const COMPRESSION_OPTIONS: { value: "auto" | "gzip" | "brotli" | "zstd" | "none"; label: string }[] = [
-  { value: "auto",   label: "Auto (negotiate by Accept-Encoding)" },
-  { value: "zstd",   label: "zstd only" },
-  { value: "brotli", label: "Brotli only" },
-  { value: "gzip",   label: "gzip only" },
-  { value: "none",   label: "Disabled" },
-];
-
-function parseHttpVersionsCsv(csv: string | undefined | null): Set<"h1" | "h2" | "h3"> {
-  if (!csv) return new Set(["h1", "h2"]);
-  const out = new Set<"h1" | "h2" | "h3">();
-  for (const tok of csv.split(",")) {
-    const v = tok.trim().toLowerCase();
-    if (v === "h1" || v === "h2" || v === "h3") out.add(v);
-  }
-  return out.size > 0 ? out : new Set(["h1", "h2"]);
-}
-
-function joinHttpVersions(set: Set<"h1" | "h2" | "h3">): string {
-  // Keep canonical h1,h2,h3 ordering for stable diffs.
-  const order: ("h1" | "h2" | "h3")[] = ["h1", "h2", "h3"];
-  const chosen = order.filter((v) => set.has(v));
-  return chosen.length > 0 ? chosen.join(",") : "h1,h2";
-}
 
 export default function Connections() {
   const [connections, setConnections] = useState<Connection[]>([]);
@@ -105,6 +74,14 @@ export default function Connections() {
   const nginxConfigInputRef = useRef<HTMLInputElement | null>(null);
   const setNginxConfigRef = useCallback((el: HTMLInputElement | null) => {
     nginxConfigInputRef.current = el;
+    if (el) {
+      el.setAttribute("webkitdirectory", "");
+      el.setAttribute("directory", "");
+    }
+  }, []);
+  const staticDirInputRef = useRef<HTMLInputElement | null>(null);
+  const setStaticDirRef = useCallback((el: HTMLInputElement | null) => {
+    staticDirInputRef.current = el;
     if (el) {
       el.setAttribute("webkitdirectory", "");
       el.setAttribute("directory", "");
@@ -142,6 +119,7 @@ export default function Connections() {
     setShowForm(false);
     if (fileInputRef.current) fileInputRef.current.value = "";
     if (nginxConfigInputRef.current) nginxConfigInputRef.current.value = "";
+    if (staticDirInputRef.current) staticDirInputRef.current.value = "";
   }
 
   function handleEdit(conn: Connection) {
@@ -156,7 +134,7 @@ export default function Connections() {
       compose_yaml: conn.compose_yaml,
       compose_service: conn.compose_service,
       compose_port: conn.compose_port,
-      http_versions: conn.http_versions || "h1,h2",
+      http_versions: conn.http_versions || "h1,h2,h3",
       compression_algo: conn.compression_algo || "auto",
       enabled: conn.enabled,
       ssl_enabled: conn.ssl_enabled,
@@ -602,9 +580,17 @@ export default function Connections() {
                       type="button"
                       className="btn btn-outline btn-sm"
                       onClick={() => fileInputRef.current?.click()}
-                      title="Upload an index.html"
+                      title="Upload a single index.html"
                     >
                       Upload index.html
+                    </button>
+                    <button
+                      type="button"
+                      className="btn btn-primary btn-sm"
+                      onClick={() => staticDirInputRef.current?.click()}
+                      title="Upload a built site directory (e.g. Astro/Vite dist/)"
+                    >
+                      Upload folder
                     </button>
                     <input
                       type="file"
@@ -630,11 +616,52 @@ export default function Connections() {
                         e.target.value = "";
                       }}
                     />
+                    <input
+                      type="file"
+                      ref={setStaticDirRef}
+                      style={{ display: "none" }}
+                      multiple
+                      onChange={async (e) => {
+                        const files = e.target.files;
+                        if (!files || files.length === 0) return;
+                        try {
+                          const result = await api.uploadStaticDir(
+                            files,
+                            editingId ?? undefined,
+                          );
+                          if (editingId === null) {
+                            // Create flow: temp staging — surface the path
+                            // so the create payload references it.
+                            updateFormField("static_dir", result.path);
+                            showToast(
+                              `Staged ${files.length} file(s) → ${result.path}`,
+                              "success",
+                            );
+                          } else {
+                            // Edit flow: written directly into conn_<id>/site.
+                            showToast(
+                              `Uploaded ${result.files ?? files.length} file(s) to connection site`,
+                              "success",
+                            );
+                          }
+                        } catch (err: any) {
+                          const msg =
+                            typeof err.message === "string"
+                              ? err.message
+                              : JSON.stringify(err.message || err);
+                          showToast(`Upload failed: ${msg}`, "error");
+                        }
+                        e.target.value = "";
+                      }}
+                    />
                   </div>
                   <small>
                     Backend-accessible path. Relative names resolve under{" "}
                     <code>/app/site-templates/</code>. Pointing to an{" "}
-                    <code>index.html</code> uses its parent directory.
+                    <code>index.html</code> uses its parent directory. Use{" "}
+                    <strong>Upload folder</strong> for built sites (Astro/Vite{" "}
+                    <code>dist/</code>) so subroutes like <code>/blog</code> and{" "}
+                    <code>/about</code> work.
                   </small>
                 </div>
               )}
@@ -741,89 +768,6 @@ export default function Connections() {
                   </div>
                 </>
               )}
-
-              {/* ── HTTP versions + compression (applies to every source_type) ── */}
-              <div className="form-group">
-                <label>HTTP versions</label>
-                <div
-                  data-testid="conn-http-versions"
-                  style={{ display: "flex", gap: "12px", flexWrap: "wrap" }}
-                >
-                  {HTTP_VERSION_OPTIONS.map((opt) => {
-                    const selected = parseHttpVersionsCsv(formData.http_versions);
-                    const checked = selected.has(opt.value);
-                    return (
-                      <label
-                        key={opt.value}
-                        style={{
-                          display: "flex",
-                          alignItems: "center",
-                          gap: "6px",
-                          padding: "6px 10px",
-                          border: "1px solid var(--border, #444)",
-                          borderRadius: "6px",
-                          cursor: "pointer",
-                        }}
-                      >
-                        <input
-                          type="checkbox"
-                          data-testid={`conn-http-${opt.value}`}
-                          checked={checked}
-                          onChange={(e) => {
-                            const next = new Set(selected);
-                            if (e.target.checked) next.add(opt.value);
-                            else next.delete(opt.value);
-                            updateFormField(
-                              "http_versions",
-                              joinHttpVersions(next)
-                            );
-                          }}
-                        />
-                        <span>
-                          <strong>{opt.label}</strong>
-                          <br />
-                          <small>{opt.hint}</small>
-                        </span>
-                      </label>
-                    );
-                  })}
-                </div>
-                <small>
-                  HTTP/3 requires QUIC (UDP/443). It is advertised via{" "}
-                  <code>Alt-Svc</code> so HTTP/2 clients upgrade on subsequent
-                  requests.
-                </small>
-              </div>
-
-              <div className="form-group">
-                <label>Compression algorithm</label>
-                <select
-                  data-testid="conn-compression-algo"
-                  value={formData.compression_algo || "auto"}
-                  onChange={(e) =>
-                    updateFormField(
-                      "compression_algo",
-                      e.target.value as
-                        | "auto"
-                        | "gzip"
-                        | "brotli"
-                        | "zstd"
-                        | "none"
-                    )
-                  }
-                >
-                  {COMPRESSION_OPTIONS.map((opt) => (
-                    <option key={opt.value} value={opt.value}>
-                      {opt.label}
-                    </option>
-                  ))}
-                </select>
-                <small>
-                  <strong>Auto</strong> lets Angie negotiate per request via
-                  <code> Accept-Encoding</code>: zstd &gt; brotli &gt; gzip.
-                  Pin one encoder to force it, or disable to serve identity.
-                </small>
-              </div>
 
               <div className="modal-actions">
                 <button

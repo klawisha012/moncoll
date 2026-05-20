@@ -1,0 +1,57 @@
+# Umami analytics for the WAF mode 4 (docker_compose) example.
+#
+# Adapted from https://github.com/umami-software/umami/blob/master/docker-compose.yml
+# with two changes required to make it reachable through the WAF:
+#   1. Removed the host port publication (`ports: 3000:3000`) — the WAF reverse-proxies
+#      to umami on the internal network only.
+#   2. Joined the `waf_default` network as `waf` so the WAF backend container can
+#      resolve `umami:3000` and forward requests in.
+#
+# Postgres password is the upstream demo default; rotate before any non-toy use.
+
+services:
+  umami:
+    image: ghcr.io/umami-software/umami:postgresql-latest
+    environment:
+      DATABASE_URL: postgresql://umami:umami@db:5432/umami
+      DATABASE_TYPE: postgresql
+      APP_SECRET: waf-mode4-umami-example-please-rotate
+    depends_on:
+      db:
+        condition: service_healthy
+    init: true
+    restart: always
+    healthcheck:
+      test: ["CMD-SHELL", "wget --spider -q http://localhost:3000/api/heartbeat || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 30s
+    networks:
+      - default
+      - waf
+
+  db:
+    image: postgres:15-alpine
+    environment:
+      POSTGRES_DB: umami
+      POSTGRES_USER: umami
+      POSTGRES_PASSWORD: umami
+    volumes:
+      - umami-db-data:/var/lib/postgresql/data
+    restart: always
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U umami -d umami"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    networks:
+      - default
+
+networks:
+  waf:
+    external: true
+    name: waf_default
+
+volumes:
+  umami-db-data:
