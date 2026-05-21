@@ -83,6 +83,8 @@
   --font-cond: 'Oswald', 'Inter Tight', system-ui, sans-serif;
   --font-body: 'Inter Tight', 'Inter', system-ui, -apple-system, sans-serif;
   --font-mono: 'JetBrains Mono', ui-monospace, 'SFMono-Regular', Menlo, monospace;
+
+  color-scheme: light;
 }
 
 /* Constructivist is light by default. Honor the data-theme="light" tag too. */
@@ -103,6 +105,7 @@
    Cream foreground · Deep warm ink background · Brighter red signal
    ═══════════════════════════════════════════════════════════════════════════ */
 [data-theme="dark"] {
+  color-scheme: dark;
   --cream: #14110d;
   --cream-2: #1e1a14;
   --cream-3: #2a251c;
