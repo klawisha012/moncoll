@@ -167,14 +167,6 @@ export default function ConfigEditor() {
     setAngie((prev) => (prev ? { ...prev, [key]: value } : prev));
   }
 
-  function toggleModule(modName: string) {
-    if (!angie) return;
-    const modules = angie.modules.map((m) =>
-      m.name === modName ? { ...m, loaded: !m.loaded } : m
-    );
-    updateAngieField("modules", modules);
-  }
-
   function toggleCountry(code: string) {
     if (!angie) return;
     const countries = angie.denied_countries.includes(code)
@@ -231,10 +223,8 @@ export default function ConfigEditor() {
       {activeTab === "angie" && angie && (
         <AngieTab
           settings={angie}
-          onChange={updateAngieField}
           onSave={handleSaveAngie}
           onReload={() => handleReload("angie")}
-          onToggleModule={toggleModule}
           onToggleCountry={toggleCountry}
           saving={saving}
         />
@@ -589,110 +579,19 @@ function ModSecurityTab({
     ══════════════════════════════════════════════════════════════════ */
 function AngieTab({
   settings,
-  onChange,
   onSave,
   onReload,
-  onToggleModule,
   onToggleCountry,
   saving,
 }: {
   settings: AngieSettings;
-  onChange: <K extends keyof AngieSettings>(
-    key: K,
-    value: AngieSettings[K]
-  ) => void;
   onSave: () => void;
   onReload: () => void;
-  onToggleModule: (name: string) => void;
   onToggleCountry: (code: string) => void;
   saving: boolean;
 }) {
-  const sortedModules = [...settings.modules].sort((a, b) => {
-    if (a.loaded === b.loaded) return 0;
-    return a.loaded ? -1 : 1;
-  });
-  const activeCount = sortedModules.filter((m) => m.loaded).length;
-  const totalCount = sortedModules.length;
-
   return (
     <div>
-      <div className="card">
-        <div className="card-header">
-          <h3>Worker</h3>
-        </div>
-        <div className="form-group">
-          <FieldLabel
-            label="worker_processes"
-            tooltipKey="tooltip.worker_processes"
-          />
-          <select
-            value={settings.worker_processes}
-            onChange={(e) => onChange("worker_processes", e.target.value)}
-          >
-            <option value="auto">auto</option>
-            <option value="1">1</option>
-            <option value="2">2</option>
-            <option value="4">4</option>
-            <option value="8">8</option>
-          </select>
-        </div>
-        <div className="form-group">
-          <FieldLabel
-            label="worker_rlimit_nofile"
-            tooltipKey="tooltip.worker_rlimit_nofile"
-          />
-          <input
-            type="number"
-            value={settings.worker_rlimit_nofile}
-            onChange={(e) =>
-              onChange("worker_rlimit_nofile", Number(e.target.value))
-            }
-          />
-        </div>
-        <div className="form-group">
-          <FieldLabel
-            label="worker_connections"
-            tooltipKey="tooltip.worker_connections"
-          />
-          <input
-            type="number"
-            value={settings.worker_connections}
-            onChange={(e) =>
-              onChange("worker_connections", Number(e.target.value))
-            }
-          />
-        </div>
-      </div>
-
-      <div className="card">
-        <div className="card-header">
-          <h3>HTTP</h3>
-        </div>
-        <div className="form-group">
-          <FieldLabel
-            label="keepalive_timeout (seconds)"
-            tooltipKey="tooltip.keepalive_timeout"
-          />
-          <input
-            type="number"
-            value={settings.keepalive_timeout}
-            onChange={(e) =>
-              onChange("keepalive_timeout", Number(e.target.value))
-            }
-          />
-        </div>
-        <label
-          className="checkbox-row"
-          onClick={() => onChange("sendfile", !settings.sendfile)}
-        >
-          <input type="checkbox" checked={settings.sendfile} readOnly />
-          <CheckboxLabel
-            text="sendfile — use kernel sendfile for static files"
-            tooltipKey="tooltip.sendfile"
-          />
-        </label>
-      </div>
-
       <div className="card">
         <div className="card-header">
           <h3>GeoIP Blocked Countries</h3>
@@ -713,32 +612,6 @@ function AngieTab({
               <span>{code}</span>
             </label>
           ))}
-        </div>
-      </div>
-
-      <div className="card">
-        <div className="card-header">
-          <h3>Modules</h3>
-        </div>
-        <div className="checkbox-grid">
-          {sortedModules.map((mod) => (
-            <label
-              key={mod.name}
-              className="checkbox-row"
-              onClick={() => onToggleModule(mod.name)}
-            >
-              <input type="checkbox" checked={mod.loaded} readOnly />
-              <span>
-                {mod.name
-                  .replace("ngx_http_", "")
-                  .replace("ngx_", "")
-                  .replace("_module.so", "")}
-              </span>
-            </label>
-          ))}
-        </div>
-        <div style={{ marginTop: "12px", fontSize: "13px", color: "var(--text-secondary)" }}>
-          {activeCount} active / {totalCount} total modules
         </div>
       </div>
 

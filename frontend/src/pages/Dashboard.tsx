@@ -30,6 +30,7 @@ import type {
   ThreatOrigin,
   SecurityEvent,
   GeoipMapPoint,
+  UnresolvedIp,
   TimelinePoint,
   RuleHit,
   SeveritySlice,
@@ -251,57 +252,227 @@ function EmptyState({ message, loading }: { message: string; loading: boolean })
   );
 }
 
-function TrafficChart({ data, loading }: { data: TrafficDataPoint[] | null; loading: boolean }) {
-  if (!data || data.length === 0) return <EmptyState loading={loading} message="No traffic data available" />;
+type TooltipRow = { label: string; value: string; color?: string };
 
+function ChartTooltip({
+  x,
+  y,
+  containerWidth,
+  title,
+  rows,
+}: {
+  x: number;
+  y: number;
+  containerWidth: number;
+  title: string;
+  rows: TooltipRow[];
+}) {
+  // Flip tooltip to the left of the cursor if it would overflow the container.
+  const estW = 200;
+  const flip = x + estW + 24 > containerWidth;
+  const dx = flip ? -estW - 12 : 14;
+  return (
+    <div
+      role="tooltip"
+      style={{
+        position: "absolute",
+        left: x + dx,
+        top: Math.max(8, y - 8),
+        transform: "translateY(-100%)",
+        pointerEvents: "none",
+        background: "var(--card-bg)",
+        border: "2px solid var(--ink)",
+        boxShadow: "var(--shadow-offset-sm)",
+        padding: "8px 10px",
+        minWidth: "150px",
+        maxWidth: `${estW}px`,
+        zIndex: 30,
+        fontFamily: "var(--font-body)",
+      }}
+    >
+      <div
+        style={{
+          fontFamily: "var(--font-cond)",
+          fontSize: "11px",
+          letterSpacing: "0.08em",
+          textTransform: "uppercase",
+          color: "var(--text-secondary)",
+          marginBottom: "6px",
+          borderBottom: "1px solid var(--border-subtle)",
+          paddingBottom: "4px",
+        }}
+      >
+        {title}
+      </div>
+      <div style={{ display: "flex", flexDirection: "column", gap: "3px" }}>
+        {rows.map((r, i) => (
+          <div key={i} style={{ display: "flex", alignItems: "center", gap: "8px", fontSize: "12px" }}>
+            {r.color && (
+              <span
+                aria-hidden
+                style={{
+                  width: 9,
+                  height: 9,
+                  background: r.color,
+                  border: "1px solid var(--ink)",
+                  flexShrink: 0,
+                }}
+              />
+            )}
+            <span style={{ color: "var(--text-secondary)", flex: 1 }}>{r.label}</span>
+            <span style={{ fontFamily: "var(--font-mono)", fontWeight: 600, color: "var(--text-primary)" }}>
+              {r.value}
+            </span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function useSvgHover(viewBoxW: number, padLeft: number, padRight: number, stepX: number, dataLen: number) {
+  const [hoverIdx, setHoverIdx] = useState<number | null>(null);
+  const [pos, setPos] = useState<{ x: number; y: number; containerW: number } | null>(null);
+  const wrapRef = useRef<HTMLDivElement>(null);
+  const svgRef = useRef<SVGSVGElement>(null);
+
+  const onMove = useCallback(
+    (e: React.MouseEvent<HTMLDivElement>) => {
+      const svg = svgRef.current;
+      const wrap = wrapRef.current;
+      if (!svg || !wrap || dataLen === 0) return;
+      const rect = svg.getBoundingClientRect();
+      const wrapRect = wrap.getBoundingClientRect();
+      if (rect.width === 0) return;
+      const relX = ((e.clientX - rect.left) / rect.width) * viewBoxW;
+      if (relX < padLeft || relX > viewBoxW - padRight) {
+        setHoverIdx(null);
+        setPos(null);
+        return;
+      }
+      const idx = Math.floor((relX - padLeft) / stepX);
+      const clamped = Math.max(0, Math.min(dataLen - 1, idx));
+      setHoverIdx(clamped);
+      setPos({
+        x: e.clientX - wrapRect.left,
+        y: e.clientY - wrapRect.top,
+        containerW: wrapRect.width,
+      });
+    },
+    [viewBoxW, padLeft, padRight, stepX, dataLen],
+  );
+
+  const onLeave = useCallback(() => {
+    setHoverIdx(null);
+    setPos(null);
+  }, []);
+
+  return { hoverIdx, pos, wrapRef, svgRef, onMove, onLeave };
+}
+
+function TrafficChart({ data, loading }: { data: TrafficDataPoint[] | null; loading: boolean }) {
   const padding = { top: 16, right: 16, bottom: 36, left: 60 };
   const width = 1200;
   const height = 340;
   const chartW = width - padding.left - padding.right;
   const chartH = height - padding.top - padding.bottom;
 
-  const maxVal = Math.max(...data.map((d) => d.clean + d.malicious), 1);
-  const barW = Math.max(3, Math.floor(chartW / data.length) - 2);
-  const stepX = chartW / data.length;
+  const safeData = data ?? [];
+  const maxVal = Math.max(...safeData.map((d) => d.clean + d.malicious), 1);
+  const barW = Math.max(3, Math.floor(chartW / Math.max(safeData.length, 1)) - 2);
+  const stepX = chartW / Math.max(safeData.length, 1);
+
+  const { hoverIdx, pos, wrapRef, svgRef, onMove, onLeave } = useSvgHover(
+    width,
+    padding.left,
+    padding.right,
+    stepX,
+    safeData.length,
+  );
+
+  if (!data || data.length === 0) return <EmptyState loading={loading} message="No traffic data available" />;
 
   const yTicks = 5;
   const tickVals: number[] = [];
   for (let i = 0; i <= yTicks; i++) tickVals.push(Math.round((maxVal / yTicks) * i));
 
+  const hovered = hoverIdx !== null ? data[hoverIdx] : null;
+
   return (
-    <svg viewBox={`0 0 ${width} ${height}`} style={{ width: "100%", height: "auto", display: "block" }}>
-      {tickVals.map((v) => {
-        const y = padding.top + chartH - (v / maxVal) * chartH;
-        return (
-          <g key={v}>
-            <line x1={padding.left} y1={y} x2={width - padding.right} y2={y} stroke="var(--border-subtle)" strokeWidth="0.5" />
-            <text x={padding.left - 8} y={y + 4} textAnchor="end" fill="var(--text-muted)" fontSize="12">
-              {formatNumber(v)}
-            </text>
-          </g>
-        );
-      })}
-      {data.map((d, i) => {
-        const x = padding.left + i * stepX;
-        const cleanH = (d.clean / maxVal) * chartH;
-        const malH = (d.malicious / maxVal) * chartH;
-        return (
-          <g key={d.timestamp}>
-            <rect x={x + 1} y={padding.top + chartH - cleanH - malH} width={barW} height={cleanH} fill="var(--ok)" opacity={0.85} rx="1" />
-            <rect x={x + 1} y={padding.top + chartH - malH} width={barW} height={malH} fill="var(--red)" opacity={0.9} rx="1" />
-            {i % Math.max(1, Math.floor(data.length / 10)) === 0 && (
-              <text x={x + barW / 2} y={height - 8} textAnchor="middle" fill="var(--text-muted)" fontSize="11">
-                {new Date(d.timestamp).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+    <div ref={wrapRef} style={{ position: "relative" }} onMouseMove={onMove} onMouseLeave={onLeave}>
+      <svg ref={svgRef} viewBox={`0 0 ${width} ${height}`} style={{ width: "100%", height: "auto", display: "block" }}>
+        {tickVals.map((v) => {
+          const y = padding.top + chartH - (v / maxVal) * chartH;
+          return (
+            <g key={v}>
+              <line x1={padding.left} y1={y} x2={width - padding.right} y2={y} stroke="var(--border-subtle)" strokeWidth="0.5" />
+              <text x={padding.left - 8} y={y + 4} textAnchor="end" fill="var(--text-muted)" fontSize="12">
+                {formatNumber(v)}
               </text>
-            )}
-          </g>
-        );
-      })}
-      <rect x={padding.left} y={4} width="12" height="12" rx="2" fill="var(--ok)" opacity={0.85} />
-      <text x={padding.left + 16} y={14} fill="var(--text-secondary)" fontSize="12">Clean</text>
-      <rect x={padding.left + 70} y={4} width="12" height="12" rx="2" fill="var(--red)" opacity={0.9} />
-      <text x={padding.left + 86} y={14} fill="var(--text-secondary)" fontSize="12">Malicious</text>
-    </svg>
+            </g>
+          );
+        })}
+        {data.map((d, i) => {
+          const x = padding.left + i * stepX;
+          const cleanH = (d.clean / maxVal) * chartH;
+          const malH = (d.malicious / maxVal) * chartH;
+          const isHover = hoverIdx === i;
+          return (
+            <g key={d.timestamp}>
+              <rect x={x + 1} y={padding.top + chartH - cleanH - malH} width={barW} height={cleanH} fill="var(--ok)" opacity={isHover ? 1 : 0.85} rx="1" />
+              <rect x={x + 1} y={padding.top + chartH - malH} width={barW} height={malH} fill="var(--red)" opacity={isHover ? 1 : 0.9} rx="1" />
+              {i % Math.max(1, Math.floor(data.length / 10)) === 0 && (
+                <text x={x + barW / 2} y={height - 8} textAnchor="middle" fill="var(--text-muted)" fontSize="11">
+                  {new Date(d.timestamp).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+                </text>
+              )}
+            </g>
+          );
+        })}
+        {hoverIdx !== null && (
+          <line
+            x1={padding.left + hoverIdx * stepX + barW / 2 + 1}
+            y1={padding.top}
+            x2={padding.left + hoverIdx * stepX + barW / 2 + 1}
+            y2={padding.top + chartH}
+            stroke="var(--ink)"
+            strokeWidth="1"
+            strokeDasharray="3 3"
+            opacity={0.7}
+            pointerEvents="none"
+          />
+        )}
+        <rect x={padding.left} y={4} width="12" height="12" rx="2" fill="var(--ok)" opacity={0.85} />
+        <text x={padding.left + 16} y={14} fill="var(--text-secondary)" fontSize="12">Clean</text>
+        <rect x={padding.left + 70} y={4} width="12" height="12" rx="2" fill="var(--red)" opacity={0.9} />
+        <text x={padding.left + 86} y={14} fill="var(--text-secondary)" fontSize="12">Malicious</text>
+      </svg>
+      {hovered && pos && (
+        <ChartTooltip
+          x={pos.x}
+          y={pos.y}
+          containerWidth={pos.containerW}
+          title={new Date(hovered.timestamp).toLocaleString([], {
+            month: "short",
+            day: "numeric",
+            hour: "2-digit",
+            minute: "2-digit",
+          })}
+          rows={[
+            { label: "Clean", value: hovered.clean.toLocaleString(), color: "var(--ok)" },
+            { label: "Malicious", value: hovered.malicious.toLocaleString(), color: "var(--red)" },
+            { label: "Total", value: (hovered.clean + hovered.malicious).toLocaleString() },
+            {
+              label: "Block rate",
+              value:
+                hovered.clean + hovered.malicious > 0
+                  ? `${((hovered.malicious / (hovered.clean + hovered.malicious)) * 100).toFixed(1)}%`
+                  : "0%",
+            },
+          ]}
+        />
+      )}
+    </div>
   );
 }
 
@@ -311,24 +482,35 @@ function TimelineSeries({
   valueOf,
   color,
   unit,
+  valueLabel = "Value",
 }: {
   data: { timestamp: string }[] | null;
   loading: boolean;
   valueOf: (d: { timestamp: string }) => number;
   color: string;
   unit?: "count" | "bytes" | "rps";
+  valueLabel?: string;
 }) {
-  if (!data || data.length === 0) return <EmptyState loading={loading} message="No data available" />;
-
   const padding = { top: 16, right: 16, bottom: 36, left: 64 };
   const width = 1200;
   const height = 280;
   const chartW = width - padding.left - padding.right;
   const chartH = height - padding.top - padding.bottom;
 
-  const values = data.map(valueOf);
+  const safeData = data ?? [];
+  const values = safeData.map(valueOf);
   const maxVal = Math.max(...values, 1);
-  const stepX = chartW / Math.max(data.length - 1, 1);
+  const stepX = chartW / Math.max(safeData.length - 1, 1);
+
+  const { hoverIdx, pos, wrapRef, svgRef, onMove, onLeave } = useSvgHover(
+    width,
+    padding.left,
+    padding.right,
+    stepX,
+    safeData.length,
+  );
+
+  if (!data || data.length === 0) return <EmptyState loading={loading} message="No data available" />;
 
   const points = data.map((d, i) => {
     const x = padding.left + i * stepX;
@@ -348,29 +530,68 @@ function TimelineSeries({
     return formatNumber(Math.round(v));
   };
 
+  const sum = values.reduce((a, b) => a + b, 0);
+  const avg = values.length ? sum / values.length : 0;
+  const peak = Math.max(...values, 0);
+
   return (
-    <svg viewBox={`0 0 ${width} ${height}`} style={{ width: "100%", height: "auto", display: "block" }}>
-      {tickVals.map((v, i) => {
-        const y = padding.top + chartH - (v / maxVal) * chartH;
-        return (
-          <g key={i}>
-            <line x1={padding.left} y1={y} x2={width - padding.right} y2={y} stroke="var(--border-subtle)" strokeWidth="0.5" />
-            <text x={padding.left - 8} y={y + 4} textAnchor="end" fill="var(--text-muted)" fontSize="11">{fmt(v)}</text>
+    <div ref={wrapRef} style={{ position: "relative" }} onMouseMove={onMove} onMouseLeave={onLeave}>
+      <svg ref={svgRef} viewBox={`0 0 ${width} ${height}`} style={{ width: "100%", height: "auto", display: "block" }}>
+        {tickVals.map((v, i) => {
+          const y = padding.top + chartH - (v / maxVal) * chartH;
+          return (
+            <g key={i}>
+              <line x1={padding.left} y1={y} x2={width - padding.right} y2={y} stroke="var(--border-subtle)" strokeWidth="0.5" />
+              <text x={padding.left - 8} y={y + 4} textAnchor="end" fill="var(--text-muted)" fontSize="11">{fmt(v)}</text>
+            </g>
+          );
+        })}
+        <path d={areaPath} fill={color} opacity={0.18} />
+        <path d={path} fill="none" stroke={color} strokeWidth={2.5} />
+        {data.map((d, i) => {
+          if (i % Math.max(1, Math.floor(data.length / 10)) !== 0) return null;
+          const x = padding.left + i * stepX;
+          return (
+            <text key={i} x={x} y={height - 8} textAnchor="middle" fill="var(--text-muted)" fontSize="11">
+              {new Date(d.timestamp).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+            </text>
+          );
+        })}
+        {hoverIdx !== null && points[hoverIdx] && (
+          <g pointerEvents="none">
+            <line
+              x1={points[hoverIdx][0]}
+              y1={padding.top}
+              x2={points[hoverIdx][0]}
+              y2={padding.top + chartH}
+              stroke="var(--ink)"
+              strokeWidth="1"
+              strokeDasharray="3 3"
+              opacity={0.7}
+            />
+            <circle cx={points[hoverIdx][0]} cy={points[hoverIdx][1]} r={5} fill="var(--card-bg)" stroke={color} strokeWidth={2} />
           </g>
-        );
-      })}
-      <path d={areaPath} fill={color} opacity={0.18} />
-      <path d={path} fill="none" stroke={color} strokeWidth={2.5} />
-      {data.map((d, i) => {
-        if (i % Math.max(1, Math.floor(data.length / 10)) !== 0) return null;
-        const x = padding.left + i * stepX;
-        return (
-          <text key={i} x={x} y={height - 8} textAnchor="middle" fill="var(--text-muted)" fontSize="11">
-            {new Date(d.timestamp).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
-          </text>
-        );
-      })}
-    </svg>
+        )}
+      </svg>
+      {hoverIdx !== null && pos && (
+        <ChartTooltip
+          x={pos.x}
+          y={pos.y}
+          containerWidth={pos.containerW}
+          title={new Date(data[hoverIdx].timestamp).toLocaleString([], {
+            month: "short",
+            day: "numeric",
+            hour: "2-digit",
+            minute: "2-digit",
+          })}
+          rows={[
+            { label: valueLabel, value: fmt(values[hoverIdx]), color },
+            { label: "Peak (range)", value: fmt(peak) },
+            { label: "Avg (range)", value: fmt(avg) },
+          ]}
+        />
+      )}
+    </div>
   );
 }
 
@@ -382,59 +603,111 @@ const STATUS_COLORS = {
 } as const;
 
 function StatusCodesChart({ data, loading }: { data: StatusCodePoint[] | null; loading: boolean }) {
-  if (!data || data.length === 0) return <EmptyState loading={loading} message="No status code data" />;
-
   const padding = { top: 16, right: 16, bottom: 36, left: 60 };
   const width = 1200;
   const height = 300;
   const chartW = width - padding.left - padding.right;
   const chartH = height - padding.top - padding.bottom;
 
-  const totals = data.map((d) => d.c2xx + d.c3xx + d.c4xx + d.c5xx);
+  const safeData = data ?? [];
+  const totals = safeData.map((d) => d.c2xx + d.c3xx + d.c4xx + d.c5xx);
   const maxVal = Math.max(...totals, 1);
-  const barW = Math.max(3, Math.floor(chartW / data.length) - 2);
-  const stepX = chartW / data.length;
+  const barW = Math.max(3, Math.floor(chartW / Math.max(safeData.length, 1)) - 2);
+  const stepX = chartW / Math.max(safeData.length, 1);
+
+  const { hoverIdx, pos, wrapRef, svgRef, onMove, onLeave } = useSvgHover(
+    width,
+    padding.left,
+    padding.right,
+    stepX,
+    safeData.length,
+  );
+
+  if (!data || data.length === 0) return <EmptyState loading={loading} message="No status code data" />;
+
+  const hovered = hoverIdx !== null ? data[hoverIdx] : null;
+  const hoveredTotal = hovered ? hovered.c2xx + hovered.c3xx + hovered.c4xx + hovered.c5xx : 0;
 
   return (
-    <svg viewBox={`0 0 ${width} ${height}`} style={{ width: "100%", height: "auto", display: "block" }}>
-      {[0, 0.25, 0.5, 0.75, 1].map((p) => {
-        const y = padding.top + chartH - p * chartH;
-        return (
-          <g key={p}>
-            <line x1={padding.left} y1={y} x2={width - padding.right} y2={y} stroke="var(--border-subtle)" strokeWidth="0.5" />
-            <text x={padding.left - 8} y={y + 4} textAnchor="end" fill="var(--text-muted)" fontSize="11">
-              {formatNumber(Math.round(maxVal * p))}
+    <div ref={wrapRef} style={{ position: "relative" }} onMouseMove={onMove} onMouseLeave={onLeave}>
+      <svg ref={svgRef} viewBox={`0 0 ${width} ${height}`} style={{ width: "100%", height: "auto", display: "block" }}>
+        {[0, 0.25, 0.5, 0.75, 1].map((p) => {
+          const y = padding.top + chartH - p * chartH;
+          return (
+            <g key={p}>
+              <line x1={padding.left} y1={y} x2={width - padding.right} y2={y} stroke="var(--border-subtle)" strokeWidth="0.5" />
+              <text x={padding.left - 8} y={y + 4} textAnchor="end" fill="var(--text-muted)" fontSize="11">
+                {formatNumber(Math.round(maxVal * p))}
+              </text>
+            </g>
+          );
+        })}
+        {data.map((d, i) => {
+          const x = padding.left + i * stepX;
+          let yCursor = padding.top + chartH;
+          const isHover = hoverIdx === i;
+          return (
+            <g key={d.timestamp}>
+              {(["c2xx", "c3xx", "c4xx", "c5xx"] as const).map((k) => {
+                const h = (d[k] / maxVal) * chartH;
+                yCursor -= h;
+                return <rect key={k} x={x + 1} y={yCursor} width={barW} height={h} fill={STATUS_COLORS[k]} opacity={isHover ? 1 : 0.9} />;
+              })}
+              {i % Math.max(1, Math.floor(data.length / 10)) === 0 && (
+                <text x={x + barW / 2} y={height - 8} textAnchor="middle" fill="var(--text-muted)" fontSize="11">
+                  {new Date(d.timestamp).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+                </text>
+              )}
+            </g>
+          );
+        })}
+        {hoverIdx !== null && (
+          <line
+            x1={padding.left + hoverIdx * stepX + barW / 2 + 1}
+            y1={padding.top}
+            x2={padding.left + hoverIdx * stepX + barW / 2 + 1}
+            y2={padding.top + chartH}
+            stroke="var(--ink)"
+            strokeWidth="1"
+            strokeDasharray="3 3"
+            opacity={0.7}
+            pointerEvents="none"
+          />
+        )}
+        {(["c2xx", "c3xx", "c4xx", "c5xx"] as const).map((k, idx) => (
+          <g key={k}>
+            <rect x={padding.left + idx * 70} y={4} width="12" height="12" rx="2" fill={STATUS_COLORS[k]} />
+            <text x={padding.left + idx * 70 + 16} y={14} fill="var(--text-secondary)" fontSize="12">
+              {k.replace("c", "")}
             </text>
           </g>
-        );
-      })}
-      {data.map((d, i) => {
-        const x = padding.left + i * stepX;
-        let yCursor = padding.top + chartH;
-        return (
-          <g key={d.timestamp}>
-            {(["c2xx", "c3xx", "c4xx", "c5xx"] as const).map((k) => {
-              const h = (d[k] / maxVal) * chartH;
-              yCursor -= h;
-              return <rect key={k} x={x + 1} y={yCursor} width={barW} height={h} fill={STATUS_COLORS[k]} opacity={0.9} />;
-            })}
-            {i % Math.max(1, Math.floor(data.length / 10)) === 0 && (
-              <text x={x + barW / 2} y={height - 8} textAnchor="middle" fill="var(--text-muted)" fontSize="11">
-                {new Date(d.timestamp).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
-              </text>
-            )}
-          </g>
-        );
-      })}
-      {(["c2xx", "c3xx", "c4xx", "c5xx"] as const).map((k, idx) => (
-        <g key={k}>
-          <rect x={padding.left + idx * 70} y={4} width="12" height="12" rx="2" fill={STATUS_COLORS[k]} />
-          <text x={padding.left + idx * 70 + 16} y={14} fill="var(--text-secondary)" fontSize="12">
-            {k.replace("c", "")}
-          </text>
-        </g>
-      ))}
-    </svg>
+        ))}
+      </svg>
+      {hovered && pos && (
+        <ChartTooltip
+          x={pos.x}
+          y={pos.y}
+          containerWidth={pos.containerW}
+          title={new Date(hovered.timestamp).toLocaleString([], {
+            month: "short",
+            day: "numeric",
+            hour: "2-digit",
+            minute: "2-digit",
+          })}
+          rows={[
+            ...(["c2xx", "c3xx", "c4xx", "c5xx"] as const).map<TooltipRow>((k) => ({
+              label: k.replace("c", "") + " responses",
+              value:
+                hoveredTotal > 0
+                  ? `${hovered[k].toLocaleString()} (${((hovered[k] / hoveredTotal) * 100).toFixed(1)}%)`
+                  : hovered[k].toLocaleString(),
+              color: STATUS_COLORS[k],
+            })),
+            { label: "Total", value: hoveredTotal.toLocaleString() },
+          ]}
+        />
+      )}
+    </div>
   );
 }
 
@@ -444,23 +717,60 @@ function HorizontalBars({
   labelOf,
   valueOf,
   gradient = "linear-gradient(90deg, var(--accent-1), var(--accent-2))",
+  valueLabel = "Hits",
 }: {
   data: unknown[] | null;
   loading: boolean;
   labelOf: (d: any) => string;
   valueOf: (d: any) => number;
   gradient?: string;
+  valueLabel?: string;
 }) {
+  const [hoverRow, setHoverRow] = useState<number | null>(null);
+  const wrapRef = useRef<HTMLDivElement>(null);
+  const [pos, setPos] = useState<{ x: number; y: number; containerW: number } | null>(null);
+
   if (!data || data.length === 0) return <EmptyState loading={loading} message="No data" />;
   const maxVal = Math.max(...data.map((d) => valueOf(d)), 1);
+  const total: number = data.reduce<number>((a, d) => a + valueOf(d), 0);
+
+  const onRowMove = (e: React.MouseEvent<HTMLDivElement>, idx: number) => {
+    const wrap = wrapRef.current;
+    if (!wrap) return;
+    const rect = wrap.getBoundingClientRect();
+    setHoverRow(idx);
+    setPos({ x: e.clientX - rect.left, y: e.clientY - rect.top, containerW: rect.width });
+  };
+
+  const hovered = hoverRow !== null ? data[hoverRow] : null;
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: "6px", padding: "4px 8px" }}>
+    <div
+      ref={wrapRef}
+      style={{ display: "flex", flexDirection: "column", gap: "6px", padding: "4px 8px", position: "relative" }}
+      onMouseLeave={() => {
+        setHoverRow(null);
+        setPos(null);
+      }}
+    >
       {data.map((d, i) => {
         const label = labelOf(d);
         const val = valueOf(d);
+        const isHover = hoverRow === i;
         return (
-          <div key={i} style={{ display: "flex", alignItems: "center", gap: "10px", minHeight: "26px" }}>
+          <div
+            key={i}
+            onMouseMove={(e) => onRowMove(e, i)}
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: "10px",
+              minHeight: "26px",
+              cursor: "default",
+              filter: isHover ? "brightness(1.12)" : undefined,
+              transition: "filter var(--duration-fast) var(--ease-out)",
+            }}
+          >
             <span
               style={{
                 width: "180px",
@@ -476,7 +786,17 @@ function HorizontalBars({
             >
               {label}
             </span>
-            <div style={{ flex: 1, height: "22px", background: "var(--bg-elevated)", borderRadius: "3px", overflow: "hidden", position: "relative" }}>
+            <div
+              style={{
+                flex: 1,
+                height: "22px",
+                background: "var(--bg-elevated)",
+                borderRadius: "3px",
+                overflow: "hidden",
+                position: "relative",
+                outline: isHover ? "1px solid var(--ink)" : undefined,
+              }}
+            >
               <div
                 style={{
                   height: "100%",
@@ -496,6 +816,22 @@ function HorizontalBars({
           </div>
         );
       })}
+      {hovered !== null && hoverRow !== null && pos && (
+        <ChartTooltip
+          x={pos.x}
+          y={pos.y}
+          containerWidth={pos.containerW}
+          title={labelOf(hovered)}
+          rows={[
+            { label: valueLabel, value: valueOf(hovered).toLocaleString() },
+            {
+              label: "Share of top",
+              value: total > 0 ? `${((valueOf(hovered) / total) * 100).toFixed(1)}%` : "—",
+            },
+            { label: "Rank", value: `#${hoverRow + 1} of ${data.length}` },
+          ]}
+        />
+      )}
     </div>
   );
 }
@@ -512,6 +848,10 @@ const SEVERITY_COLORS: Record<string, string> = {
 };
 
 function SeverityDonut({ data, loading }: { data: SeveritySlice[] | null; loading: boolean }) {
+  const [hoverIdx, setHoverIdx] = useState<number | null>(null);
+  const wrapRef = useRef<HTMLDivElement>(null);
+  const [pos, setPos] = useState<{ x: number; y: number; containerW: number } | null>(null);
+
   if (!data || data.length === 0) return <EmptyState loading={loading} message="No severity data" />;
   const total = data.reduce((a, b) => a + b.hits, 0);
   if (total === 0) return <EmptyState loading={false} message="No severity data" />;
@@ -522,10 +862,27 @@ function SeverityDonut({ data, loading }: { data: SeveritySlice[] | null; loadin
   const inner = 55;
   let cursor = 0;
 
+  const trackPos = (e: React.MouseEvent) => {
+    const wrap = wrapRef.current;
+    if (!wrap) return;
+    const rect = wrap.getBoundingClientRect();
+    setPos({ x: e.clientX - rect.left, y: e.clientY - rect.top, containerW: rect.width });
+  };
+
+  const hovered = hoverIdx !== null ? data[hoverIdx] : null;
+
   return (
-    <div style={{ display: "flex", alignItems: "center", gap: "24px", padding: "8px", flexWrap: "wrap" }}>
+    <div
+      ref={wrapRef}
+      style={{ display: "flex", alignItems: "center", gap: "24px", padding: "8px", flexWrap: "wrap", position: "relative" }}
+      onMouseMove={trackPos}
+      onMouseLeave={() => {
+        setHoverIdx(null);
+        setPos(null);
+      }}
+    >
       <svg viewBox={`0 0 ${size} ${size}`} style={{ width: size, height: size, flexShrink: 0 }}>
-        {data.map((slice) => {
+        {data.map((slice, idx) => {
           const frac = slice.hits / total;
           const start = cursor * 2 * Math.PI;
           const end = (cursor + frac) * 2 * Math.PI;
@@ -540,56 +897,162 @@ function SeverityDonut({ data, loading }: { data: SeveritySlice[] | null; loadin
           const xeI = cx + inner * Math.sin(start);
           const yeI = cy - inner * Math.cos(start);
           const d = `M ${xs} ${ys} A ${r} ${r} 0 ${large} 1 ${xe} ${ye} L ${xsI} ${ysI} A ${inner} ${inner} 0 ${large} 0 ${xeI} ${yeI} Z`;
-          return <path key={slice.severity} d={d} fill={SEVERITY_COLORS[slice.severity] || "#888"} opacity={0.95} />;
+          const isHover = hoverIdx === idx;
+          return (
+            <path
+              key={slice.severity}
+              d={d}
+              fill={SEVERITY_COLORS[slice.severity] || "#888"}
+              opacity={hoverIdx === null || isHover ? 0.95 : 0.4}
+              stroke={isHover ? "var(--ink)" : "transparent"}
+              strokeWidth={isHover ? 2 : 0}
+              onMouseEnter={() => setHoverIdx(idx)}
+              style={{ cursor: "pointer", transition: "opacity var(--duration-fast) var(--ease-out)" }}
+            />
+          );
         })}
-        <text x={cx} y={cy} textAnchor="middle" dy="4" fontSize="22" fontWeight={700} fill="var(--text-primary)">
-          {formatNumber(total)}
+        <text x={cx} y={cy - 4} textAnchor="middle" fontSize="22" fontWeight={700} fill="var(--text-primary)">
+          {hovered ? formatNumber(hovered.hits) : formatNumber(total)}
+        </text>
+        <text x={cx} y={cy + 14} textAnchor="middle" fontSize="10" fill="var(--text-muted)">
+          {hovered ? hovered.severity : "TOTAL"}
         </text>
       </svg>
       <div style={{ display: "flex", flexDirection: "column", gap: "6px", minWidth: "180px" }}>
-        {data.map((s) => (
-          <div key={s.severity} style={{ display: "flex", alignItems: "center", gap: "8px", fontSize: "13px" }}>
-            <div style={{ width: 14, height: 14, borderRadius: 3, background: SEVERITY_COLORS[s.severity] || "#888" }} />
-            <span style={{ color: "var(--text-secondary)", flex: 1 }}>{s.severity}</span>
-            <span style={{ fontWeight: 600, color: "var(--text-primary)" }}>
-              {formatNumber(s.hits)} ({((s.hits / total) * 100).toFixed(1)}%)
-            </span>
-          </div>
-        ))}
+        {data.map((s, idx) => {
+          const isHover = hoverIdx === idx;
+          return (
+            <div
+              key={s.severity}
+              onMouseEnter={() => setHoverIdx(idx)}
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: "8px",
+                fontSize: "13px",
+                cursor: "default",
+                opacity: hoverIdx === null || isHover ? 1 : 0.55,
+                transition: "opacity var(--duration-fast) var(--ease-out)",
+              }}
+            >
+              <div style={{ width: 14, height: 14, borderRadius: 3, background: SEVERITY_COLORS[s.severity] || "#888" }} />
+              <span style={{ color: "var(--text-secondary)", flex: 1 }}>{s.severity}</span>
+              <span style={{ fontWeight: 600, color: "var(--text-primary)", fontFamily: "var(--font-mono)" }}>
+                {formatNumber(s.hits)} ({((s.hits / total) * 100).toFixed(1)}%)
+              </span>
+            </div>
+          );
+        })}
       </div>
+      {hovered && pos && (
+        <ChartTooltip
+          x={pos.x}
+          y={pos.y}
+          containerWidth={pos.containerW}
+          title={hovered.severity}
+          rows={[
+            { label: "Hits", value: hovered.hits.toLocaleString(), color: SEVERITY_COLORS[hovered.severity] || "#888" },
+            { label: "Share", value: `${((hovered.hits / total) * 100).toFixed(2)}%` },
+            { label: "Total (all)", value: total.toLocaleString() },
+          ]}
+        />
+      )}
     </div>
   );
 }
 
 function ThreatOriginsChart({ data, loading }: { data: ThreatOrigin[] | null; loading: boolean }) {
+  const [hoverRow, setHoverRow] = useState<number | null>(null);
+  const wrapRef = useRef<HTMLDivElement>(null);
+  const [pos, setPos] = useState<{ x: number; y: number; containerW: number } | null>(null);
+
   if (!data || data.length === 0) return <EmptyState loading={loading} message="No threat data available" />;
   const maxPct = Math.max(...data.map((d) => d.blocks_percent), 1);
+  const totalPct: number = data.reduce<number>((a, d) => a + d.blocks_percent, 0);
+
+  const onMove = (e: React.MouseEvent, idx: number) => {
+    const wrap = wrapRef.current;
+    if (!wrap) return;
+    const rect = wrap.getBoundingClientRect();
+    setHoverRow(idx);
+    setPos({ x: e.clientX - rect.left, y: e.clientY - rect.top, containerW: rect.width });
+  };
+
+  const hovered = hoverRow !== null ? data[hoverRow] : null;
+
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: "8px", padding: "8px" }}>
-      {data.map((d) => (
-        <div key={d.country_code} style={{ display: "flex", alignItems: "center", gap: "12px", height: "26px" }}>
-          <span style={{ width: "44px", fontSize: "12px", fontWeight: 600, color: "var(--text-secondary)", textAlign: "right", flexShrink: 0 }}>
-            {d.country_code}
-          </span>
-          <div style={{ flex: 1, height: "100%", background: "var(--bg-elevated)", borderRadius: "3px", overflow: "hidden" }}>
+    <div
+      ref={wrapRef}
+      style={{ display: "flex", flexDirection: "column", gap: "8px", padding: "8px", position: "relative" }}
+      onMouseLeave={() => {
+        setHoverRow(null);
+        setPos(null);
+      }}
+    >
+      {data.map((d, i) => {
+        const isHover = hoverRow === i;
+        return (
+          <div
+            key={d.country_code}
+            onMouseMove={(e) => onMove(e, i)}
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: "12px",
+              height: "26px",
+              filter: isHover ? "brightness(1.12)" : undefined,
+              transition: "filter var(--duration-fast) var(--ease-out)",
+            }}
+          >
+            <span style={{ width: "44px", fontSize: "12px", fontWeight: 600, color: "var(--text-secondary)", textAlign: "right", flexShrink: 0 }}>
+              {d.country_code}
+            </span>
             <div
               style={{
+                flex: 1,
                 height: "100%",
-                width: `${(d.blocks_percent / maxPct) * 100}%`,
-                background: "linear-gradient(90deg, var(--danger), var(--accent-2))",
+                background: "var(--bg-elevated)",
                 borderRadius: "3px",
-                display: "flex",
-                alignItems: "center",
-                paddingLeft: "10px",
+                overflow: "hidden",
+                outline: isHover ? "1px solid var(--ink)" : undefined,
               }}
             >
-              <span style={{ fontSize: "11px", fontWeight: 600, color: "#fff", whiteSpace: "nowrap" }}>
-                {d.blocks_percent}%
-              </span>
+              <div
+                style={{
+                  height: "100%",
+                  width: `${(d.blocks_percent / maxPct) * 100}%`,
+                  background: "linear-gradient(90deg, var(--danger), var(--accent-2))",
+                  borderRadius: "3px",
+                  display: "flex",
+                  alignItems: "center",
+                  paddingLeft: "10px",
+                }}
+              >
+                <span style={{ fontSize: "11px", fontWeight: 600, color: "#fff", whiteSpace: "nowrap" }}>
+                  {d.blocks_percent}%
+                </span>
+              </div>
             </div>
           </div>
-        </div>
-      ))}
+        );
+      })}
+      {hovered && hoverRow !== null && pos && (
+        <ChartTooltip
+          x={pos.x}
+          y={pos.y}
+          containerWidth={pos.containerW}
+          title={hovered.country || hovered.country_code}
+          rows={[
+            { label: "Country code", value: hovered.country_code },
+            { label: "Block share", value: `${hovered.blocks_percent}%` },
+            {
+              label: "Of top-N total",
+              value: totalPct > 0 ? `${((hovered.blocks_percent / totalPct) * 100).toFixed(1)}%` : "—",
+            },
+            { label: "Rank", value: `#${hoverRow + 1} of ${data.length}` },
+          ]}
+        />
+      )}
     </div>
   );
 }
@@ -646,7 +1109,111 @@ function EventsTable({ data, loading }: { data: SecurityEvent[] | null; loading:
   );
 }
 
-function GeoipMap({ data, loading }: { data: GeoipMapPoint[] | null; loading: boolean }) {
+// Classify a non-private IP that failed GeoIP enrichment. The MaxMind
+// GeoLite2 database deliberately excludes RFC 5737 documentation ranges,
+// RFC 6598 CGNAT, and a few other special-use blocks. Everything else is
+// a real public IP that just isn't in the DB (rare — usually means the
+// DB is stale or the IP is brand-new).
+function classifyUnresolvedIp(ip: string): { kind: string; reason: string } {
+  const parts = ip.split(".").map(Number);
+  if (parts.length !== 4 || parts.some((p) => Number.isNaN(p) || p < 0 || p > 255)) {
+    return { kind: "Other", reason: "Unparseable IPv4 address" };
+  }
+  const [a, b] = parts;
+  if (a === 192 && b === 0 && parts[2] === 2) return { kind: "TEST-NET-1", reason: "RFC 5737 — reserved for documentation. Not in MaxMind." };
+  if (a === 198 && b === 51 && parts[2] === 100) return { kind: "TEST-NET-2", reason: "RFC 5737 — reserved for documentation. Not in MaxMind." };
+  if (a === 203 && b === 0 && parts[2] === 113) return { kind: "TEST-NET-3", reason: "RFC 5737 — reserved for documentation. Not in MaxMind." };
+  if (a === 100 && b >= 64 && b <= 127) return { kind: "CGNAT", reason: "RFC 6598 — carrier-grade NAT. No public location." };
+  if (a >= 224 && a <= 239) return { kind: "Multicast", reason: "224.0.0.0/4 — multicast, not a host address." };
+  if (a >= 240) return { kind: "Reserved", reason: "240.0.0.0/4 — IANA reserved." };
+  return { kind: "Public", reason: "Real public IP missing from this MaxMind GeoLite2 build. Consider updating the .mmdb." };
+}
+
+function UnresolvedIpsList({ data, compact = false }: { data: UnresolvedIp[]; compact?: boolean }) {
+  if (data.length === 0) return null;
+  const total = data.reduce((a, d) => a + d.hits, 0);
+  return (
+    <div
+      style={{
+        marginTop: compact ? "10px" : "14px",
+        paddingTop: compact ? "10px" : "12px",
+        borderTop: "1px dashed var(--border-subtle)",
+      }}
+    >
+      <div
+        style={{
+          fontFamily: "var(--font-cond)",
+          fontSize: "10.5px",
+          letterSpacing: "0.12em",
+          textTransform: "uppercase",
+          color: "var(--text-secondary)",
+          marginBottom: "8px",
+        }}
+      >
+        {data.length} external IP{data.length === 1 ? "" : "s"} unresolved · {total.toLocaleString()} hit{total === 1 ? "" : "s"}
+      </div>
+      <div style={{ display: "flex", flexDirection: "column", gap: "5px", maxHeight: compact ? "180px" : "260px", overflowY: "auto" }}>
+        {data.map((d) => {
+          const cls = classifyUnresolvedIp(d.ip);
+          return (
+            <div
+              key={d.ip}
+              title={cls.reason}
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: "10px",
+                fontSize: "12px",
+                padding: "4px 8px",
+                background: "var(--bg-elevated)",
+                border: "1px solid var(--border-subtle)",
+              }}
+            >
+              <span
+                style={{
+                  fontFamily: "var(--font-mono)",
+                  color: "var(--text-primary)",
+                  minWidth: "118px",
+                }}
+              >
+                {d.ip}
+              </span>
+              <span
+                style={{
+                  fontFamily: "var(--font-cond)",
+                  fontSize: "10px",
+                  letterSpacing: "0.08em",
+                  textTransform: "uppercase",
+                  padding: "1px 6px",
+                  border: "1px solid var(--ink)",
+                  color: "var(--text-secondary)",
+                  background: "var(--card-bg)",
+                  whiteSpace: "nowrap",
+                }}
+              >
+                {cls.kind}
+              </span>
+              <span style={{ flex: 1 }} />
+              <span style={{ fontFamily: "var(--font-mono)", fontWeight: 600, color: "var(--text-primary)" }}>
+                {d.hits.toLocaleString()}
+              </span>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+function GeoipMap({
+  data,
+  loading,
+  unresolved,
+}: {
+  data: GeoipMapPoint[] | null;
+  loading: boolean;
+  unresolved: UnresolvedIp[] | null;
+}) {
   const { theme } = useSettings();
   const isLight = theme === "light";
   const tileUrl = isLight
@@ -655,8 +1222,113 @@ function GeoipMap({ data, loading }: { data: GeoipMapPoint[] | null; loading: bo
   const mapBg = isLight ? "#f5f6fa" : "#0b0f1e";
   const legendBg = isLight ? "rgba(255,255,255,0.9)" : "rgba(11,15,30,0.85)";
   const popupText = isLight ? "#1a1d2e" : "#e8ecf4";
+  const unresolvedList = unresolved ?? [];
 
-  if (!data || data.length === 0) return <EmptyState loading={loading} message="No geoip data available" />;
+  if (!data || data.length === 0) {
+    if (loading) return <EmptyState loading={true} message="" />;
+    return (
+      <div style={{ height: "520px", width: "100%", borderRadius: "var(--radius-md)", overflow: "hidden", position: "relative" }}>
+        <MapContainer
+          center={[25, 0]}
+          zoom={2}
+          minZoom={2}
+          maxZoom={6}
+          scrollWheelZoom={false}
+          dragging={false}
+          touchZoom={false}
+          doubleClickZoom={false}
+          zoomControl={false}
+          keyboard={false}
+          worldCopyJump
+          style={{ height: "100%", width: "100%", background: mapBg, filter: "grayscale(0.5) opacity(0.55)" }}
+          attributionControl={false}
+        >
+          <TileLayer url={tileUrl} noWrap={false} />
+        </MapContainer>
+        <div
+          style={{
+            position: "absolute",
+            inset: 0,
+            zIndex: 500,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            background: "linear-gradient(180deg, transparent 0%, rgba(0,0,0,0.15) 100%)",
+            pointerEvents: "none",
+          }}
+        >
+          <div
+            style={{
+              maxWidth: "440px",
+              padding: "20px 22px",
+              background: "var(--card-bg)",
+              border: "2px solid var(--ink)",
+              boxShadow: "var(--shadow-offset-sm)",
+              pointerEvents: "auto",
+            }}
+          >
+            <div
+              style={{
+                fontFamily: "var(--font-cond)",
+                fontSize: "11px",
+                letterSpacing: "0.14em",
+                textTransform: "uppercase",
+                color: "var(--text-secondary)",
+                marginBottom: "8px",
+              }}
+            >
+              GeoIP · waiting for external traffic
+            </div>
+            <div
+              style={{
+                fontFamily: "var(--font-display)",
+                fontSize: "20px",
+                fontWeight: 700,
+                lineHeight: 1.15,
+                color: "var(--text-primary)",
+                marginBottom: "12px",
+              }}
+            >
+              No geolocated requests in this window.
+            </div>
+            <ul
+              style={{
+                listStyle: "none",
+                padding: 0,
+                margin: 0,
+                fontSize: "12.5px",
+                lineHeight: 1.55,
+                color: "var(--text-secondary)",
+              }}
+            >
+              <li style={{ display: "flex", gap: "8px", marginBottom: "4px" }}>
+                <span style={{ color: "var(--red)", fontWeight: 700 }}>·</span>
+                Приватные IP (127.0.0.1, 172.x, 10.x, 192.168.x) не имеют GeoIP-координат — это нормально.
+              </li>
+              {unresolvedList.length > 0 ? (
+                <li style={{ display: "flex", gap: "8px", marginBottom: "4px" }}>
+                  <span style={{ color: "var(--red)", fontWeight: 700 }}>·</span>
+                  Внешние IP ниже не разрешились — обычно это RFC 5737 test-ranges (203.0.113.x, 198.51.100.x) из ваших curl-тестов, не настоящие атакующие.
+                </li>
+              ) : (
+                <>
+                  <li style={{ display: "flex", gap: "8px", marginBottom: "4px" }}>
+                    <span style={{ color: "var(--red)", fontWeight: 700 }}>·</span>
+                    Точки появятся, когда придёт реальный внешний трафик через Angie на одно из ваших подключений.
+                  </li>
+                  <li style={{ display: "flex", gap: "8px" }}>
+                    <span style={{ color: "var(--red)", fontWeight: 700 }}>·</span>
+                    Проверьте, что Angie работает (логи без ошибок upstream) и GeoLite2-City.mmdb смонтирован.
+                  </li>
+                </>
+              )}
+            </ul>
+            <UnresolvedIpsList data={unresolvedList} compact />
+          </div>
+        </div>
+      </div>
+    );
+  }
   const maxHits = Math.max(...data.map((d) => d.hits), 1);
   const minHits = Math.min(...data.map((d) => d.hits), 1);
 
@@ -674,6 +1346,7 @@ function GeoipMap({ data, loading }: { data: GeoipMapPoint[] | null; loading: bo
   };
 
   return (
+    <div>
     <div style={{ height: "520px", width: "100%", borderRadius: "var(--radius-md)", overflow: "hidden", position: "relative" }}>
       <MapContainer
         center={[25, 0]}
@@ -742,6 +1415,8 @@ function GeoipMap({ data, loading }: { data: GeoipMapPoint[] | null; loading: bo
           Low
         </div>
       </div>
+    </div>
+      <UnresolvedIpsList data={unresolvedList} />
     </div>
   );
 }
@@ -872,6 +1547,7 @@ function NativePanels({
   const rps = useDashboardPanel<RpsPoint[]>(() => api.getRequestsPerSecond(hours, connectionId), deps, 15_000, visiblePanels.has("rps"));
   const events = useDashboardPanel<SecurityEvent[]>(() => api.getEvents(15, "all", hours, connectionId), deps, 15_000, visiblePanels.has("securityEvents"));
   const geoip = useDashboardPanel<GeoipMapPoint[]>(() => api.getGeoipMap(hours, connectionId), deps, 30_000, visiblePanels.has("geoipMap"));
+  const geoipUnresolved = useDashboardPanel<UnresolvedIp[]>(() => api.getGeoipUnresolved(hours, connectionId), deps, 30_000, visiblePanels.has("geoipMap"));
 
   const m = metrics.data;
 
@@ -883,7 +1559,10 @@ function NativePanels({
         visiblePanels.has("metricActiveRules")) && (
         <div className="metrics-grid" data-testid="metrics-row">
           {visiblePanels.has("metricTotalRequests") && (
-            <div className="metric-card">
+            <div
+              className="metric-card"
+              title="Все HTTP-запросы, прошедшие через Angie за выбранный период. Под значением — изменение относительно предыдущего такого же окна."
+            >
               <div className="metric-icon indigo">
                 <Gauge size={18} />
               </div>
@@ -895,7 +1574,10 @@ function NativePanels({
             </div>
           )}
           {visiblePanels.has("metricBlockedThreats") && (
-            <div className="metric-card">
+            <div
+              className="metric-card"
+              title="Сколько запросов ModSecurity заблокировал по правилам CRS. Под значением — число событий high+critical severity."
+            >
               <div className="metric-icon rose">
                 <ShieldOff size={18} />
               </div>
@@ -905,7 +1587,10 @@ function NativePanels({
             </div>
           )}
           {visiblePanels.has("metricAvgLatency") && (
-            <div className="metric-card">
+            <div
+              className="metric-card"
+              title="Средняя задержка ответа upstream (request_time) за период. Health % — обобщённый показатель состояния стека (Angie+ModSec+CrowdSec)."
+            >
               <div className="metric-icon violet">
                 <Clock size={18} />
               </div>
@@ -915,7 +1600,10 @@ function NativePanels({
             </div>
           )}
           {visiblePanels.has("metricActiveRules") && (
-            <div className="metric-card">
+            <div
+              className="metric-card"
+              title="Количество загруженных правил OWASP CRS в ModSecurity, готовых отрабатывать на трафике."
+            >
               <div className="metric-icon emerald">
                 <ScrollText size={18} />
               </div>
@@ -935,7 +1623,13 @@ function NativePanels({
 
       {visiblePanels.has("wafEvents") && (
         <PanelCard title="🔥 WAF Events Over Time" icon={<Activity size={16} />}>
-          <TimelineSeries data={wafEvents.data} loading={wafEvents.initialLoading} valueOf={(d) => (d as TimelinePoint).hits} color="#ef4444" />
+          <TimelineSeries
+            data={wafEvents.data}
+            loading={wafEvents.initialLoading}
+            valueOf={(d) => (d as TimelinePoint).hits}
+            color="#ef4444"
+            valueLabel="WAF events"
+          />
         </PanelCard>
       )}
 
@@ -963,7 +1657,13 @@ function NativePanels({
           )}
           {visiblePanels.has("anomaly") && (
             <PanelCard title="🧠 Anomaly Score Timeline" icon={<AlertTriangle size={16} />} style={{ marginBottom: 0 }}>
-              <TimelineSeries data={anomaly.data} loading={anomaly.initialLoading} valueOf={(d) => (d as AnomalyPoint).score} color="#f97316" />
+              <TimelineSeries
+                data={anomaly.data}
+                loading={anomaly.initialLoading}
+                valueOf={(d) => (d as AnomalyPoint).score}
+                color="#f97316"
+                valueLabel="Anomaly score"
+              />
             </PanelCard>
           )}
         </div>
@@ -1034,7 +1734,14 @@ function NativePanels({
           )}
           {visiblePanels.has("trafficVolume") && (
             <PanelCard title="📊 Traffic Volume (Bytes)" icon={<BarChart3 size={16} />} style={{ marginBottom: 0 }}>
-              <TimelineSeries data={trafficVolume.data} loading={trafficVolume.initialLoading} valueOf={(d) => (d as BytesPoint).bytes} color="#3b82f6" unit="bytes" />
+              <TimelineSeries
+                data={trafficVolume.data}
+                loading={trafficVolume.initialLoading}
+                valueOf={(d) => (d as BytesPoint).bytes}
+                color="#3b82f6"
+                unit="bytes"
+                valueLabel="Bytes sent"
+              />
             </PanelCard>
           )}
         </div>
@@ -1042,7 +1749,14 @@ function NativePanels({
 
       {visiblePanels.has("rps") && (
         <PanelCard title="⏱ Requests per Second" icon={<Zap size={16} />}>
-          <TimelineSeries data={rps.data} loading={rps.initialLoading} valueOf={(d) => (d as RpsPoint).rps} color="#06b6d4" unit="rps" />
+          <TimelineSeries
+            data={rps.data}
+            loading={rps.initialLoading}
+            valueOf={(d) => (d as RpsPoint).rps}
+            color="#06b6d4"
+            unit="rps"
+            valueLabel="Req / sec"
+          />
         </PanelCard>
       )}
 
@@ -1054,7 +1768,7 @@ function NativePanels({
 
       {visiblePanels.has("geoipMap") && (
         <PanelCard title="GeoIP Attack Origins Map" icon={<Map size={16} />}>
-          <GeoipMap data={geoip.data} loading={geoip.initialLoading} />
+          <GeoipMap data={geoip.data} loading={geoip.initialLoading} unresolved={geoipUnresolved.data} />
         </PanelCard>
       )}
     </>

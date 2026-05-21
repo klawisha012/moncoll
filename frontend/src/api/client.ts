@@ -241,6 +241,11 @@ export interface GeoipMapPoint {
   hits: number;
 }
 
+export interface UnresolvedIp {
+  ip: string;
+  hits: number;
+}
+
 // ── Extended analytics types (mirror Grafana panel set) ───────────
 
 export interface TimelinePoint {
@@ -438,6 +443,10 @@ export const api = {
   getGeoipMap: (hours?: number, connectionId?: number | null) =>
     fetchApi<GeoipMapPoint[]>(
       `/api/dashboard/geoip-map${buildDashboardQuery(hours, connectionId)}`
+    ),
+  getGeoipUnresolved: (hours?: number, connectionId?: number | null) =>
+    fetchApi<UnresolvedIp[]>(
+      `/api/dashboard/geoip-unresolved${buildDashboardQuery(hours, connectionId)}`
     ),
   getEvents: (
     limit = 50,
