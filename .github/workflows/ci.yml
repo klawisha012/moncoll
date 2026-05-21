@@ -325,20 +325,20 @@ jobs:
           # Push only on main pushes; PR builds stay local for Trivy.
           push: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
           load: true
-          # Two tag families: the GHCR-bound ones from metadata-action (only
-          # used when `push:` is true), plus the stable local tag Trivy
-          # scans on this runner. Buildx aliases all of them onto the same
-          # image so `docker images waf-...:<sha>` still resolves.
-          tags: |
-            ${{ steps.meta.outputs.tags }}
-            waf-${{ matrix.image }}:${{ github.sha }}
+          # ONLY metadata-action tags. An unqualified tag like
+          # `waf-<image>:<sha>` would be interpreted by buildx as a Docker
+          # Hub push (registry-1.docker.io/library/...) on `push:true` and
+          # 401 the whole build. Trivy scans the first GHCR tag instead
+          # (see `image-ref` below) — buildx loads it into the local daemon
+          # because `load:true` is set.
+          tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha,scope=${{ matrix.image }}
           cache-to: type=gha,mode=max,scope=${{ matrix.image }}
       - name: Save image digest
         run: |
           mkdir -p .digests
-          echo "waf-${{ matrix.image }}@${{ steps.build.outputs.digest || 'no-digest' }}" \
+          echo "ghcr.io/${{ github.repository }}/${{ matrix.image }}@${{ steps.build.outputs.digest || 'no-digest' }}" \
             > .digests/${{ matrix.image }}.txt
       - name: Upload digest
         uses: actions/upload-artifact@b4b15b8c7c6ac21ea08fcf65892d2ee8f75cf882 # v4.4.3
@@ -349,13 +349,14 @@ jobs:
       # Trivy must run in this matrix job (not a downstream one) because the
       # built image lives on this runner's local Docker daemon. A separate
       # job on a fresh runner would scan an empty daemon and fail to find
-      # waf-${{ matrix.image }}:${{ github.sha }}.
+      # the image. `tags[0]` is the first metadata-action tag (e.g. the
+      # branch ref); load:true above has aliased it into the local daemon.
       - name: Trivy image scan (${{ matrix.image }})
         # aquasecurity/trivy-action@0.28.0
         uses: aquasecurity/trivy-action@6e7b7d1fd3e4fef0c5fa8cce1229c54b2c9bd0d8
         with:
           scan-type: image
-          image-ref: "waf-${{ matrix.image }}:${{ github.sha }}"
+          image-ref: ${{ fromJSON(steps.meta.outputs.json).tags[0] }}
           format: sarif
           output: "trivy-image-${{ matrix.image }}.sarif"
           severity: "CRITICAL,HIGH"
