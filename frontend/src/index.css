@@ -90,6 +90,14 @@
   --cream: #f1ead8;
 }
 
+/* Global keyboard-focus ring. Brand-coral, 3px, offset 3px. Applies to every
+   :focus-visible element unless a component declares its own. Browsers default
+   to a 1px dark outline that is invisible on the warm-black surface. */
+:focus-visible {
+  outline: 3px solid var(--red);
+  outline-offset: 3px;
+}
+
 /* ═══════════════════════════════════════════════════════════════════════════
    DARK THEME — Constructivist inverted
    Cream foreground · Deep warm ink background · Brighter red signal
