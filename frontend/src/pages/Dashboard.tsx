@@ -287,8 +287,8 @@ function TrafficChart({ data, loading }: { data: TrafficDataPoint[] | null; load
         const malH = (d.malicious / maxVal) * chartH;
         return (
           <g key={d.timestamp}>
-            <rect x={x + 1} y={padding.top + chartH - cleanH - malH} width={barW} height={cleanH} fill="var(--accent-1)" opacity={0.85} rx="1" />
-            <rect x={x + 1} y={padding.top + chartH - malH} width={barW} height={malH} fill="var(--danger)" opacity={0.9} rx="1" />
+            <rect x={x + 1} y={padding.top + chartH - cleanH - malH} width={barW} height={cleanH} fill="var(--ok)" opacity={0.85} rx="1" />
+            <rect x={x + 1} y={padding.top + chartH - malH} width={barW} height={malH} fill="var(--red)" opacity={0.9} rx="1" />
             {i % Math.max(1, Math.floor(data.length / 10)) === 0 && (
               <text x={x + barW / 2} y={height - 8} textAnchor="middle" fill="var(--text-muted)" fontSize="11">
                 {new Date(d.timestamp).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
@@ -297,9 +297,9 @@ function TrafficChart({ data, loading }: { data: TrafficDataPoint[] | null; load
           </g>
         );
       })}
-      <rect x={padding.left} y={4} width="12" height="12" rx="2" fill="var(--accent-1)" opacity={0.85} />
+      <rect x={padding.left} y={4} width="12" height="12" rx="2" fill="var(--ok)" opacity={0.85} />
       <text x={padding.left + 16} y={14} fill="var(--text-secondary)" fontSize="12">Clean</text>
-      <rect x={padding.left + 70} y={4} width="12" height="12" rx="2" fill="var(--danger)" opacity={0.9} />
+      <rect x={padding.left + 70} y={4} width="12" height="12" rx="2" fill="var(--red)" opacity={0.9} />
       <text x={padding.left + 86} y={14} fill="var(--text-secondary)" fontSize="12">Malicious</text>
     </svg>
   );
