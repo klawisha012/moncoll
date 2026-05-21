@@ -18,6 +18,7 @@ from .dashboard.router import router as dashboard_router
 from .db.base import get_sessionmaker
 from .modsecurity import router as modsecurity_router
 from .monitoring import router as monitoring_router
+from .tests import tests_router
 
 logger = logging.getLogger(__name__)
 
@@ -75,6 +76,10 @@ def create_app() -> FastAPI:
     app.include_router(connections_router, dependencies=admin)
     app.include_router(certificates_router, dependencies=admin)
     app.include_router(crowdsec_router, dependencies=admin)
+    # Tests router is wired with its own require_admin dep per-route — the
+    # POST /run endpoint needs the User identity for in-process rate-limiting,
+    # which the app-level `dependencies=admin` pattern can't expose.
+    app.include_router(tests_router)
 
     # Expose Prometheus metrics endpoint (intentionally unauthenticated so the
     # Prometheus scraper inside the docker-compose stack keeps working).

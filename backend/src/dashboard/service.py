@@ -53,6 +53,23 @@ _cache_lock = threading.Lock()
 _cache: dict[str, tuple[float, Any]] = {}
 
 
+def _direct_execute(client: ClickHouseClient, query: str, default: Any = None) -> Any:
+    """Run *query* WITHOUT the TTL cache.
+
+    Used by the test-traffic endpoint — we never want a stale cached result
+    for a freshly-fired marker, otherwise the chart appears empty when the
+    audit row has actually landed.
+    """
+    try:
+        return client.execute(query)
+    except ClickHouseError as exc:
+        logger.warning("ClickHouse query failed (%s): %s", exc.__class__.__name__, query)
+        return default
+    except Exception:
+        logger.exception("Unexpected error executing ClickHouse query: %s", query)
+        return default
+
+
 def _safe_execute(client: ClickHouseClient, query: str, default: Any = None) -> Any:
     """Run *query* with a short TTL cache and swallow ClickHouse errors."""
     now = time.monotonic()
@@ -843,6 +860,68 @@ def get_requests_by_country(
         or []
     )
     return [{"country_code": str(c), "hits": int(hits)} for c, hits in rows]
+
+
+# ── Test-traffic endpoint (Tests tab) ──────────────────────────────
+
+
+# Marker header is the contract with the Tests runner (backend/src/tests/service.py).
+# Kept in sync via a string constant — if you rename it, update both places.
+_TEST_MARKER_HEADER = "X-Test-Marker"
+
+
+def get_test_traffic_by_marker(marker: str) -> dict[str, Any]:
+    """Return the WAF audit rows tagged with this X-Test-Marker.
+
+    The caller (router) MUST validate ``marker`` as a UUID4 before calling
+    this — we still single-quote-strip defensively, but the regex check at
+    the router layer is the actual SQL-injection barrier.
+
+    Returns ``{"events": [...], "timestamps": [...]}`` — the timestamp list
+    is what the frontend chart consumes to draw spike highlight markers.
+    """
+    try:
+        client = _get_client()
+    except Exception:
+        return {"events": [], "timestamps": []}
+
+    safe_marker = marker.replace("'", "").replace("\\", "").replace("\x00", "")
+
+    query = (
+        "SELECT w.timestamp, m.ruleId, w.client_ip, w.request_uri, "
+        "w.request_method, m.severity, m.message, w.anomaly_score "
+        "FROM logs.waf_audit_log AS w "
+        "LEFT ARRAY JOIN messages AS m "
+        f"WHERE w.request_headers['{_TEST_MARKER_HEADER}'] = '{safe_marker}' "
+        "AND w.timestamp >= now() - INTERVAL 1 HOUR "
+        "ORDER BY w.timestamp"
+    )
+    rows = _direct_execute(client, query, default=[]) or []
+
+    severity_labels = {0: "info", 1: "low", 2: "medium", 3: "high", 4: "critical"}
+
+    events: list[dict[str, Any]] = []
+    timestamps: list[str] = []
+    seen_ts: set[str] = set()
+    for ts, rule_id, client_ip, uri, method, sev, msg, score in rows:
+        iso = ts.isoformat()
+        events.append(
+            {
+                "timestamp": iso,
+                "rule_id": rule_id or "unknown",
+                "client_ip": client_ip or "0.0.0.0",
+                "uri": uri or "",
+                "method": method or "",
+                "severity": severity_labels.get(int(sev or 0), "info"),
+                "message": msg or "",
+                "anomaly_score": int(score or 0),
+            }
+        )
+        if iso not in seen_ts:
+            seen_ts.add(iso)
+            timestamps.append(iso)
+
+    return {"events": events, "timestamps": timestamps}
 
 
 def get_top_client_ips(

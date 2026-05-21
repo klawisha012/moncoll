@@ -1,6 +1,7 @@
 import asyncio
+import re
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, HTTPException, Path, Query
 
 from .service import (
     get_anomaly_score_timeline,
@@ -12,6 +13,7 @@ from .service import (
     get_security_events,
     get_severity_distribution,
     get_status_codes_timeline,
+    get_test_traffic_by_marker,
     get_threat_origins,
     get_top_attacking_ips,
     get_top_client_ips,
@@ -23,6 +25,14 @@ from .service import (
     get_traffic_data,
     get_traffic_volume,
     get_waf_events_timeline,
+)
+
+# Strict UUID4 regex. We accept the path param ONLY when it matches this
+# pattern — anything else (incl. random ASCII, SQL fragments, etc.) returns
+# 400 BEFORE the ClickHouse query is built. See design doc decision 6A.
+_UUID4_RE = re.compile(
+    r"^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
+    re.IGNORECASE,
 )
 
 router = APIRouter(prefix="/api/dashboard", tags=["dashboard"])
@@ -179,3 +189,24 @@ async def requests_by_country(hours: float = _HOURS, connection_id: int | None =
 @router.get("/top-client-ips")
 async def top_client_ips(hours: float = _HOURS, connection_id: int | None = _CONNECTION_ID):
     return await _run(get_top_client_ips, hours, connection_id, 15)
+
+
+@router.get("/test-traffic/{marker}")
+async def test_traffic(
+    marker: str = Path(..., min_length=36, max_length=36, description="UUID4 marker"),
+):
+    """Return all WAF audit rows tagged with this X-Test-Marker.
+
+    Used by the Tests tab to overlay a spike on the traffic chart and list
+    individual rule hits. Bypasses the dashboard TTL cache — we never want
+    stale results for a freshly-fired marker.
+
+    Path param is strictly validated as UUID4 — non-conforming values return
+    400 BEFORE any ClickHouse query is built (SQL-injection barrier).
+    """
+    if not _UUID4_RE.match(marker):
+        raise HTTPException(status_code=400, detail="marker must be a UUID4")
+    try:
+        return await _run(get_test_traffic_by_marker, marker)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e)) from e
