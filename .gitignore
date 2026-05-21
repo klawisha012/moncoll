@@ -32,6 +32,12 @@ dist/
 *.log
 var/log/
 
+# WAF runtime state (live backend artefacts, not source)
+/var/compose/
+/var/site-templates/
+/var/mode4.json
+/configs/angie/http.d/blocked_ips.conf
+
 # Temporary files
 temp/
 tmp/
