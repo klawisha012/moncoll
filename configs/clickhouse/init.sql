@@ -153,23 +153,12 @@ TTL timestamp + INTERVAL 12 MONTH;
 
 
 -- =====================================================================
--- View of all enabled connection domains, sourced from PostgreSQL.
--- Used by the Grafana dashboard `connection` templating variable
--- (label: "Domain") so the dropdown lists only domains belonging to
--- active WAF connections — not every Host header ever seen in
--- waf_audit_log (which leaks Docker bridge IPs, "angie", "localhost").
+-- NOTE: logs.connection_domains VIEW is intentionally NOT created here.
+-- It depends on the PostgreSQL `connections` table, which Alembic creates
+-- AFTER ClickHouse init runs. Creating it here aborted init.sql with
+-- `UNKNOWN_TABLE`, causing ClickHouse to exit on first boot.
 --
--- ClickHouse reads `connections.domains` (PG JSON column) as text via
--- the postgresql() table function; JSONExtract unpacks it into an
--- Array(String), and arrayJoin fans it out to one row per domain.
+-- The backend recreates this VIEW on startup once Alembic has confirmed
+-- the PG schema is in place. See clickhouse_init.ensure_views() in
+-- backend/src/dashboard/clickhouse_init.py.
 -- =====================================================================
--- Credentials come from configs/clickhouse/config.d/named_collections.xml
--- (the `postgres_waf` named collection reads POSTGRES_USER/PASSWORD/DB
--- via from_env so .env regeneration doesn't desync this view).
-CREATE OR REPLACE VIEW logs.connection_domains AS
-SELECT DISTINCT
-    arrayJoin(JSONExtract(toString(domains), 'Array(String)')) AS domain
-FROM postgresql(postgres_waf, table='connections')
-WHERE enabled = true
-  AND length(toString(domains)) > 2  -- skip empty '[]' / NULL rows
-ORDER BY domain;

@@ -6,6 +6,7 @@ from .service import (
     get_anomaly_score_timeline,
     get_dashboard_metrics,
     get_geoip_map_data,
+    get_geoip_unresolved_ips,
     get_requests_by_country,
     get_requests_per_second,
     get_security_events,
@@ -67,6 +68,20 @@ async def geoip_map(hours: float = _HOURS, connection_id: int | None = _CONNECTI
     """Return GeoIP coordinates with hit counts for world map visualization."""
     try:
         return await _run(get_geoip_map_data, hours, connection_id)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e)) from e
+
+
+@router.get("/geoip-unresolved")
+async def geoip_unresolved(hours: float = _HOURS, connection_id: int | None = _CONNECTION_ID):
+    """Return external-looking client IPs that lack GeoIP enrichment.
+
+    Useful to explain why the world map is empty when public-looking IPs
+    appear elsewhere in the dashboard (e.g. RFC 5737 documentation ranges,
+    CGNAT, or addresses missing from the MaxMind database).
+    """
+    try:
+        return await _run(get_geoip_unresolved_ips, hours, connection_id)
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e)) from e
 

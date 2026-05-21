@@ -403,6 +403,59 @@ def get_geoip_map_data(hours: float = 24, connection_id: int | None = None) -> l
     return result
 
 
+def get_geoip_unresolved_ips(
+    hours: float = 24,
+    connection_id: int | None = None,
+) -> list[dict[str, Any]]:
+    """Return non-private client IPs that failed GeoIP enrichment.
+
+    Excludes loopback / RFC 1918 / link-local — those are expected to lack
+    GeoIP. What remains is IPs that LOOK external but have no coordinates,
+    typically RFC 5737 documentation ranges (192.0.2.0/24, 198.51.100.0/24,
+    203.0.113.0/24), CGNAT (100.64.0.0/10), or real public IPs missing from
+    the MaxMind DB.
+    """
+    try:
+        client = _get_client()
+    except Exception:
+        return []
+
+    minutes = _clamp_minutes(hours)
+    domains = _domains_for_connection(connection_id)
+    nginx_filter = _host_filter_nginx(domains)
+
+    # remote_addr is typed as IPv4 in ClickHouse — cast directly to UInt32
+    # for numeric range comparisons against RFC ranges.
+    rows = (
+        _safe_execute(
+            client,
+            "SELECT IPv4NumToString(remote_addr) AS ip, count() AS cnt "
+            "FROM logs.nginx_access_log "
+            f"WHERE time_local >= now() - INTERVAL {minutes} MINUTE "
+            "AND toUInt32(remote_addr) != 0 "
+            "AND (geoip_country_code = '' OR geoip_latitude = 0 OR geoip_longitude = 0) "
+            # Exclude loopback 127.0.0.0/8
+            "AND NOT (toUInt32(remote_addr) BETWEEN toUInt32(toIPv4('127.0.0.0')) AND toUInt32(toIPv4('127.255.255.255'))) "
+            # Exclude RFC 1918 10.0.0.0/8
+            "AND NOT (toUInt32(remote_addr) BETWEEN toUInt32(toIPv4('10.0.0.0')) AND toUInt32(toIPv4('10.255.255.255'))) "
+            # Exclude RFC 1918 172.16.0.0/12
+            "AND NOT (toUInt32(remote_addr) BETWEEN toUInt32(toIPv4('172.16.0.0')) AND toUInt32(toIPv4('172.31.255.255'))) "
+            # Exclude RFC 1918 192.168.0.0/16
+            "AND NOT (toUInt32(remote_addr) BETWEEN toUInt32(toIPv4('192.168.0.0')) AND toUInt32(toIPv4('192.168.255.255'))) "
+            # Exclude link-local 169.254.0.0/16
+            "AND NOT (toUInt32(remote_addr) BETWEEN toUInt32(toIPv4('169.254.0.0')) AND toUInt32(toIPv4('169.254.255.255'))) "
+            f"{nginx_filter} "
+            "GROUP BY remote_addr "
+            "ORDER BY cnt DESC "
+            "LIMIT 30",
+            default=[],
+        )
+        or []
+    )
+
+    return [{"ip": str(ip), "hits": int(cnt)} for ip, cnt in rows]
+
+
 def get_security_events(
     limit: int = 50,
     severity: str = "all",
