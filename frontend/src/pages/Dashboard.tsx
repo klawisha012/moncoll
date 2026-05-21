@@ -48,6 +48,15 @@ import type {
 import { MapContainer, TileLayer, CircleMarker, Popup } from "react-leaflet";
 import "leaflet/dist/leaflet.css";
 import { useSettings } from "../context/SettingsContext";
+import TrafficChart from "../components/charts/TrafficChart";
+import {
+  ChartTooltip,
+  EmptyState,
+  formatBytes,
+  formatNumber,
+  useSvgHover,
+  type TooltipRow,
+} from "../components/charts/chart-utils";
 
 type Tab = "grafana" | "native";
 type TimeUnit = "minutes" | "hours" | "days";
@@ -145,20 +154,6 @@ function loadVisible(): Set<PanelKey> {
   }
 }
 
-function formatNumber(n: number): string {
-  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
-  if (n >= 1_000) return `${(n / 1_000).toFixed(1)}K`;
-  return n.toLocaleString();
-}
-
-function formatBytes(n: number): string {
-  if (n >= 1024 ** 4) return `${(n / 1024 ** 4).toFixed(1)} TB`;
-  if (n >= 1024 ** 3) return `${(n / 1024 ** 3).toFixed(1)} GB`;
-  if (n >= 1024 ** 2) return `${(n / 1024 ** 2).toFixed(1)} MB`;
-  if (n >= 1024) return `${(n / 1024).toFixed(1)} KB`;
-  return `${n} B`;
-}
-
 const UNITS: { value: TimeUnit; label: string; multiplier: number }[] = [
   { value: "minutes", label: "Minutes", multiplier: 1 / 60 },
   { value: "hours", label: "Hours", multiplier: 1 },
@@ -233,245 +228,6 @@ function PanelCard({
         <h2 style={{ fontSize: "15px", margin: 0 }}>{title}</h2>
       </div>
       <div style={{ padding: "8px 4px" }}>{children}</div>
-    </div>
-  );
-}
-
-function EmptyState({ message, loading }: { message: string; loading: boolean }) {
-  if (loading) {
-    return (
-      <div className="loading-spinner" style={{ padding: "48px 0", fontSize: "13px" }}>
-        Loading…
-      </div>
-    );
-  }
-  return (
-    <div style={{ padding: "48px 0", textAlign: "center", color: "var(--text-muted)", fontSize: "13px" }}>
-      {message}
-    </div>
-  );
-}
-
-type TooltipRow = { label: string; value: string; color?: string };
-
-function ChartTooltip({
-  x,
-  y,
-  containerWidth,
-  title,
-  rows,
-}: {
-  x: number;
-  y: number;
-  containerWidth: number;
-  title: string;
-  rows: TooltipRow[];
-}) {
-  // Flip tooltip to the left of the cursor if it would overflow the container.
-  const estW = 200;
-  const flip = x + estW + 24 > containerWidth;
-  const dx = flip ? -estW - 12 : 14;
-  return (
-    <div
-      role="tooltip"
-      style={{
-        position: "absolute",
-        left: x + dx,
-        top: Math.max(8, y - 8),
-        transform: "translateY(-100%)",
-        pointerEvents: "none",
-        background: "var(--card-bg)",
-        border: "2px solid var(--ink)",
-        boxShadow: "var(--shadow-offset-sm)",
-        padding: "8px 10px",
-        minWidth: "150px",
-        maxWidth: `${estW}px`,
-        zIndex: 30,
-        fontFamily: "var(--font-body)",
-      }}
-    >
-      <div
-        style={{
-          fontFamily: "var(--font-cond)",
-          fontSize: "11px",
-          letterSpacing: "0.08em",
-          textTransform: "uppercase",
-          color: "var(--text-secondary)",
-          marginBottom: "6px",
-          borderBottom: "1px solid var(--border-subtle)",
-          paddingBottom: "4px",
-        }}
-      >
-        {title}
-      </div>
-      <div style={{ display: "flex", flexDirection: "column", gap: "3px" }}>
-        {rows.map((r, i) => (
-          <div key={i} style={{ display: "flex", alignItems: "center", gap: "8px", fontSize: "12px" }}>
-            {r.color && (
-              <span
-                aria-hidden
-                style={{
-                  width: 9,
-                  height: 9,
-                  background: r.color,
-                  border: "1px solid var(--ink)",
-                  flexShrink: 0,
-                }}
-              />
-            )}
-            <span style={{ color: "var(--text-secondary)", flex: 1 }}>{r.label}</span>
-            <span style={{ fontFamily: "var(--font-mono)", fontWeight: 600, color: "var(--text-primary)" }}>
-              {r.value}
-            </span>
-          </div>
-        ))}
-      </div>
-    </div>
-  );
-}
-
-function useSvgHover(viewBoxW: number, padLeft: number, padRight: number, stepX: number, dataLen: number) {
-  const [hoverIdx, setHoverIdx] = useState<number | null>(null);
-  const [pos, setPos] = useState<{ x: number; y: number; containerW: number } | null>(null);
-  const wrapRef = useRef<HTMLDivElement>(null);
-  const svgRef = useRef<SVGSVGElement>(null);
-
-  const onMove = useCallback(
-    (e: React.MouseEvent<HTMLDivElement>) => {
-      const svg = svgRef.current;
-      const wrap = wrapRef.current;
-      if (!svg || !wrap || dataLen === 0) return;
-      const rect = svg.getBoundingClientRect();
-      const wrapRect = wrap.getBoundingClientRect();
-      if (rect.width === 0) return;
-      const relX = ((e.clientX - rect.left) / rect.width) * viewBoxW;
-      if (relX < padLeft || relX > viewBoxW - padRight) {
-        setHoverIdx(null);
-        setPos(null);
-        return;
-      }
-      const idx = Math.floor((relX - padLeft) / stepX);
-      const clamped = Math.max(0, Math.min(dataLen - 1, idx));
-      setHoverIdx(clamped);
-      setPos({
-        x: e.clientX - wrapRect.left,
-        y: e.clientY - wrapRect.top,
-        containerW: wrapRect.width,
-      });
-    },
-    [viewBoxW, padLeft, padRight, stepX, dataLen],
-  );
-
-  const onLeave = useCallback(() => {
-    setHoverIdx(null);
-    setPos(null);
-  }, []);
-
-  return { hoverIdx, pos, wrapRef, svgRef, onMove, onLeave };
-}
-
-function TrafficChart({ data, loading }: { data: TrafficDataPoint[] | null; loading: boolean }) {
-  const padding = { top: 16, right: 16, bottom: 36, left: 60 };
-  const width = 1200;
-  const height = 340;
-  const chartW = width - padding.left - padding.right;
-  const chartH = height - padding.top - padding.bottom;
-
-  const safeData = data ?? [];
-  const maxVal = Math.max(...safeData.map((d) => d.clean + d.malicious), 1);
-  const barW = Math.max(3, Math.floor(chartW / Math.max(safeData.length, 1)) - 2);
-  const stepX = chartW / Math.max(safeData.length, 1);
-
-  const { hoverIdx, pos, wrapRef, svgRef, onMove, onLeave } = useSvgHover(
-    width,
-    padding.left,
-    padding.right,
-    stepX,
-    safeData.length,
-  );
-
-  if (!data || data.length === 0) return <EmptyState loading={loading} message="No traffic data available" />;
-
-  const yTicks = 5;
-  const tickVals: number[] = [];
-  for (let i = 0; i <= yTicks; i++) tickVals.push(Math.round((maxVal / yTicks) * i));
-
-  const hovered = hoverIdx !== null ? data[hoverIdx] : null;
-
-  return (
-    <div ref={wrapRef} style={{ position: "relative" }} onMouseMove={onMove} onMouseLeave={onLeave}>
-      <svg ref={svgRef} viewBox={`0 0 ${width} ${height}`} style={{ width: "100%", height: "auto", display: "block" }}>
-        {tickVals.map((v) => {
-          const y = padding.top + chartH - (v / maxVal) * chartH;
-          return (
-            <g key={v}>
-              <line x1={padding.left} y1={y} x2={width - padding.right} y2={y} stroke="var(--border-subtle)" strokeWidth="0.5" />
-              <text x={padding.left - 8} y={y + 4} textAnchor="end" fill="var(--text-muted)" fontSize="12">
-                {formatNumber(v)}
-              </text>
-            </g>
-          );
-        })}
-        {data.map((d, i) => {
-          const x = padding.left + i * stepX;
-          const cleanH = (d.clean / maxVal) * chartH;
-          const malH = (d.malicious / maxVal) * chartH;
-          const isHover = hoverIdx === i;
-          return (
-            <g key={d.timestamp}>
-              <rect x={x + 1} y={padding.top + chartH - cleanH - malH} width={barW} height={cleanH} fill="var(--ok)" opacity={isHover ? 1 : 0.85} rx="1" />
-              <rect x={x + 1} y={padding.top + chartH - malH} width={barW} height={malH} fill="var(--red)" opacity={isHover ? 1 : 0.9} rx="1" />
-              {i % Math.max(1, Math.floor(data.length / 10)) === 0 && (
-                <text x={x + barW / 2} y={height - 8} textAnchor="middle" fill="var(--text-muted)" fontSize="11">
-                  {new Date(d.timestamp).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
-                </text>
-              )}
-            </g>
-          );
-        })}
-        {hoverIdx !== null && (
-          <line
-            x1={padding.left + hoverIdx * stepX + barW / 2 + 1}
-            y1={padding.top}
-            x2={padding.left + hoverIdx * stepX + barW / 2 + 1}
-            y2={padding.top + chartH}
-            stroke="var(--ink)"
-            strokeWidth="1"
-            strokeDasharray="3 3"
-            opacity={0.7}
-            pointerEvents="none"
-          />
-        )}
-        <rect x={padding.left} y={4} width="12" height="12" rx="2" fill="var(--ok)" opacity={0.85} />
-        <text x={padding.left + 16} y={14} fill="var(--text-secondary)" fontSize="12">Clean</text>
-        <rect x={padding.left + 70} y={4} width="12" height="12" rx="2" fill="var(--red)" opacity={0.9} />
-        <text x={padding.left + 86} y={14} fill="var(--text-secondary)" fontSize="12">Malicious</text>
-      </svg>
-      {hovered && pos && (
-        <ChartTooltip
-          x={pos.x}
-          y={pos.y}
-          containerWidth={pos.containerW}
-          title={new Date(hovered.timestamp).toLocaleString([], {
-            month: "short",
-            day: "numeric",
-            hour: "2-digit",
-            minute: "2-digit",
-          })}
-          rows={[
-            { label: "Clean", value: hovered.clean.toLocaleString(), color: "var(--ok)" },
-            { label: "Malicious", value: hovered.malicious.toLocaleString(), color: "var(--red)" },
-            { label: "Total", value: (hovered.clean + hovered.malicious).toLocaleString() },
-            {
-              label: "Block rate",
-              value:
-                hovered.clean + hovered.malicious > 0
-                  ? `${((hovered.malicious / (hovered.clean + hovered.malicious)) * 100).toFixed(1)}%`
-                  : "0%",
-            },
-          ]}
-        />
-      )}
     </div>
   );
 }

@@ -316,6 +316,100 @@ export interface CountryHit {
   hits: number;
 }
 
+// ── Tests tab types ─────────────────────────────────────────
+
+export type TestFamily =
+  | "xss"
+  | "sqli"
+  | "rce"
+  | "rfi"
+  | "lfi"
+  | "scanner"
+  | "java"
+  | "php"
+  | "session_fixation"
+  | "multipart"
+  | "method"
+  | "protocol_attack"
+  | "protocol_enforce"
+  | "generic"
+  | "blocking"
+  | "crowdsec";
+
+export interface TestCase {
+  id: string;
+  family: TestFamily;
+  rule_id: string;
+  description: string;
+  method: "GET" | "POST";
+  path: string;
+  query: Record<string, string>;
+  headers: Record<string, string>;
+  body: string | null;
+}
+
+export interface TestsCatalog {
+  tests: TestCase[];
+  generated_at: string | null;
+}
+
+export type TestResultStatus =
+  | "blocked"
+  | "fired-but-not-blocked"
+  | "passed"
+  | "timeout";
+
+export interface TestRunRequest {
+  test_id: string;
+  connection_id: number | null;
+}
+
+export interface TestRunResult {
+  marker: string;
+  status: TestResultStatus;
+  http_code: number | null;
+  blocked_by: string | null;
+  latency_ms: number | null;
+  target_url: string;
+  error: string | null;
+}
+
+export interface TestTrafficEvent {
+  timestamp: string;
+  rule_id: string;
+  client_ip: string;
+  uri: string;
+  method: string;
+  severity: string;
+  message: string;
+  anomaly_score: number;
+}
+
+export interface TestTrafficResponse {
+  events: TestTrafficEvent[];
+  timestamps: string[];
+}
+
+export interface CrowdsecScenario {
+  id: string;
+  scenario: string;
+  description: string;
+  burst_size: number;
+}
+
+export interface CrowdsecCatalog {
+  scenarios: CrowdsecScenario[];
+}
+
+export interface CrowdsecRunResult {
+  scenario: string;
+  source_ip: string;
+  started_at: string;
+  decisions_after: string[];
+  bursts_sent: number;
+  target_url: string;
+}
+
 function buildDashboardQuery(
   hours?: number,
   connectionId?: number | null
@@ -519,6 +613,22 @@ export const api = {
     fetchApi<IpHit[]>(
       `/api/dashboard/top-client-ips${buildDashboardQuery(hours, connectionId)}`
     ),
+
+  // Tests tab — admin-only catalog + runner
+  getTestsCatalog: () => fetchApi<TestsCatalog>("/api/tests/catalog"),
+  runTest: (req: TestRunRequest) =>
+    fetchApi<TestRunResult>("/api/tests/run", {
+      method: "POST",
+      body: JSON.stringify(req),
+    }),
+  getTestTrafficByMarker: (marker: string) =>
+    fetchApi<TestTrafficResponse>(`/api/dashboard/test-traffic/${encodeURIComponent(marker)}`),
+  getCrowdsecTestCatalog: () => fetchApi<CrowdsecCatalog>("/api/tests/crowdsec/catalog"),
+  runCrowdsecScenario: (scenario_id: string) =>
+    fetchApi<CrowdsecRunResult>("/api/tests/crowdsec/run", {
+      method: "POST",
+      body: JSON.stringify({ scenario_id }),
+    }),
 
   // Connections API
   getConnections: () => fetchApi<Connection[]>("/api/connections/"),

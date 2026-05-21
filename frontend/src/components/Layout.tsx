@@ -10,6 +10,7 @@ import {
   Cog,
   LogOut,
   Users as UsersIcon,
+  TestTube,
 } from "lucide-react";
 import { useSettings } from "../context/SettingsContext";
 import { useAuth } from "../context/AuthContext";
@@ -107,6 +108,15 @@ export default function Layout() {
                 >
                   <Ban />
                   {t("nav.crowdsec")}
+                </NavLink>
+                <NavLink
+                  to="/tests"
+                  className={({ isActive }) =>
+                    `nav-link ${isActive ? "active" : ""}`
+                  }
+                >
+                  <TestTube />
+                  {t("nav.tests")}
                 </NavLink>
               </div>
             </>

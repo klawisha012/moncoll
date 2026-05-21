@@ -30,8 +30,11 @@ from .service import (
 # Strict UUID4 regex. We accept the path param ONLY when it matches this
 # pattern — anything else (incl. random ASCII, SQL fragments, etc.) returns
 # 400 BEFORE the ClickHouse query is built. See design doc decision 6A.
+#
+# `\Z` (not `$`) is used at the end on purpose — `$` in Python regex would
+# accept a trailing newline, which would let `<uuid>\n; DROP …` slip through.
 _UUID4_RE = re.compile(
-    r"^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
+    r"\A[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\Z",
     re.IGNORECASE,
 )
 

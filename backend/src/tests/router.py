@@ -21,9 +21,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ..auth.dependencies import require_admin
 from ..db.models import User
 from ..db.session import get_session
-from . import service as test_service
+from . import crowdsec_runner, service as test_service
 from .manifest import load_catalog
-from .schemas import Catalog, RunRequest, RunResult
+from .schemas import Catalog, CrowdsecRunResult, RunRequest, RunResult
 
 logger = logging.getLogger(__name__)
 
@@ -84,3 +84,30 @@ async def run_test_endpoint(
         )
 
     return await test_service.run_test(session, body)
+
+
+# ── CrowdSec subcatalog ──────────────────────────────────────────────
+
+
+@router.get("/crowdsec/catalog")
+async def get_crowdsec_catalog(_: User = Depends(require_admin)) -> dict:
+    """Return the CrowdSec scenario subcatalog."""
+    return {"scenarios": crowdsec_runner.list_scenarios()}
+
+
+@router.post("/crowdsec/run", response_model=CrowdsecRunResult)
+async def run_crowdsec_scenario(
+    body: dict,
+    user: User = Depends(require_admin),
+) -> CrowdsecRunResult:
+    """Fire a CrowdSec scenario burst and return the decisions delta."""
+    _rate_limit(user)
+
+    scenario_id = str(body.get("scenario_id", "")).strip()
+    if not scenario_id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="scenario_id required",
+        )
+
+    return await crowdsec_runner.run_scenario(scenario_id)

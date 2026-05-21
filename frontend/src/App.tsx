@@ -10,6 +10,7 @@ import CrowdSec from "./pages/CrowdSec";
 import Login from "./pages/Login";
 import ChangePassword from "./pages/ChangePassword";
 import Users from "./pages/Users";
+import Tests from "./pages/Tests";
 
 function App() {
   return (
@@ -42,6 +43,14 @@ function App() {
             element={
               <AdminOnly>
                 <CrowdSec />
+              </AdminOnly>
+            }
+          />
+          <Route
+            path="tests"
+            element={
+              <AdminOnly>
+                <Tests />
               </AdminOnly>
             }
           />
