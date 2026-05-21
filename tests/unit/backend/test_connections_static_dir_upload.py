@@ -130,16 +130,17 @@ def test_smart_flatten_no_op_when_flat_layout(tmp_path):
     assert (site / "blog" / "index.html").read_text() == "<blog>"
 
 
-def test_smart_flatten_no_op_for_unknown_wrapper(tmp_path):
+def test_smart_flatten_hoists_unknown_wrapper(tmp_path):
     site = tmp_path / "site"
     (site / "mything").mkdir(parents=True)
     (site / "mything" / "index.html").write_text("<root>")
 
     cs._smart_flatten_site_dir(site)
 
-    # ``mything`` isn't in the recognized SSG wrappers — leave it alone.
-    assert (site / "mything" / "index.html").exists()
-    assert not (site / "index.html").exists()
+    # Any single directory wrapper containing index.html is now hoisted.
+    assert (site / "index.html").read_text() == "<root>"
+    assert not (site / "mything").exists()
+
 
 
 def test_smart_flatten_no_op_when_wrapper_has_no_index(tmp_path):

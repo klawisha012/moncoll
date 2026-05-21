@@ -6,6 +6,7 @@ from datetime import datetime
 from pathlib import Path
 
 import docker
+from fastapi import HTTPException
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -425,22 +426,15 @@ def _existing_or_none(path: Path) -> Path | None:
     return path if path.is_dir() else None
 
 
-# Common SSG output directories — if an uploaded site contains exactly one
-# of these and nothing else at the top level (besides hidden files), we
-# transparently hoist its contents to fix the "user uploaded the project
-# root instead of the build output" pitfall. Order doesn't matter; it's a
-# set of recognised wrappers.
-_BUILD_WRAPPER_DIRS = {"dist", "build", "out", "public", "_site"}
 
 
 def _smart_flatten_site_dir(site_dir: Path) -> None:
-    """If *site_dir* looks like ``<wrapper>/…`` for a known SSG wrapper,
-    hoist the wrapper's contents into *site_dir* and remove the wrapper.
+    """If *site_dir* looks like ``<wrapper>/…``, hoist the wrapper's contents
+    into *site_dir* and remove the wrapper.
 
     Triggers only when:
       * exactly one visible entry exists at the top of *site_dir*,
-      * that entry is a directory named ``dist`` / ``build`` / ``out`` /
-        ``public`` / ``_site``, and
+      * that entry is a directory, and
       * the wrapper itself contains an ``index.html``.
 
     No-op otherwise — a flat layout (index.html at the root) or anything
@@ -453,7 +447,7 @@ def _smart_flatten_site_dir(site_dir: Path) -> None:
     if len(visible) != 1:
         return
     wrapper = visible[0]
-    if not wrapper.is_dir() or wrapper.name not in _BUILD_WRAPPER_DIRS:
+    if not wrapper.is_dir():
         return
     if not (wrapper / "index.html").is_file():
         return
@@ -468,6 +462,7 @@ def _smart_flatten_site_dir(site_dir: Path) -> None:
         shutil.move(str(item), str(target))
     wrapper.rmdir()
     logger.info("Smart-flattened %s wrapper inside %s", wrapper.name, site_dir)
+
 
 
 def _copy_dir_contents(src: Path, dest: Path) -> None:
@@ -540,6 +535,16 @@ def _normalize_backend_url(url: str) -> str:
 
 def _emit_proxy_body(conn: dict) -> list[str]:
     backend_url = _normalize_backend_url(conn.get("backend_url", ""))
+    # docker_compose fallback: _bring_up_compose populates backend_url, but
+    # fails silently when the backend container has no access to the docker
+    # daemon (or when the stack is started out-of-band). Without this fallback
+    # the directive renders as `proxy_pass ;` and Angie crash-loops on reload,
+    # taking every other site down with it.
+    if not backend_url and conn.get("source_type") == "docker_compose":
+        service = (conn.get("compose_service") or "").strip()
+        port = conn.get("compose_port") or 80
+        if service:
+            backend_url = _normalize_backend_url(f"{service}:{port}")
     preserve = conn.get("preserve_host", True)
     host_directive = "$host" if preserve else "$proxy_host"
 
@@ -877,8 +882,11 @@ def _prepare_source(row: ConnectionModel) -> bool:
         site_dest.mkdir(parents=True, exist_ok=True)
     elif row.source_type == "docker_compose":
         site_dest.mkdir(parents=True, exist_ok=True)
+        # Raises ComposeUpError on failure — caller in create_connection/
+        # update_connection catches it and disables the row so we never
+        # write an Angie config that proxies to an unresolvable upstream.
         derived = _bring_up_compose(row)
-        if derived and derived != row.backend_url:
+        if derived != row.backend_url:
             row.backend_url = derived
             mutated = True
 
@@ -980,25 +988,34 @@ def _run_compose(project_dir: Path, project_name: str, *args: str) -> tuple[int,
     return 1, last_out or "docker compose not available"
 
 
-def _bring_up_compose(row: ConnectionModel) -> str | None:
+class ComposeUpError(RuntimeError):
+    """Raised when ``docker compose up`` cannot bring the user's stack online.
+
+    Caller (``create_connection`` / ``update_connection``) catches this and
+    disables the connection so we never write an Angie config that proxies
+    to an unresolvable upstream — which crash-loops Angie and takes down
+    every other site.
+    """
+
+
+def _bring_up_compose(row: ConnectionModel) -> str:
     """Materialize compose project, ``docker compose up -d``, return backend_url.
 
-    Returns the derived ``service:port`` backend URL, or ``None`` on failure
-    (caller keeps the existing ``backend_url`` so the connection is still
-    editable).
+    Returns the derived ``service:port`` backend URL on success. Raises
+    :class:`ComposeUpError` on any failure (missing fields, denied YAML
+    patterns, ``docker compose`` not installed, image pull failed, service
+    didn't come up). Failures must NOT leave a half-written Angie config
+    behind — see ``create_connection`` for the handling.
     """
     if not row.compose_yaml or not row.compose_service:
-        logger.warning(
-            "Conn %s: source_type=docker_compose but compose_yaml/service missing",
-            row.id,
+        raise ComposeUpError(
+            f"Conn {row.id}: source_type=docker_compose requires compose_yaml + compose_service"
         )
-        return None
 
     # ── Defense-in-depth: reject host-escalation patterns ──
     err = _validate_compose_yaml(row.compose_yaml)
     if err:
-        logger.warning("Conn %s: %s", row.id, err)
-        return row.backend_url or None
+        raise ComposeUpError(f"Conn {row.id}: {err}")
 
     project_dir = _compose_project_dir(row.id)
     project_dir.mkdir(parents=True, exist_ok=True)
@@ -1019,18 +1036,15 @@ def _bring_up_compose(row: ConnectionModel) -> str | None:
     project_name = _compose_project_name(row.id)
     code, out = _run_compose(project_dir, project_name, "up", "-d", "--remove-orphans")
     if code != 0:
-        logger.warning("Conn %s: docker compose up failed: %s", row.id, out.strip()[:500])
-        return row.backend_url or None
+        snippet = out.strip()[:500]
+        logger.warning("Conn %s: docker compose up failed: %s", row.id, snippet)
+        raise ComposeUpError(f"docker compose up failed: {snippet}")
 
     port = row.compose_port or _detect_compose_service_port(row.compose_yaml, row.compose_service)
     if not port:
-        logger.warning(
-            "Conn %s: could not derive port for service %s — keeping backend_url=%s",
-            row.id,
-            row.compose_service,
-            row.backend_url,
+        raise ComposeUpError(
+            f"Conn {row.id}: could not derive port for service {row.compose_service}"
         )
-        return row.backend_url or None
 
     return f"{row.compose_service}:{port}"
 
@@ -1268,7 +1282,17 @@ async def create_connection(session: AsyncSession, conn_in: ConnectionCreate) ->
     # Source materialization is expensive and (for docker_compose) starts
     # real containers — skip it on disabled rows. They go live on toggle-on.
     if row.enabled:
-        mutated = _prepare_source(row)
+        try:
+            mutated = _prepare_source(row)
+        except ComposeUpError as exc:
+            # Disable the row so we don't generate an Angie config that
+            # proxies to an unresolvable upstream (would crash-loop Angie).
+            # Row stays in DB so the user can edit/fix and re-enable.
+            logger.error("Conn %d source prep failed: %s — disabling", row.id, exc)
+            row.enabled = False
+            await session.commit()
+            await session.refresh(row)
+            raise HTTPException(status_code=502, detail=str(exc)) from exc
         if mutated:
             await session.commit()
             await session.refresh(row)
@@ -1303,7 +1327,14 @@ async def update_connection(
         # Running it on disable used to crash mkdir("/var/lib/waf/compose")
         # in setups where the path wasn't volume-mounted, surfacing as
         # "Failed to toggle connection" in the UI.
-        mutated = _prepare_source(row)
+        try:
+            mutated = _prepare_source(row)
+        except ComposeUpError as exc:
+            logger.error("Conn %d source prep failed: %s — disabling", row.id, exc)
+            row.enabled = False
+            await session.commit()
+            await session.refresh(row)
+            raise HTTPException(status_code=502, detail=str(exc)) from exc
         if mutated:
             await session.commit()
             await session.refresh(row)
@@ -1577,7 +1608,18 @@ async def reload_connections_config(session: AsyncSession) -> dict:
         for row in rows:
             if not row.enabled:
                 continue
-            mutated = _prepare_source(row)
+            try:
+                mutated = _prepare_source(row)
+            except ComposeUpError as exc:
+                logger.error(
+                    "Conn %d source prep failed during reload: %s — disabling",
+                    row.id,
+                    exc,
+                )
+                row.enabled = False
+                await session.commit()
+                await session.refresh(row)
+                continue
             if mutated:
                 await session.commit()
                 await session.refresh(row)
