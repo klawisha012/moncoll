@@ -92,6 +92,15 @@ export default function Connections() {
     loadConnections();
   }, []);
 
+  useEffect(() => {
+    if (!showForm) return;
+    function onKey(e: KeyboardEvent) {
+      if (e.key === "Escape") resetForm();
+    }
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [showForm]);
+
   async function loadConnections() {
     setLoading(true);
     try {
