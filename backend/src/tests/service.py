@@ -11,7 +11,6 @@ from __future__ import annotations
 
 import logging
 import os
-import socket
 import time
 import uuid
 from typing import Any
@@ -20,8 +19,8 @@ import httpx
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ..db.models import Connection as ConnectionModel
 from ..dashboard.service import _get_client as _ch_client
+from ..db.models import Connection as ConnectionModel
 from .manifest import load_catalog
 from .schemas import RunRequest, RunResult, TestCase, TestResultStatus
 
@@ -151,7 +150,7 @@ async def run_test(session: AsyncSession, req: RunRequest) -> RunResult:
         error = f"target timeout: {exc}"
     except httpx.HTTPError as exc:
         error = f"transport error: {exc}"
-    except (socket.error, OSError) as exc:
+    except OSError as exc:
         error = f"socket error: {exc}"
     finally:
         latency_ms = int((time.monotonic_ns() - started_ns) / 1_000_000)

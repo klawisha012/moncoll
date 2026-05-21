@@ -21,7 +21,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ..auth.dependencies import require_admin
 from ..db.models import User
 from ..db.session import get_session
-from . import crowdsec_runner, service as test_service
+from . import crowdsec_runner
+from . import service as test_service
 from .manifest import load_catalog
 from .schemas import Catalog, CrowdsecRunResult, RunRequest, RunResult
 

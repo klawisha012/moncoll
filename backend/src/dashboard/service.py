@@ -21,6 +21,7 @@ logger = logging.getLogger(__name__)
 
 _NO_DOMAINS_SENTINEL = "__none__"
 
+
 # ClickHouse connection parameters — resolved once from env vars.
 # _get_client() creates a fresh Client per call so concurrent threads never
 # share a connection. clickhouse-driver raises PartiallyConsumedQueryError
@@ -45,7 +46,7 @@ def _get_client() -> ClickHouseClient:
 
 
 # Small in-process TTL cache for ClickHouse query results. The dashboard
-# polls every 15 s × 19 panels — without this, every poll hits ClickHouse
+# polls every 15s * 19 panels — without this, every poll hits ClickHouse
 # from scratch and the heaviest queries (joins, ARRAY JOINs over the full
 # audit log) drove the container to 30+ cores.
 _QUERY_TTL_S = float(os.getenv("DASHBOARD_QUERY_TTL", "30"))
@@ -365,7 +366,7 @@ def get_threat_origins(hours: float = 24, connection_id: int | None = None) -> l
         rows = [("UNKNOWN", total_blocks)]
 
     result = []
-    for country_code, cnt in (rows or []):
+    for country_code, cnt in rows or []:
         if not country_code:
             country_code = "UNKNOWN"
         result.append(
@@ -735,7 +736,7 @@ def get_top_rule_files(
 
 
 def get_status_codes_timeline(
-    hours: float = 24, connection_id: int | None = None  # noqa: ARG001 nginx log lacks host col
+    hours: float = 24, connection_id: int | None = None
 ) -> list[dict[str, Any]]:
     """HTTP status-code distribution per minute (nginx access log)."""
     try:
@@ -771,7 +772,7 @@ def get_status_codes_timeline(
 
 
 def get_top_user_agents(
-    hours: float = 24, connection_id: int | None = None, limit: int = 15  # noqa: ARG001
+    hours: float = 24, connection_id: int | None = None, limit: int = 15
 ) -> list[dict[str, Any]]:
     """Top user-agents (nginx access log)."""
     try:
@@ -793,9 +794,7 @@ def get_top_user_agents(
     return [{"user_agent": str(ua or "-"), "hits": int(hits)} for ua, hits in rows]
 
 
-def get_traffic_volume(
-    hours: float = 24, connection_id: int | None = None  # noqa: ARG001
-) -> list[dict[str, Any]]:
+def get_traffic_volume(hours: float = 24, connection_id: int | None = None) -> list[dict[str, Any]]:
     """Bytes sent per minute (nginx access log)."""
     try:
         client = _get_client()
@@ -817,7 +816,7 @@ def get_traffic_volume(
 
 
 def get_requests_per_second(
-    hours: float = 24, connection_id: int | None = None  # noqa: ARG001
+    hours: float = 24, connection_id: int | None = None
 ) -> list[dict[str, Any]]:
     """Requests per second derived from per-minute counts."""
     try:
@@ -840,7 +839,7 @@ def get_requests_per_second(
 
 
 def get_requests_by_country(
-    hours: float = 24, connection_id: int | None = None, limit: int = 15  # noqa: ARG001
+    hours: float = 24, connection_id: int | None = None, limit: int = 15
 ) -> list[dict[str, Any]]:
     """Top countries by request count (nginx access log)."""
     try:
@@ -925,7 +924,7 @@ def get_test_traffic_by_marker(marker: str) -> dict[str, Any]:
 
 
 def get_top_client_ips(
-    hours: float = 24, connection_id: int | None = None, limit: int = 15  # noqa: ARG001
+    hours: float = 24, connection_id: int | None = None, limit: int = 15
 ) -> list[dict[str, Any]]:
     """Top client IPs from nginx access log."""
     try:

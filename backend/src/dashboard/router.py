@@ -133,9 +133,7 @@ async def top_rules(hours: float = _HOURS, connection_id: int | None = _CONNECTI
 
 
 @router.get("/severity-distribution")
-async def severity_distribution(
-    hours: float = _HOURS, connection_id: int | None = _CONNECTION_ID
-):
+async def severity_distribution(hours: float = _HOURS, connection_id: int | None = _CONNECTION_ID):
     return await _run(get_severity_distribution, hours, connection_id)
 
 

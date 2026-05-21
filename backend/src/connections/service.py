@@ -426,8 +426,6 @@ def _existing_or_none(path: Path) -> Path | None:
     return path if path.is_dir() else None
 
 
-
-
 def _smart_flatten_site_dir(site_dir: Path) -> None:
     """If *site_dir* looks like ``<wrapper>/…``, hoist the wrapper's contents
     into *site_dir* and remove the wrapper.
@@ -462,7 +460,6 @@ def _smart_flatten_site_dir(site_dir: Path) -> None:
         shutil.move(str(item), str(target))
     wrapper.rmdir()
     logger.info("Smart-flattened %s wrapper inside %s", wrapper.name, site_dir)
-
 
 
 def _copy_dir_contents(src: Path, dest: Path) -> None:
