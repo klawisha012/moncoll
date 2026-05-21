@@ -51,3 +51,15 @@ paths = [
     '''^\.gitleaks-report\.json$''',
     '''^tests/.*/fixtures/.*$''',
 ]
+
+# ── 5. Historical CrowdSec bouncer API key (rotated) ───────────────────
+# Commit 88dfb72 ("docs: add presentation screens", 2026-05-21) accidentally
+# replaced the placeholder in crowdsec-nginx-bouncer.conf with a real
+# CrowdSec bouncer key. The key was rotated on 2026-05-22 and the file
+# restored to the __CHANGE_ME__ placeholder in a follow-up commit. The
+# leaked value is no longer valid, but it lives forever in git history,
+# so we pin the commit SHA here to keep CI green without weakening the
+# leak detector for future regressions on the same path.
+[[allowlists]]
+description = "Rotated CrowdSec bouncer key, commit 88dfb72 (no longer valid)"
+commits = ["88dfb7214d97510d7e7e70b60538457b9a5714fb"]
