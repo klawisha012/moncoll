@@ -280,7 +280,9 @@ jobs:
             context: ./configs/angie
     permissions:
       contents: read
-      packages: read
+      # packages:write — required for the GHCR push step. PR builds skip the
+      # push (see `push:` below) so this permission only matters on main.
+      packages: write
       # Required by github/codeql-action/upload-sarif below — without this
       # the Trivy image scan step fails with "Resource not accessible by
       # integration".
@@ -290,18 +292,49 @@ jobs:
       - name: Set up Buildx
         # docker/setup-buildx-action@v3.7.1
         uses: docker/setup-buildx-action@c47758b77c9736f4b2ef4073d4d51994fabfe349
+      # Log in to GHCR only on main pushes — the build itself runs on PRs,
+      # but we never push PR builds (would pollute the registry and grant
+      # write access to fork PRs).
+      - name: Log in to GHCR
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        # docker/login-action@v3.3.0
+        uses: docker/login-action@9780b0c442fbb1117ed29e0efdff1e18412f7567
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      # Compute the registry tags. docker/metadata-action lowercases the
+      # image path (GHCR requires it) and emits OCI labels.
+      - name: Compute image tags
+        id: meta
+        # docker/metadata-action@v5.5.1
+        uses: docker/metadata-action@8e5442c4ef9f78752691e2d8f8d19755c6f78e81
+        with:
+          images: ghcr.io/${{ github.repository }}/${{ matrix.image }}
+          tags: |
+            type=ref,event=branch
+            type=ref,event=pr
+            type=sha,format=short
+            type=raw,value=latest,enable={{is_default_branch}}
       - name: Build ${{ matrix.image }}
         id: build
         # docker/build-push-action@v6.9.0
         uses: docker/build-push-action@4f58ea79222b3b9dc2c8bbdd6debcef730109a75
         with:
           context: ${{ matrix.context }}
-          push: false
+          # Push only on main pushes; PR builds stay local for Trivy.
+          push: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
           load: true
-          tags: waf-${{ matrix.image }}:${{ github.sha }}
+          # Two tag families: the GHCR-bound ones from metadata-action (only
+          # used when `push:` is true), plus the stable local tag Trivy
+          # scans on this runner. Buildx aliases all of them onto the same
+          # image so `docker images waf-...:<sha>` still resolves.
+          tags: |
+            ${{ steps.meta.outputs.tags }}
+            waf-${{ matrix.image }}:${{ github.sha }}
+          labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha,scope=${{ matrix.image }}
           cache-to: type=gha,mode=max,scope=${{ matrix.image }}
-          outputs: type=docker,name=waf-${{ matrix.image }}:${{ github.sha }}
       - name: Save image digest
         run: |
           mkdir -p .digests
