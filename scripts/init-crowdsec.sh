@@ -1,35 +1,43 @@
 #!/bin/bash
-# Script to initialize CrowdSec and register the bouncer
+# Register the Angie bouncer with CrowdSec using the pre-generated API key
+# from .env (CROWDSEC_BOUNCER_KEY, written by scripts/generate-env.sh).
+#
+# Idempotent: re-running deletes any prior bouncer of the same name and
+# re-registers with the current .env key, so a key rotation flow is
+# simply `bash scripts/generate-env.sh && bash scripts/init-crowdsec.sh
+# && docker compose restart angie`.
 
-set -e
+set -euo pipefail
 
-echo "Initializing CrowdSec..."
+if [ ! -f .env ]; then
+  echo "ERROR: .env not found — run scripts/generate-env.sh first." >&2
+  exit 1
+fi
 
-# Wait for CrowdSec to be ready
+# shellcheck disable=SC1091
+set -a
+. ./.env
+set +a
+
+if [ -z "${CROWDSEC_BOUNCER_KEY:-}" ]; then
+  echo "ERROR: CROWDSEC_BOUNCER_KEY missing from .env — regenerate with scripts/generate-env.sh" >&2
+  exit 1
+fi
+
+echo "Waiting for CrowdSec container to be ready..."
 until docker exec crowdsec cscli version > /dev/null 2>&1; do
-  echo "Waiting for CrowdSec to start..."
+  echo "  CrowdSec not ready yet, retrying in 2s..."
   sleep 2
 done
 
-# Register the angie bouncer (matches the name in crowdsec.conf init_by_lua_block)
-echo "Registering angie bouncer..."
-API_KEY=$(docker exec crowdsec cscli bouncers add angie-bouncer -o raw)
+# Replace any prior registration (key may have rotated since last run).
+# `bouncers delete` exits non-zero if the bouncer doesn't exist; swallow that
+# so first-run installs don't fail.
+docker exec crowdsec cscli bouncers delete angie-bouncer >/dev/null 2>&1 || true
 
-# Update .env file with the API key
-if grep -q "CROWDSEC_BOUNCER_KEY" .env; then
-  sed -i "s/CROWDSEC_BOUNCER_KEY=.*/CROWDSEC_BOUNCER_KEY=$API_KEY/" .env
-else
-  echo "CROWDSEC_BOUNCER_KEY=$API_KEY" >> .env
-fi
+echo "Registering angie-bouncer with key from .env..."
+docker exec crowdsec cscli bouncers add angie-bouncer --key "$CROWDSEC_BOUNCER_KEY" >/dev/null
 
-# Update the bouncer config file with the API key
-BOUNCER_CONFIG="./configs/angie/bouncers/crowdsec-nginx-bouncer.conf"
-if [ -f "$BOUNCER_CONFIG" ]; then
-  sed -i "s/API_KEY=.*/API_KEY=$API_KEY/" "$BOUNCER_CONFIG"
-  echo "Updated bouncer config with API key"
-else
-  echo "WARNING: Bouncer config not found at $BOUNCER_CONFIG"
-fi
-
-echo "CrowdSec bouncer registered with API key: $API_KEY"
-echo "Please restart the angie service: docker-compose restart angie"
+echo "Done. The Angie bouncer config (configs/angie/bouncers/crowdsec-nginx-bouncer.conf)"
+echo "already carries this key — restart Angie to pick it up:"
+echo "  docker compose restart angie"

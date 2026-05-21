@@ -1,0 +1,11 @@
+ENABLED=true
+API_URL=http://crowdsec:8080
+API_KEY=__CROWDSEC_BOUNCER_KEY__
+# Set to true to use "live mode" (check decisions in real-time via LAPI)
+LIVE_MODE=true
+# Ban action to apply when an IP is blocked
+BAN_ACTION=deny
+# Cache decisions for this duration
+CACHE_EXPIRATION=10s
+# Update interval (how often to refresh decisions from LAPI)
+UPDATE_FREQUENCY=10s

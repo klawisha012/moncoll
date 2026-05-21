@@ -20,6 +20,12 @@ GRAFANA_SECRET_KEY=$(openssl rand -base64 32 | tr -dc 'a-zA-Z0-9' | head -c 32)
 # backend restarts — otherwise security.py falls back to an ephemeral secret
 # and every restart invalidates all active sessions, forcing re-login.
 WAF_JWT_SECRET=$(openssl rand -base64 48 | tr -dc 'a-zA-Z0-9' | head -c 64)
+# CrowdSec bouncer API key. Pre-generated here (instead of letting
+# `cscli bouncers add` allocate one) so the value lives only in .env
+# (gitignored, mode 0600) and is injected at bouncer registration via
+# `cscli bouncers add --key`. The Angie bouncer config is rendered from
+# crowdsec-nginx-bouncer.conf.template at the end of this script.
+CROWDSEC_BOUNCER_KEY=$(openssl rand -base64 32 | tr -dc 'a-zA-Z0-9' | head -c 48)
 # Host docker group GID — backend container joins this group at runtime
 # to access /var/run/docker.sock without running as root. Falls back to
 # 999 (most Linux distros) when getent isn't available (eg. macOS hosts).
@@ -83,6 +89,11 @@ WAF_JWT_SECRET=$WAF_JWT_SECRET
 # Override on regeneration if running under a different operator.
 ACME_EMAIL=zwarder.main@gmail.com
 
+# CrowdSec bouncer API key — consumed by scripts/init-crowdsec.sh
+# (cscli bouncers add --key) and by the Angie bouncer config
+# rendered below from crowdsec-nginx-bouncer.conf.template.
+CROWDSEC_BOUNCER_KEY=$CROWDSEC_BOUNCER_KEY
+
 EOF
 
 # 0600 so other users on the host can't read the secrets.
@@ -130,6 +141,20 @@ EOF
 echo "Generated .env file (mode 0600)"
 echo "  CLICKHOUSE_USER=$CLICKHOUSE_USER"
 echo "  GRAFANA_ADMIN_PASSWORD=$GRAFANA_ADMIN_PASSWORD"
-echo "  (POSTGRES_PASSWORD, GRAFANA_SECRET_KEY, CLICKHOUSE_PASSWORD - see .env)"
+echo "  (POSTGRES_PASSWORD, GRAFANA_SECRET_KEY, CLICKHOUSE_PASSWORD, CROWDSEC_BOUNCER_KEY - see .env)"
 echo "  DOCKER_GID=$DOCKER_GID"
 echo "  Wrote configs/clickhouse/users.d/default-user.xml for $CLICKHOUSE_USER"
+
+# Render CrowdSec bouncer config from template. The .conf is gitignored;
+# the .template is the canonical, key-free version that lives in git.
+# Run scripts/init-crowdsec.sh after `docker compose up` to register
+# the bouncer with this key inside the running CrowdSec container.
+BOUNCER_TEMPLATE="configs/angie/bouncers/crowdsec-nginx-bouncer.conf.template"
+BOUNCER_OUT="configs/angie/bouncers/crowdsec-nginx-bouncer.conf"
+if [ -f "$BOUNCER_TEMPLATE" ]; then
+  sed "s|__CROWDSEC_BOUNCER_KEY__|$CROWDSEC_BOUNCER_KEY|g" "$BOUNCER_TEMPLATE" > "$BOUNCER_OUT"
+  chmod 600 "$BOUNCER_OUT"
+  echo "  Wrote $BOUNCER_OUT from template (mode 0600)"
+else
+  echo "  WARNING: $BOUNCER_TEMPLATE missing — bouncer config not regenerated"
+fi
