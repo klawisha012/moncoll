@@ -542,20 +542,50 @@ def _emit_proxy_body(conn: dict) -> list[str]:
     backend_url = _normalize_backend_url(conn.get("backend_url", ""))
     preserve = conn.get("preserve_host", True)
     host_directive = "$host" if preserve else "$proxy_host"
-    return [
-        "    location / {",
-        f"        proxy_pass {backend_url};",
-        f"        proxy_set_header Host {host_directive};",
-        "        proxy_set_header X-Real-IP $remote_addr;",
-        "        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;",
-        "        proxy_set_header X-Forwarded-Proto $scheme;",
-        "        proxy_http_version 1.1;",
-        "        proxy_set_header Connection '';",
-        "        proxy_buffering off;",
-        "        proxy_request_buffering off;",
-        "        proxy_redirect off;",
-        "    }",
-    ]
+
+    def _proxy_headers() -> list[str]:
+        # WebSocket support: forward the Upgrade header verbatim and set
+        # Connection from the `$connection_upgrade` map (defined in
+        # angie.conf). Without these, Socket.IO / SSE / raw WS hang at the
+        # proxy and clients see "Lost connection to the socket server.
+        # Reconnecting…" — exactly what Uptime Kuma's /dashboard reports.
+        return [
+            f"        proxy_pass {backend_url};",
+            f"        proxy_set_header Host {host_directive};",
+            "        proxy_set_header X-Real-IP $remote_addr;",
+            "        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;",
+            "        proxy_set_header X-Forwarded-Proto $scheme;",
+            "        proxy_http_version 1.1;",
+            "        proxy_set_header Upgrade $http_upgrade;",
+            "        proxy_set_header Connection $connection_upgrade;",
+            "        proxy_buffering off;",
+            "        proxy_request_buffering off;",
+            "        proxy_redirect off;",
+            # Long read timeout so idle WebSocket connections don't get
+            # killed mid-session (default 60s drops long-lived sockets
+            # like uptime monitors and chat). 1h is the conventional
+            # reverse-proxy value.
+            "        proxy_read_timeout 3600s;",
+            "        proxy_send_timeout 3600s;",
+        ]
+
+    out: list[str] = []
+    # ── Socket.IO / Engine.IO control channel ──
+    # The Socket.IO HTTP-polling fallback POSTs short JSON frames like
+    # `42["evt", {...}]` that routinely trip OWASP CRS rule 949110 (anomaly
+    # score >= 5) for false-positive XSS/RCE hits, returning 403 and breaking
+    # the browser's Socket.IO session. Bypass ModSecurity on the well-known
+    # `/socket.io/` path — the upstream app validates its own frames, and
+    # this carve-out keeps WAF coverage on every other request.
+    out.append("    location /socket.io/ {")
+    out.append("        modsecurity off;")
+    out.extend(_proxy_headers())
+    out.append("    }")
+    out.append("")
+    out.append("    location / {")
+    out.extend(_proxy_headers())
+    out.append("    }")
+    return out
 
 
 def _emit_static_body(conn_id: int) -> list[str]:
@@ -690,6 +720,8 @@ def _generate_nginx_config(conn: dict) -> str:
         lines.append("")
         lines.append("    # GeoIP JSON access log for dashboard analytics")
         lines.append("    access_log /var/log/angie/geoip.log with_geoip_json;")
+        lines.append("    # Combined-format log for CrowdSec ingestion (nginx-logs parser)")
+        lines.append("    access_log /var/log/angie/access.log combined;")
         lines.append("")
         lines.append(blocked_ips_include)
         lines.append("")
@@ -722,6 +754,8 @@ def _generate_nginx_config(conn: dict) -> str:
         lines.append("")
         lines.append("    # GeoIP JSON access log for dashboard analytics")
         lines.append("    access_log /var/log/angie/geoip.log with_geoip_json;")
+        lines.append("    # Combined-format log for CrowdSec ingestion (nginx-logs parser)")
+        lines.append("    access_log /var/log/angie/access.log combined;")
         lines.append("")
         lines.append(blocked_ips_include)
         ssl_cert_path = conn.get("ssl_cert_path") or cert_path
@@ -1231,12 +1265,14 @@ async def create_connection(session: AsyncSession, conn_in: ConnectionCreate) ->
     await session.commit()
     await session.refresh(row)
 
-    mutated = _prepare_source(row)
-    if mutated:
-        await session.commit()
-        await session.refresh(row)
-
+    # Source materialization is expensive and (for docker_compose) starts
+    # real containers — skip it on disabled rows. They go live on toggle-on.
     if row.enabled:
+        mutated = _prepare_source(row)
+        if mutated:
+            await session.commit()
+            await session.refresh(row)
+
         if row.domains:
             await _generate_certs_and_update_connection(session, row)
         else:
@@ -1261,12 +1297,17 @@ async def update_connection(
     await session.commit()
     await session.refresh(row)
 
-    mutated = _prepare_source(row)
-    if mutated:
-        await session.commit()
-        await session.refresh(row)
-
     if row.enabled:
+        # _prepare_source brings up docker_compose stacks and copies static
+        # sites — only run when the connection is actually going live.
+        # Running it on disable used to crash mkdir("/var/lib/waf/compose")
+        # in setups where the path wasn't volume-mounted, surfacing as
+        # "Failed to toggle connection" in the UI.
+        mutated = _prepare_source(row)
+        if mutated:
+            await session.commit()
+            await session.refresh(row)
+
         if row.domains:
             await _generate_certs_and_update_connection(session, row)
         else:

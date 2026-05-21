@@ -177,6 +177,12 @@ services:
       # dirs) across container recreations — without this they live in the
       # writable layer and disappear on `docker compose up` rebuilds.
       - ./var/site-templates/uploads/:/app/site-templates/uploads/
+      # Persist docker_compose connection project dirs across container
+      # recreation. Without this the backend writes /var/lib/waf/compose
+      # to the ephemeral writable layer, which disappears on rebuild and
+      # leaves orphaned running compose stacks the backend can no longer
+      # bring up/down (toggle returns 500: PermissionError on mkdir).
+      - ./var/compose/:/var/lib/waf/compose/
       - /var/run/docker.sock:/var/run/docker.sock
       - letsencrypt:/etc/letsencrypt
       - backend-data:/var/lib/angie/data

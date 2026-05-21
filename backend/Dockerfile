@@ -26,7 +26,9 @@ COPY alembic/ ./alembic/
 #   sudo chown -R 1000:${DOCKER_GID:-999} configs/angie/http.d var/log/angie
 # See .gstack/security-reports/2026-05-20-043200.json F4.
 RUN useradd --create-home --uid 1000 app \
-    && chown -R app:app /app
+    && chown -R app:app /app \
+    && mkdir -p /var/lib/waf/compose \
+    && chown -R app:app /var/lib/waf
 
 USER app
 
