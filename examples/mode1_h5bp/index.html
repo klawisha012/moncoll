@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>h5bp · WAF mode 1 (nginx_config)</title>
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <style>
+    :root { color-scheme: light dark; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      max-width: 38rem;
+      margin: 4rem auto;
+      padding: 0 1rem;
+      line-height: 1.55;
+    }
+    code, pre { background: rgba(127, 127, 127, .15); padding: .12em .35em; border-radius: 3px; }
+    pre { padding: .8em 1em; overflow-x: auto; }
+    .ok { color: #0a7d2c; font-weight: 600; }
+  </style>
+</head>
+<body>
+  <h1>h5bp · Mode 1 example</h1>
+  <p class="ok">If you see this page, the WAF deployed the h5bp <code>nginx.conf</code> server block and is serving this static <code>index.html</code> from the per-connection site directory.</p>
+
+  <p>This example uses the upstream
+  <a href="https://github.com/h5bp/server-configs-nginx">h5bp/server-configs-nginx</a>
+  modular partials: security headers, safe file-access defaults, compression, and
+  long-cache headers — all wired in via <code>include h5bp/basic.conf;</code>.</p>
+
+  <h2>Verify it's wired up</h2>
+  <pre>curl -H 'Host: h5bp.test' http://localhost/probe
+# expected: mode1-h5bp-ok</pre>
+
+  <p>The <code>/probe</code> endpoint short-circuits to a 200, bypassing ModSecurity
+  (the WAF auto-injects <code>modsecurity off;</code> on health-style locations).</p>
+
+  <h2>What you're seeing</h2>
+  <ul>
+    <li><strong>Mode:</strong> nginx_config</li>
+    <li><strong>nginx_config_path:</strong> <code>/app/site-templates/examples/mode1_h5bp/nginx.conf</code></li>
+    <li><strong>Static root (auto-derived):</strong> the directory containing <code>nginx.conf</code>, copied into the connection's site dir, minus <code>*.conf</code> files.</li>
+  </ul>
+</body>
+</html>
