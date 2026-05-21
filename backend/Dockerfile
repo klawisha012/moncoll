@@ -6,7 +6,7 @@ WORKDIR /app
 COPY requirements.txt .
 
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends openssl certbot curl \
+    && apt-get install -y --no-install-recommends openssl certbot curl docker-cli docker-compose \
     && rm -rf /var/lib/apt/lists/* \
     && pip install --upgrade pip --no-cache-dir \
     && pip install --no-cache-dir -r requirements.txt
@@ -27,8 +27,8 @@ COPY alembic/ ./alembic/
 # See .gstack/security-reports/2026-05-20-043200.json F4.
 RUN useradd --create-home --uid 1000 app \
     && chown -R app:app /app \
-    && mkdir -p /var/lib/waf/compose \
-    && chown -R app:app /var/lib/waf
+    && mkdir -p /var/lib/waf/compose /var/lib/angie/data /etc/letsencrypt \
+    && chown -R app:app /var/lib/waf /var/lib/angie/data /etc/letsencrypt
 
 USER app
 
@@ -37,4 +37,4 @@ EXPOSE 8000
 HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \
     CMD curl -fsS http://localhost:8000/metrics > /dev/null || exit 1
 
-CMD ["sh", "-c", "alembic upgrade head && uvicorn src.main:app --host 0.0.0.0 --port 8000 --reload"]
+CMD ["sh", "-c", "alembic upgrade head && uvicorn src.main:app --host 0.0.0.0 --port 8000 --reload --reload-dir /app/src"]

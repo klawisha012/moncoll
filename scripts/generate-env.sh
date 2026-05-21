@@ -16,6 +16,10 @@ GRAFANA_ADMIN_PASSWORD=$(openssl rand -base64 24 | tr -dc 'a-zA-Z0-9' | head -c 
 # secret_key encrypts cookies + stored datasource creds. Must be stable
 # across restarts (rotating it re-encrypts everything in grafana.db).
 GRAFANA_SECRET_KEY=$(openssl rand -base64 32 | tr -dc 'a-zA-Z0-9' | head -c 32)
+# JWT signing key for backend session cookies. Stored in .env so it survives
+# backend restarts — otherwise security.py falls back to an ephemeral secret
+# and every restart invalidates all active sessions, forcing re-login.
+WAF_JWT_SECRET=$(openssl rand -base64 48 | tr -dc 'a-zA-Z0-9' | head -c 64)
 # Host docker group GID — backend container joins this group at runtime
 # to access /var/run/docker.sock without running as root. Falls back to
 # 999 (most Linux distros) when getent isn't available (eg. macOS hosts).
@@ -71,6 +75,13 @@ GRAFANA_LIVE_ALLOWED_ORIGINS=http://localhost:3000
 # Docker GID - backend container joins this host group to use docker.sock
 # without running as root.
 DOCKER_GID=$DOCKER_GID
+
+# Backend JWT signing key (HS256). Stable across restarts so sessions survive.
+WAF_JWT_SECRET=$WAF_JWT_SECRET
+
+# Email registered with Let's Encrypt for ACME account + expiry notifications.
+# Override on regeneration if running under a different operator.
+ACME_EMAIL=zwarder.main@gmail.com
 
 EOF
 

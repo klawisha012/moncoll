@@ -285,6 +285,10 @@ def trigger_acme_request(connection_id: int, domains: list[str]) -> dict:
             domains,
             webroot,
         )
+        # certbot defaults write to /var/log/letsencrypt and /var/lib/letsencrypt
+        # which the non-root backend user can't write to. Pin them to /tmp.
+        # --config-dir stays at /etc/letsencrypt (mounted as the letsencrypt
+        # named volume).
         result = subprocess.run(
             [
                 "certbot",
@@ -303,6 +307,12 @@ def trigger_acme_request(connection_id: int, domains: list[str]) -> dict:
                 "rsa",
                 "--preferred-challenges",
                 "http",
+                "--config-dir",
+                "/etc/letsencrypt",
+                "--work-dir",
+                "/tmp/certbot-work",
+                "--logs-dir",
+                "/tmp/certbot-logs",
             ],
             capture_output=True,
             text=True,
