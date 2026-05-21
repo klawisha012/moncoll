@@ -14,6 +14,7 @@ import type {
 } from "../api/client";
 import { useSettings } from "../context/SettingsContext";
 import TrafficChart from "../components/charts/TrafficChart";
+import { injectionLabel, injectionName } from "../utils/ruleNames";
 
 type SubTab = "modsec" | "crowdsec";
 
@@ -560,7 +561,7 @@ function ResultPanel({
         </span>
         {result.blocked_by && (
           <span style={{ fontFamily: "var(--font-mono)", fontSize: 12, color: "var(--text-secondary)" }}>
-            rule {result.blocked_by}
+            {injectionLabel(result.blocked_by)}
           </span>
         )}
         {result.http_code !== null && (
@@ -609,7 +610,7 @@ function ResultPanel({
               {markerEvents.slice(0, 20).map((ev, i) => (
                 <tr key={i} style={{ borderTop: "1px solid var(--border-subtle)" }}>
                   <td style={tdStyle}>{new Date(ev.timestamp).toLocaleTimeString()}</td>
-                  <td style={{ ...tdStyle, fontFamily: "var(--font-mono)" }}>{ev.rule_id}</td>
+                  <td style={{ ...tdStyle, fontFamily: "var(--font-mono)" }}>{injectionLabel(ev.rule_id)}</td>
                   <td style={tdStyle}>{ev.severity}</td>
                   <td style={{ ...tdStyle, fontFamily: "var(--font-mono)", color: "var(--text-muted)" }}>{ev.uri}</td>
                 </tr>
@@ -763,13 +764,31 @@ function TestRunCard({
     >
       <div
         style={{
-          fontFamily: "var(--font-mono)",
-          fontSize: 13,
-          fontWeight: 700,
-          color: "var(--text-primary)",
+          display: "flex",
+          alignItems: "baseline",
+          gap: 8,
         }}
       >
-        {test.rule_id}
+        <span
+          style={{
+            fontFamily: "var(--font-cond)",
+            fontSize: 14,
+            fontWeight: 700,
+            letterSpacing: "0.04em",
+            color: "var(--text-primary)",
+          }}
+        >
+          {injectionName(test.rule_id)}
+        </span>
+        <span
+          style={{
+            fontFamily: "var(--font-mono)",
+            fontSize: 11,
+            color: "var(--text-muted)",
+          }}
+        >
+          {test.rule_id}
+        </span>
       </div>
       <div
         style={{

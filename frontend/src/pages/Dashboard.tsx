@@ -57,6 +57,7 @@ import {
   useSvgHover,
   type TooltipRow,
 } from "../components/charts/chart-utils";
+import { injectionLabel, ruleFileToFamily } from "../utils/ruleNames";
 
 type Tab = "grafana" | "native";
 type TimeUnit = "minutes" | "hours" | "days";
@@ -130,7 +131,7 @@ const PANEL_ITEMS: { key: PanelKey; icon: React.ReactNode; label: string }[] = [
   { key: "threatOrigins", icon: <Globe size={14} />, label: "Threat Origins" },
   { key: "topTags", icon: <Tag size={14} />, label: "Top Tags" },
   { key: "topUris", icon: <Link size={14} />, label: "Top Blocked URIs" },
-  { key: "topRuleFiles", icon: <FileCode size={14} />, label: "Top Rule Files" },
+  { key: "topRuleFiles", icon: <FileCode size={14} />, label: "Top Attack Families" },
   { key: "statusCodes", icon: <TrendingUp size={14} />, label: "HTTP Status Codes" },
   { key: "topClientIps", icon: <HardDrive size={14} />, label: "Top Client IPs" },
   { key: "topUserAgents", icon: <Bot size={14} />, label: "Top User-Agents" },
@@ -840,7 +841,7 @@ function EventsTable({ data, loading }: { data: SecurityEvent[] | null; loading:
           {data.map((e, i) => (
             <tr key={i}>
               <td style={{ whiteSpace: "nowrap", fontSize: "12px" }}>{new Date(e.timestamp).toLocaleTimeString()}</td>
-              <td style={{ fontSize: "12px", fontFamily: "monospace" }}>{e.type}</td>
+              <td style={{ fontSize: "12px", fontFamily: "monospace" }}>{injectionLabel(e.type)}</td>
               <td style={{ fontSize: "12px", fontFamily: "monospace" }}>{e.ip}</td>
               <td style={{ fontSize: "12px", fontFamily: "monospace", maxWidth: "320px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                 {e.path}
@@ -1393,7 +1394,7 @@ function NativePanels({
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "16px", marginBottom: "16px" }}>
           {visiblePanels.has("topRules") && (
             <PanelCard title="🚨 Top Rules by Trigger Count" icon={<ShieldAlert size={16} />} style={{ marginBottom: 0 }}>
-              <HorizontalBars data={topRules.data} loading={topRules.initialLoading} labelOf={(d: RuleHit) => `Rule ${d.rule}`} valueOf={(d: RuleHit) => d.hits} />
+              <HorizontalBars data={topRules.data} loading={topRules.initialLoading} labelOf={(d: RuleHit) => injectionLabel(d.rule)} valueOf={(d: RuleHit) => d.hits} />
             </PanelCard>
           )}
           {visiblePanels.has("severity") && (
@@ -1448,8 +1449,8 @@ function NativePanels({
             </PanelCard>
           )}
           {visiblePanels.has("topRuleFiles") && (
-            <PanelCard title="🧩 Top Rule Files" icon={<FileCode size={16} />} style={{ marginBottom: 0 }}>
-              <HorizontalBars data={topRuleFiles.data} loading={topRuleFiles.initialLoading} labelOf={(d: RuleFileHit) => d.file} valueOf={(d: RuleFileHit) => d.hits} />
+            <PanelCard title="🧩 Top Attack Families" icon={<FileCode size={16} />} style={{ marginBottom: 0 }}>
+              <HorizontalBars data={topRuleFiles.data} loading={topRuleFiles.initialLoading} labelOf={(d: RuleFileHit) => ruleFileToFamily(d.file)} valueOf={(d: RuleFileHit) => d.hits} />
             </PanelCard>
           )}
         </div>

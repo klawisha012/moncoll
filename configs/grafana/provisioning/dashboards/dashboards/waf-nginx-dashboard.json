@@ -186,7 +186,7 @@
       "pluginVersion": "12.3.1",
       "targets": [
         {
-          "rawSql": "SELECT concat('Rule ', toString(m.ruleId)) AS rule, count() AS hits FROM logs.waf_audit_log ARRAY JOIN messages AS m PREWHERE $__timeFilter(timestamp) WHERE match(request_headers['Host'], '${connection:regex}') GROUP BY m.ruleId ORDER BY hits DESC LIMIT 10",
+          "rawSql": "SELECT concat(transform(substring(toString(m.ruleId), 1, 3), ['911','913','920','921','922','930','931','932','933','934','941','942','943','944','949'], ['Method','Scanner','Protocol Enforcement','Protocol Attack','Multipart','LFI','RFI','RCE','PHP Injection','Generic Attack','XSS','SQL Injection','Session Fixation','Java Injection','Blocking Eval'], 'Rule'), ' · ', toString(m.ruleId)) AS rule, count() AS hits FROM logs.waf_audit_log ARRAY JOIN messages AS m PREWHERE $__timeFilter(timestamp) WHERE match(request_headers['Host'], '${connection:regex}') GROUP BY m.ruleId ORDER BY hits DESC LIMIT 10",
           "refId": "A"
         }
       ],
@@ -817,11 +817,11 @@
       "pluginVersion": "12.3.1",
       "targets": [
         {
-          "rawSql": "SELECT replaceRegexpOne(replaceRegexpOne(m.file, '\\.conf$', ''), '^.*/', '') AS ruleset, count() AS hits FROM logs.waf_audit_log ARRAY JOIN messages AS m PREWHERE $__timeFilter(timestamp) WHERE match(request_headers['Host'], '${connection:regex}') GROUP BY ruleset ORDER BY hits DESC LIMIT 10",
+          "rawSql": "SELECT transform(extract(replaceRegexpOne(replaceRegexpOne(m.file, '\\.conf$', ''), '^.*/', ''), '^REQUEST-(\\d{3})'), ['911','913','920','921','922','930','931','932','933','934','941','942','943','944','949'], ['Method','Scanner','Protocol Enforcement','Protocol Attack','Multipart','LFI','RFI','RCE','PHP Injection','Generic Attack','XSS','SQL Injection','Session Fixation','Java Injection','Blocking Eval'], replaceRegexpOne(replaceRegexpOne(m.file, '\\.conf$', ''), '^.*/', '')) AS family, count() AS hits FROM logs.waf_audit_log ARRAY JOIN messages AS m PREWHERE $__timeFilter(timestamp) WHERE match(request_headers['Host'], '${connection:regex}') GROUP BY family ORDER BY hits DESC LIMIT 10",
           "refId": "A"
         }
       ],
-      "title": "🧩 Top Rule Files",
+      "title": "🧩 Top Attack Families",
       "type": "barchart"
     },
     {
@@ -1415,5 +1415,5 @@
   "timezone": "utc",
   "title": "WAF & Nginx Security Dashboard 2",
   "uid": "waf-nginx-dashboard",
-  "version": 6
+  "version": 7
 }

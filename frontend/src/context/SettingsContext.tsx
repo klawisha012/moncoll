@@ -30,7 +30,7 @@ function loadTheme(): Theme {
   } catch {
     // localStorage unavailable
   }
-  return "dark";
+  return "light";
 }
 
 function loadLang(): Lang {
