@@ -37,6 +37,8 @@ var/log/
 /var/site-templates/
 /var/mode4.json
 /configs/angie/http.d/blocked_ips.conf
+# Local design-audit artefacts (screenshots, mockups)
+/var/design-audit/
 
 # Temporary files
 temp/
