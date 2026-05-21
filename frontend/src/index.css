@@ -87,11 +87,6 @@
   color-scheme: light;
 }
 
-/* Constructivist is light by default. Honor the data-theme="light" tag too. */
-[data-theme="light"] {
-  --cream: #f1ead8;
-}
-
 /* Global keyboard-focus ring. Brand-coral, 3px, offset 3px. Applies to every
    :focus-visible element unless a component declares its own. Browsers default
    to a 1px dark outline that is invisible on the warm-black surface. */
