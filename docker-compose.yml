@@ -172,22 +172,24 @@ services:
       - ./backend/alembic.ini:/app/alembic.ini
       - ./configs/angie/angie.conf:/app/etc/angie/angie.conf
       - ./configs/angie/http.d/:/var/lib/angie/http.d/
-      - ./examples/:/app/site-templates/examples/:ro
       # Persist user uploads (single index.html, static-site dirs, nginx config
       # dirs) across container recreations — without this they live in the
       # writable layer and disappear on `docker compose up` rebuilds.
-      - ./var/site-templates/uploads/:/app/site-templates/uploads/
       # Persist docker_compose connection project dirs across container
       # recreation. Without this the backend writes /var/lib/waf/compose
       # to the ephemeral writable layer, which disappears on rebuild and
       # leaves orphaned running compose stacks the backend can no longer
       # bring up/down (toggle returns 500: PermissionError on mkdir).
-      - ./var/compose/:/var/lib/waf/compose/
       - /var/run/docker.sock:/var/run/docker.sock
       - letsencrypt:/etc/letsencrypt
       - backend-data:/var/lib/angie/data
     environment:
       DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-waf}:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD missing - run scripts/generate-env.sh}@postgres:5432/${POSTGRES_DB:-waf}
+      # Public IPv4 of this WAF edge. The wizard surfaces this as the
+      # A-record customers point their domain at, and the background
+      # poller compares against it to detect DNS-flip. Override per
+      # environment via .env.
+      WAF_EDGE_IPV4: ${WAF_EDGE_IPV4:-}
     depends_on:
       postgres:
         condition: service_healthy
