@@ -166,7 +166,7 @@ async def create_connection(
         name=conn_in.name,
         domain=domain,
         origin_hosts=origin_ips,
-        origin_port=443,
+        origin_port=conn_in.origin_port or 443,
         origin_tls_mode=conn_in.origin_tls_mode,
         verify_token=verify_token,
         status="pending_verification",

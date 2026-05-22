@@ -20,6 +20,10 @@ class ConnectionCreate(BaseModel):
 
     name: str = Field(..., min_length=1, max_length=128)
     domain: str = Field(..., min_length=3, max_length=253)
+    # Defaults to 443 — the convention for HTTPS origins. Override when the
+    # origin serves on a non-standard port (e.g. dev/staging, or when 443
+    # on the origin server is already taken by another service like a VPN).
+    origin_port: int = Field(443, ge=1, le=65535)
     origin_tls_mode: OriginTlsMode = "strict"
     http_versions: HttpVersions = "h1,h2"
     compression_algo: CompressionAlgo = "auto"
@@ -30,6 +34,7 @@ class ConnectionUpdate(BaseModel):
 
     name: str | None = Field(None, min_length=1, max_length=128)
     enabled: bool | None = None
+    origin_port: int | None = Field(None, ge=1, le=65535)
     origin_tls_mode: OriginTlsMode | None = None
     http_versions: HttpVersions | None = None
     compression_algo: CompressionAlgo | None = None

@@ -369,6 +369,7 @@ function Wizard({
 
   const [name, setName] = useState(conn?.name ?? "");
   const [domain, setDomain] = useState(conn?.domain ?? "");
+  const [originPort, setOriginPort] = useState<number>(conn?.origin_port ?? 443);
   const [tlsMode, setTlsMode] = useState<OriginTlsMode>(conn?.origin_tls_mode ?? "strict");
   const [submitting, setSubmitting] = useState(false);
   const [createdConn, setCreatedConn] = useState<Connection | null>(conn);
@@ -428,6 +429,7 @@ function Wizard({
       const body: ConnectionCreate = {
         name: name.trim(),
         domain: domain.trim(),
+        origin_port: originPort,
         origin_tls_mode: tlsMode,
       };
       const res = await api.createConnection(body);
@@ -569,11 +571,13 @@ function Wizard({
           <Step1
             name={name}
             domain={domain}
+            originPort={originPort}
             tlsMode={tlsMode}
             submitting={submitting}
             error={formError}
             onName={setName}
             onDomain={setDomain}
+            onOriginPort={setOriginPort}
             onTlsMode={setTlsMode}
             onCancel={onClose}
             onNext={submitStep1}
@@ -631,22 +635,26 @@ function StepIndicator({ current }: { current: WizardStep }) {
 function Step1({
   name,
   domain,
+  originPort,
   tlsMode,
   submitting,
   error,
   onName,
   onDomain,
+  onOriginPort,
   onTlsMode,
   onCancel,
   onNext,
 }: {
   name: string;
   domain: string;
+  originPort: number;
   tlsMode: OriginTlsMode;
   submitting: boolean;
   error: string | null;
   onName: (s: string) => void;
   onDomain: (s: string) => void;
+  onOriginPort: (n: number) => void;
   onTlsMode: (m: OriginTlsMode) => void;
   onCancel: () => void;
   onNext: () => void;
@@ -680,6 +688,19 @@ function Step1({
         spellCheck={false}
         style={{ ...fieldStyle, fontFamily: "var(--font-mono)" }}
       />
+
+      <Label>Origin port</Label>
+      <input
+        type="number"
+        min={1}
+        max={65535}
+        value={originPort}
+        onChange={(e) => onOriginPort(Number(e.target.value) || 443)}
+        style={{ ...fieldStyle, fontFamily: "var(--font-mono)", width: 140 }}
+      />
+      <div style={{ fontSize: 12, color: "var(--ink-soft)", marginTop: 4, marginBottom: 8 }}>
+        Default 443. Override when the origin serves HTTPS on a different port.
+      </div>
 
       <Label>{t("wizard.step1.tls")}</Label>
       <div style={{ display: "flex", gap: 16, marginBottom: 6 }}>

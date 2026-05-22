@@ -77,6 +77,7 @@ export interface Connection {
 export interface ConnectionCreate {
   name: string;
   domain: string;
+  origin_port?: number;
   origin_tls_mode?: OriginTlsMode;
   http_versions?: string;
   compression_algo?: CompressionAlgo;
@@ -85,6 +86,7 @@ export interface ConnectionCreate {
 export interface ConnectionUpdate {
   name?: string;
   enabled?: boolean;
+  origin_port?: number;
   origin_tls_mode?: OriginTlsMode;
   http_versions?: string;
   compression_algo?: CompressionAlgo;
