@@ -131,12 +131,18 @@ def upgrade() -> None:
 
     # ── Backfill: try to migrate domains[0] → domain so legacy rows keep
     #    something usable in the new column; mark them errored so the operator
-    #    knows to recreate them through the new wizard. ──
+    #    knows to recreate them through the new wizard.
+    #
+    #    Uses PostgreSQL's ->> operator (json → text by array index) — the
+    #    earlier draft used SQLite's json_extract() which 502'd backend boot
+    #    on real deployments. Fallback: synthesize a unique '<id>.invalid'
+    #    domain so the UNIQUE constraint added below doesn't fail if multiple
+    #    legacy rows had no domains[0] value.
     op.execute(
         """
         UPDATE connections
         SET domain = COALESCE(
-                NULLIF(json_extract(domains, '$[0]'), ''),
+                NULLIF((domains->>0), ''),
                 'legacy-row-' || id || '.invalid'
             ),
             status = 'error',
