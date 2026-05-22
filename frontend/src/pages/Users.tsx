@@ -127,8 +127,8 @@ export default function Users() {
                       onChange={(e) => handleRoleChange(u, e.target.value as UserRole)}
                       style={selectStyle}
                     >
-                      <option value="admin">admin</option>
-                      <option value="viewer">viewer</option>
+                      <option value="admin">{t("auth.users.role.admin")}</option>
+                      <option value="viewer">{t("auth.users.role.viewer")}</option>
                     </select>
                   </Td>
                   <Td>
@@ -252,13 +252,13 @@ function CreateUserModal({
             active={role === "admin"}
             onClick={() => setRole("admin")}
             icon={<Shield size={14} />}
-            label="admin"
+            label={t("auth.users.role.admin")}
           />
           <RoleButton
             active={role === "viewer"}
             onClick={() => setRole("viewer")}
             icon={<Eye size={14} />}
-            label="viewer"
+            label={t("auth.users.role.viewer")}
           />
         </div>
         {error && <FormError msg={error} />}

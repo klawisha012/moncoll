@@ -7,6 +7,7 @@ import {
   Server,
 } from "lucide-react";
 import { api, ContainerMetrics } from "../api/client";
+import { useSettings } from "../context/SettingsContext";
 
 function formatBytes(bytes: number): string {
   if (bytes >= 1_000_000_000) return `${(bytes / 1_000_000_000).toFixed(1)} GB/s`;
@@ -16,6 +17,7 @@ function formatBytes(bytes: number): string {
 }
 
 export default function Monitoring() {
+  const { t } = useSettings();
   const [metrics, setMetrics] = useState<ContainerMetrics[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -52,7 +54,7 @@ export default function Monitoring() {
     return (
       <div className="loading">
         <div className="spinner" />
-        Loading metrics…
+        {t("monitoring.loading")}
       </div>
     );
   }
@@ -62,8 +64,8 @@ export default function Monitoring() {
       <div>
         <div className="page-header">
           <div>
-            <h1>Monitoring</h1>
-            <p>Container resource usage and real-time system metrics</p>
+            <h1>{t("monitoring.title")}</h1>
+            <p>{t("monitoring.subtitle")}</p>
           </div>
         </div>
         <div
@@ -75,7 +77,7 @@ export default function Monitoring() {
             style={{ color: "var(--danger)", marginBottom: "16px" }}
           />
           <p style={{ fontWeight: 600, marginBottom: "4px", color: "var(--danger)" }}>
-            Failed to load metrics
+            {t("monitoring.error.title")}
           </p>
           <p className="text-muted">{error}</p>
         </div>
@@ -87,8 +89,8 @@ export default function Monitoring() {
     <div>
       <div className="page-header">
         <div>
-          <h1>Monitoring</h1>
-          <p>Container resource usage and real-time system metrics</p>
+          <h1>{t("monitoring.title")}</h1>
+          <p>{t("monitoring.subtitle")}</p>
         </div>
       </div>
 
@@ -103,10 +105,10 @@ export default function Monitoring() {
               style={{ color: "var(--text-muted)", marginBottom: "16px" }}
             />
             <p style={{ fontWeight: 600, marginBottom: "4px" }}>
-              No container metrics available
+              {t("monitoring.empty.title")}
             </p>
             <p className="text-muted">
-              Metrics will appear once the services are running.
+              {t("monitoring.empty.subtitle")}
             </p>
           </div>
         ) : (
@@ -136,7 +138,7 @@ export default function Monitoring() {
                       color: "var(--text-secondary)",
                     }}
                   >
-                    <Cpu size={14} /> CPU
+                    <Cpu size={14} /> {t("monitoring.cpu")}
                   </span>
                   <span style={{ fontWeight: 600 }}>
                     {(container.cpu ?? 0).toFixed(1)}%
@@ -171,7 +173,7 @@ export default function Monitoring() {
                       color: "var(--text-secondary)",
                     }}
                   >
-                    <MemoryStick size={14} /> Memory
+                    <MemoryStick size={14} /> {t("monitoring.memory")}
                   </span>
                   <span style={{ fontWeight: 600 }}>
                     {(container.memory ?? 0).toFixed(0)} MB (
@@ -207,7 +209,7 @@ export default function Monitoring() {
                     gap: "6px",
                   }}
                 >
-                  <HardDrive size={14} /> Network
+                  <HardDrive size={14} /> {t("monitoring.network")}
                 </span>
                 <span>
                   ↓ {formatBytes(container.network_rx ?? 0)}{" "}

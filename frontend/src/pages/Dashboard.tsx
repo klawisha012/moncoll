@@ -4,7 +4,6 @@ import {
   BarChart3,
   Globe,
   ShieldAlert,
-  Map,
   Gauge,
   ShieldOff,
   Clock,
@@ -29,8 +28,6 @@ import type {
   TrafficDataPoint,
   ThreatOrigin,
   SecurityEvent,
-  GeoipMapPoint,
-  UnresolvedIp,
   TimelinePoint,
   RuleHit,
   SeveritySlice,
@@ -45,8 +42,6 @@ import type {
   RpsPoint,
   CountryHit,
 } from "../api/client";
-import { MapContainer, TileLayer, CircleMarker, Popup } from "react-leaflet";
-import "leaflet/dist/leaflet.css";
 import { useSettings } from "../context/SettingsContext";
 import TrafficChart from "../components/charts/TrafficChart";
 import {
@@ -83,8 +78,7 @@ type PanelKey =
   | "byCountry"
   | "trafficVolume"
   | "rps"
-  | "securityEvents"
-  | "geoipMap";
+  | "securityEvents";
 
 const ALL_METRIC_KEYS: PanelKey[] = [
   "metricTotalRequests",
@@ -111,35 +105,33 @@ const ALL_PANEL_KEYS: PanelKey[] = [
   "trafficVolume",
   "rps",
   "securityEvents",
-  "geoipMap",
 ];
 
-const METRIC_ITEMS: { key: PanelKey; icon: React.ReactNode; label: string }[] = [
-  { key: "metricTotalRequests", icon: <Gauge size={14} />, label: "Total Requests" },
-  { key: "metricBlockedThreats", icon: <ShieldOff size={14} />, label: "Blocked Threats" },
-  { key: "metricAvgLatency", icon: <Clock size={14} />, label: "Avg Latency" },
-  { key: "metricActiveRules", icon: <ScrollText size={14} />, label: "Active Rules" },
+const METRIC_ITEMS: { key: PanelKey; icon: React.ReactNode; labelKey: string }[] = [
+  { key: "metricTotalRequests", icon: <Gauge size={14} />, labelKey: "dashboard.metric.totalRequests" },
+  { key: "metricBlockedThreats", icon: <ShieldOff size={14} />, labelKey: "dashboard.metric.blockedThreats" },
+  { key: "metricAvgLatency", icon: <Clock size={14} />, labelKey: "dashboard.metric.avgLatency" },
+  { key: "metricActiveRules", icon: <ScrollText size={14} />, labelKey: "dashboard.metric.activeRules" },
 ];
 
-const PANEL_ITEMS: { key: PanelKey; icon: React.ReactNode; label: string }[] = [
-  { key: "trafficChart", icon: <BarChart3 size={14} />, label: "Traffic Overview" },
-  { key: "wafEvents", icon: <Activity size={14} />, label: "WAF Events Over Time" },
-  { key: "topRules", icon: <ShieldAlert size={14} />, label: "Top Rules" },
-  { key: "severity", icon: <PieChart size={14} />, label: "Severity Distribution" },
-  { key: "topAttackers", icon: <Users size={14} />, label: "Top Attacking IPs" },
-  { key: "anomaly", icon: <AlertTriangle size={14} />, label: "Anomaly Score" },
-  { key: "threatOrigins", icon: <Globe size={14} />, label: "Threat Origins" },
-  { key: "topTags", icon: <Tag size={14} />, label: "Top Tags" },
-  { key: "topUris", icon: <Link size={14} />, label: "Top Blocked URIs" },
-  { key: "topRuleFiles", icon: <FileCode size={14} />, label: "Top Attack Families" },
-  { key: "statusCodes", icon: <TrendingUp size={14} />, label: "HTTP Status Codes" },
-  { key: "topClientIps", icon: <HardDrive size={14} />, label: "Top Client IPs" },
-  { key: "topUserAgents", icon: <Bot size={14} />, label: "Top User-Agents" },
-  { key: "byCountry", icon: <Flag size={14} />, label: "Requests by Country" },
-  { key: "trafficVolume", icon: <BarChart3 size={14} />, label: "Traffic Volume (Bytes)" },
-  { key: "rps", icon: <Zap size={14} />, label: "Requests per Second" },
-  { key: "securityEvents", icon: <ShieldAlert size={14} />, label: "Security Events Table" },
-  { key: "geoipMap", icon: <Map size={14} />, label: "GeoIP World Map" },
+const PANEL_ITEMS: { key: PanelKey; icon: React.ReactNode; labelKey: string }[] = [
+  { key: "trafficChart", icon: <BarChart3 size={14} />, labelKey: "dashboard.shortPanel.traffic" },
+  { key: "wafEvents", icon: <Activity size={14} />, labelKey: "dashboard.shortPanel.events" },
+  { key: "topRules", icon: <ShieldAlert size={14} />, labelKey: "dashboard.shortPanel.topRules" },
+  { key: "severity", icon: <PieChart size={14} />, labelKey: "dashboard.shortPanel.severityDist" },
+  { key: "topAttackers", icon: <Users size={14} />, labelKey: "dashboard.shortPanel.topAttackingIPs" },
+  { key: "anomaly", icon: <AlertTriangle size={14} />, labelKey: "dashboard.shortPanel.anomaly" },
+  { key: "threatOrigins", icon: <Globe size={14} />, labelKey: "dashboard.shortPanel.threatOrigins" },
+  { key: "topTags", icon: <Tag size={14} />, labelKey: "dashboard.shortPanel.topTags" },
+  { key: "topUris", icon: <Link size={14} />, labelKey: "dashboard.shortPanel.topUris" },
+  { key: "topRuleFiles", icon: <FileCode size={14} />, labelKey: "dashboard.shortPanel.topFamilies" },
+  { key: "statusCodes", icon: <TrendingUp size={14} />, labelKey: "dashboard.shortPanel.statusCodes" },
+  { key: "topClientIps", icon: <HardDrive size={14} />, labelKey: "dashboard.shortPanel.topClientIPs" },
+  { key: "topUserAgents", icon: <Bot size={14} />, labelKey: "dashboard.shortPanel.topUserAgents" },
+  { key: "byCountry", icon: <Flag size={14} />, labelKey: "dashboard.shortPanel.byCountry" },
+  { key: "trafficVolume", icon: <BarChart3 size={14} />, labelKey: "dashboard.shortPanel.bytesVolume" },
+  { key: "rps", icon: <Zap size={14} />, labelKey: "dashboard.shortPanel.rps" },
+  { key: "securityEvents", icon: <ShieldAlert size={14} />, labelKey: "dashboard.shortPanel.recentEvents" },
 ];
 
 const STORAGE_KEY = "waf:dashboardPanels:v2";
@@ -155,10 +147,10 @@ function loadVisible(): Set<PanelKey> {
   }
 }
 
-const UNITS: { value: TimeUnit; label: string; multiplier: number }[] = [
-  { value: "minutes", label: "Minutes", multiplier: 1 / 60 },
-  { value: "hours", label: "Hours", multiplier: 1 },
-  { value: "days", label: "Days", multiplier: 24 },
+const UNITS: { value: TimeUnit; labelKey: string; multiplier: number }[] = [
+  { value: "minutes", labelKey: "dashboard.ui.minutes", multiplier: 1 / 60 },
+  { value: "hours", labelKey: "dashboard.ui.hours", multiplier: 1 },
+  { value: "days", labelKey: "dashboard.ui.days", multiplier: 24 },
 ];
 
 // No-flicker fetch hook: only the very first fetch (or one triggered by a
@@ -248,6 +240,7 @@ function TimelineSeries({
   unit?: "count" | "bytes" | "rps";
   valueLabel?: string;
 }) {
+  const { t } = useSettings();
   const padding = { top: 16, right: 16, bottom: 36, left: 64 };
   const width = 1200;
   const height = 280;
@@ -267,7 +260,7 @@ function TimelineSeries({
     safeData.length,
   );
 
-  if (!data || data.length === 0) return <EmptyState loading={loading} message="No data available" />;
+  if (!data || data.length === 0) return <EmptyState loading={loading} message={t("dashboard.empty.noData")} />;
 
   const points = data.map((d, i) => {
     const x = padding.left + i * stepX;
@@ -343,8 +336,8 @@ function TimelineSeries({
           })}
           rows={[
             { label: valueLabel, value: fmt(values[hoverIdx]), color },
-            { label: "Peak (range)", value: fmt(peak) },
-            { label: "Avg (range)", value: fmt(avg) },
+            { label: t("dashboard.tooltip.peak"), value: fmt(peak) },
+            { label: t("dashboard.tooltip.avg"), value: fmt(avg) },
           ]}
         />
       )}
@@ -359,15 +352,32 @@ const STATUS_COLORS = {
   c5xx: "#ef4444",
 } as const;
 
+const STATUS_KEYS = ["c2xx", "c3xx", "c4xx", "c5xx"] as const;
+type StatusKey = (typeof STATUS_KEYS)[number];
+
 function StatusCodesChart({ data, loading }: { data: StatusCodePoint[] | null; loading: boolean }) {
-  const padding = { top: 16, right: 16, bottom: 36, left: 60 };
+  const { t } = useSettings();
+  const padding = { top: 28, right: 16, bottom: 36, left: 60 };
   const width = 1200;
   const height = 300;
   const chartW = width - padding.left - padding.right;
   const chartH = height - padding.top - padding.bottom;
 
+  const [hidden, setHidden] = useState<Set<StatusKey>>(new Set());
+  const isVisible = useCallback((k: StatusKey) => !hidden.has(k), [hidden]);
+  const toggle = useCallback((k: StatusKey) => {
+    setHidden((prev) => {
+      const next = new Set(prev);
+      if (next.has(k)) next.delete(k);
+      else next.add(k);
+      return next;
+    });
+  }, []);
+
   const safeData = data ?? [];
-  const totals = safeData.map((d) => d.c2xx + d.c3xx + d.c4xx + d.c5xx);
+  const totals = safeData.map((d) =>
+    STATUS_KEYS.reduce((sum, k) => sum + (isVisible(k) ? d[k] : 0), 0),
+  );
   const maxVal = Math.max(...totals, 1);
   const barW = Math.max(3, Math.floor(chartW / Math.max(safeData.length, 1)) - 2);
   const stepX = chartW / Math.max(safeData.length, 1);
@@ -380,10 +390,12 @@ function StatusCodesChart({ data, loading }: { data: StatusCodePoint[] | null; l
     safeData.length,
   );
 
-  if (!data || data.length === 0) return <EmptyState loading={loading} message="No status code data" />;
+  if (!data || data.length === 0) return <EmptyState loading={loading} message={t("dashboard.empty.noStatusData")} />;
 
   const hovered = hoverIdx !== null ? data[hoverIdx] : null;
-  const hoveredTotal = hovered ? hovered.c2xx + hovered.c3xx + hovered.c4xx + hovered.c5xx : 0;
+  const hoveredTotal = hovered
+    ? STATUS_KEYS.reduce((sum, k) => sum + (isVisible(k) ? hovered[k] : 0), 0)
+    : 0;
 
   return (
     <div ref={wrapRef} style={{ position: "relative" }} onMouseMove={onMove} onMouseLeave={onLeave}>
@@ -405,7 +417,8 @@ function StatusCodesChart({ data, loading }: { data: StatusCodePoint[] | null; l
           const isHover = hoverIdx === i;
           return (
             <g key={d.timestamp}>
-              {(["c2xx", "c3xx", "c4xx", "c5xx"] as const).map((k) => {
+              {STATUS_KEYS.map((k) => {
+                if (!isVisible(k)) return null;
                 const h = (d[k] / maxVal) * chartH;
                 yCursor -= h;
                 return <rect key={k} x={x + 1} y={yCursor} width={barW} height={h} fill={STATUS_COLORS[k]} opacity={isHover ? 1 : 0.9} />;
@@ -431,14 +444,52 @@ function StatusCodesChart({ data, loading }: { data: StatusCodePoint[] | null; l
             pointerEvents="none"
           />
         )}
-        {(["c2xx", "c3xx", "c4xx", "c5xx"] as const).map((k, idx) => (
-          <g key={k}>
-            <rect x={padding.left + idx * 70} y={4} width="12" height="12" rx="2" fill={STATUS_COLORS[k]} />
-            <text x={padding.left + idx * 70 + 16} y={14} fill="var(--text-secondary)" fontSize="12">
-              {k.replace("c", "")}
-            </text>
-          </g>
-        ))}
+        {STATUS_KEYS.map((k, idx) => {
+          const on = isVisible(k);
+          const gx = padding.left + idx * 70;
+          return (
+            <g
+              key={k}
+              transform={`translate(${gx}, 4)`}
+              onClick={() => toggle(k)}
+              style={{ cursor: "pointer", userSelect: "none" }}
+              role="checkbox"
+              aria-checked={on}
+              aria-label={`${k.replace("c", "")} ${on ? "visible" : "hidden"}`}
+            >
+              <rect x={-2} y={-2} width="60" height="20" rx="3" fill="transparent" />
+              <rect
+                x={0}
+                y={0}
+                width="14"
+                height="14"
+                rx="3"
+                fill={on ? STATUS_COLORS[k] : "transparent"}
+                stroke={STATUS_COLORS[k]}
+                strokeWidth="1.5"
+              />
+              {on && (
+                <path
+                  d="M3 7.5 L6 10.5 L11 4.5"
+                  fill="none"
+                  stroke="#fff"
+                  strokeWidth="1.8"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                />
+              )}
+              <text
+                x={18}
+                y={11}
+                fill={on ? "var(--text-secondary)" : "var(--text-muted)"}
+                fontSize="12"
+                style={{ textDecoration: on ? "none" : "line-through" }}
+              >
+                {k.replace("c", "")}
+              </text>
+            </g>
+          );
+        })}
       </svg>
       {hovered && pos && (
         <ChartTooltip
@@ -452,15 +503,15 @@ function StatusCodesChart({ data, loading }: { data: StatusCodePoint[] | null; l
             minute: "2-digit",
           })}
           rows={[
-            ...(["c2xx", "c3xx", "c4xx", "c5xx"] as const).map<TooltipRow>((k) => ({
-              label: k.replace("c", "") + " responses",
+            ...STATUS_KEYS.filter(isVisible).map<TooltipRow>((k) => ({
+              label: k.replace("c", "") + " " + t("dashboard.tooltip.responses"),
               value:
                 hoveredTotal > 0
                   ? `${hovered[k].toLocaleString()} (${((hovered[k] / hoveredTotal) * 100).toFixed(1)}%)`
                   : hovered[k].toLocaleString(),
               color: STATUS_COLORS[k],
             })),
-            { label: "Total", value: hoveredTotal.toLocaleString() },
+            { label: t("dashboard.tooltip.total"), value: hoveredTotal.toLocaleString() },
           ]}
         />
       )}
@@ -474,7 +525,7 @@ function HorizontalBars({
   labelOf,
   valueOf,
   gradient = "linear-gradient(90deg, var(--accent-1), var(--accent-2))",
-  valueLabel = "Hits",
+  valueLabel,
 }: {
   data: unknown[] | null;
   loading: boolean;
@@ -483,11 +534,13 @@ function HorizontalBars({
   gradient?: string;
   valueLabel?: string;
 }) {
+  const { t } = useSettings();
   const [hoverRow, setHoverRow] = useState<number | null>(null);
   const wrapRef = useRef<HTMLDivElement>(null);
   const [pos, setPos] = useState<{ x: number; y: number; containerW: number } | null>(null);
 
-  if (!data || data.length === 0) return <EmptyState loading={loading} message="No data" />;
+  if (!data || data.length === 0) return <EmptyState loading={loading} message={t("dashboard.empty.noDataShort")} />;
+  const resolvedValueLabel = valueLabel ?? t("dashboard.tooltip.hits");
   const maxVal = Math.max(...data.map((d) => valueOf(d)), 1);
   const total: number = data.reduce<number>((a, d) => a + valueOf(d), 0);
 
@@ -580,12 +633,12 @@ function HorizontalBars({
           containerWidth={pos.containerW}
           title={labelOf(hovered)}
           rows={[
-            { label: valueLabel, value: valueOf(hovered).toLocaleString() },
+            { label: resolvedValueLabel, value: valueOf(hovered).toLocaleString() },
             {
-              label: "Share of top",
+              label: t("dashboard.tooltip.shareTop"),
               value: total > 0 ? `${((valueOf(hovered) / total) * 100).toFixed(1)}%` : "—",
             },
-            { label: "Rank", value: `#${hoverRow + 1} of ${data.length}` },
+            { label: t("dashboard.tooltip.rank"), value: `#${hoverRow + 1} of ${data.length}` },
           ]}
         />
       )}
@@ -605,13 +658,14 @@ const SEVERITY_COLORS: Record<string, string> = {
 };
 
 function SeverityDonut({ data, loading }: { data: SeveritySlice[] | null; loading: boolean }) {
+  const { t } = useSettings();
   const [hoverIdx, setHoverIdx] = useState<number | null>(null);
   const wrapRef = useRef<HTMLDivElement>(null);
   const [pos, setPos] = useState<{ x: number; y: number; containerW: number } | null>(null);
 
-  if (!data || data.length === 0) return <EmptyState loading={loading} message="No severity data" />;
+  if (!data || data.length === 0) return <EmptyState loading={loading} message={t("dashboard.empty.noSeverityData")} />;
   const total = data.reduce((a, b) => a + b.hits, 0);
-  if (total === 0) return <EmptyState loading={false} message="No severity data" />;
+  if (total === 0) return <EmptyState loading={false} message={t("dashboard.empty.noSeverityData")} />;
   const size = 220;
   const cx = size / 2;
   const cy = size / 2;
@@ -708,9 +762,9 @@ function SeverityDonut({ data, loading }: { data: SeveritySlice[] | null; loadin
           containerWidth={pos.containerW}
           title={hovered.severity}
           rows={[
-            { label: "Hits", value: hovered.hits.toLocaleString(), color: SEVERITY_COLORS[hovered.severity] || "#888" },
-            { label: "Share", value: `${((hovered.hits / total) * 100).toFixed(2)}%` },
-            { label: "Total (all)", value: total.toLocaleString() },
+            { label: t("dashboard.tooltip.hits"), value: hovered.hits.toLocaleString(), color: SEVERITY_COLORS[hovered.severity] || "#888" },
+            { label: t("dashboard.tooltip.share"), value: `${((hovered.hits / total) * 100).toFixed(2)}%` },
+            { label: t("dashboard.tooltip.totalAll"), value: total.toLocaleString() },
           ]}
         />
       )}
@@ -719,11 +773,12 @@ function SeverityDonut({ data, loading }: { data: SeveritySlice[] | null; loadin
 }
 
 function ThreatOriginsChart({ data, loading }: { data: ThreatOrigin[] | null; loading: boolean }) {
+  const { t } = useSettings();
   const [hoverRow, setHoverRow] = useState<number | null>(null);
   const wrapRef = useRef<HTMLDivElement>(null);
   const [pos, setPos] = useState<{ x: number; y: number; containerW: number } | null>(null);
 
-  if (!data || data.length === 0) return <EmptyState loading={loading} message="No threat data available" />;
+  if (!data || data.length === 0) return <EmptyState loading={loading} message={t("dashboard.empty.noThreatData")} />;
   const maxPct = Math.max(...data.map((d) => d.blocks_percent), 1);
   const totalPct: number = data.reduce<number>((a, d) => a + d.blocks_percent, 0);
 
@@ -800,13 +855,13 @@ function ThreatOriginsChart({ data, loading }: { data: ThreatOrigin[] | null; lo
           containerWidth={pos.containerW}
           title={hovered.country || hovered.country_code}
           rows={[
-            { label: "Country code", value: hovered.country_code },
-            { label: "Block share", value: `${hovered.blocks_percent}%` },
+            { label: t("dashboard.tooltip.countryCode"), value: hovered.country_code },
+            { label: t("dashboard.tooltip.blockShare"), value: `${hovered.blocks_percent}%` },
             {
-              label: "Of top-N total",
+              label: t("dashboard.tooltip.ofTopN"),
               value: totalPct > 0 ? `${((hovered.blocks_percent / totalPct) * 100).toFixed(1)}%` : "—",
             },
-            { label: "Rank", value: `#${hoverRow + 1} of ${data.length}` },
+            { label: t("dashboard.tooltip.rank"), value: `#${hoverRow + 1} of ${data.length}` },
           ]}
         />
       )}
@@ -815,7 +870,8 @@ function ThreatOriginsChart({ data, loading }: { data: ThreatOrigin[] | null; lo
 }
 
 function EventsTable({ data, loading }: { data: SecurityEvent[] | null; loading: boolean }) {
-  if (!data || data.length === 0) return <EmptyState loading={loading} message="No recent security events" />;
+  const { t } = useSettings();
+  if (!data || data.length === 0) return <EmptyState loading={loading} message={t("dashboard.empty.noEvents")} />;
 
   const severityColors: Record<string, string> = {
     critical: "var(--danger)",
@@ -830,11 +886,11 @@ function EventsTable({ data, loading }: { data: SecurityEvent[] | null; loading:
       <table>
         <thead>
           <tr>
-            <th>Time</th>
-            <th>Rule</th>
-            <th>IP</th>
-            <th>Path</th>
-            <th>Severity</th>
+            <th>{t("dashboard.table.time")}</th>
+            <th>{t("dashboard.table.rule")}</th>
+            <th>{t("dashboard.table.ip")}</th>
+            <th>{t("dashboard.table.path")}</th>
+            <th>{t("dashboard.table.severity")}</th>
           </tr>
         </thead>
         <tbody>
@@ -866,317 +922,6 @@ function EventsTable({ data, loading }: { data: SecurityEvent[] | null; loading:
   );
 }
 
-// Classify a non-private IP that failed GeoIP enrichment. The MaxMind
-// GeoLite2 database deliberately excludes RFC 5737 documentation ranges,
-// RFC 6598 CGNAT, and a few other special-use blocks. Everything else is
-// a real public IP that just isn't in the DB (rare — usually means the
-// DB is stale or the IP is brand-new).
-function classifyUnresolvedIp(ip: string): { kind: string; reason: string } {
-  const parts = ip.split(".").map(Number);
-  if (parts.length !== 4 || parts.some((p) => Number.isNaN(p) || p < 0 || p > 255)) {
-    return { kind: "Other", reason: "Unparseable IPv4 address" };
-  }
-  const [a, b] = parts;
-  if (a === 192 && b === 0 && parts[2] === 2) return { kind: "TEST-NET-1", reason: "RFC 5737 — reserved for documentation. Not in MaxMind." };
-  if (a === 198 && b === 51 && parts[2] === 100) return { kind: "TEST-NET-2", reason: "RFC 5737 — reserved for documentation. Not in MaxMind." };
-  if (a === 203 && b === 0 && parts[2] === 113) return { kind: "TEST-NET-3", reason: "RFC 5737 — reserved for documentation. Not in MaxMind." };
-  if (a === 100 && b >= 64 && b <= 127) return { kind: "CGNAT", reason: "RFC 6598 — carrier-grade NAT. No public location." };
-  if (a >= 224 && a <= 239) return { kind: "Multicast", reason: "224.0.0.0/4 — multicast, not a host address." };
-  if (a >= 240) return { kind: "Reserved", reason: "240.0.0.0/4 — IANA reserved." };
-  return { kind: "Public", reason: "Real public IP missing from this MaxMind GeoLite2 build. Consider updating the .mmdb." };
-}
-
-function UnresolvedIpsList({ data, compact = false }: { data: UnresolvedIp[]; compact?: boolean }) {
-  if (data.length === 0) return null;
-  const total = data.reduce((a, d) => a + d.hits, 0);
-  return (
-    <div
-      style={{
-        marginTop: compact ? "10px" : "14px",
-        paddingTop: compact ? "10px" : "12px",
-        borderTop: "1px dashed var(--border-subtle)",
-      }}
-    >
-      <div
-        style={{
-          fontFamily: "var(--font-cond)",
-          fontSize: "10.5px",
-          letterSpacing: "0.12em",
-          textTransform: "uppercase",
-          color: "var(--text-secondary)",
-          marginBottom: "8px",
-        }}
-      >
-        {data.length} external IP{data.length === 1 ? "" : "s"} unresolved · {total.toLocaleString()} hit{total === 1 ? "" : "s"}
-      </div>
-      <div style={{ display: "flex", flexDirection: "column", gap: "5px", maxHeight: compact ? "180px" : "260px", overflowY: "auto" }}>
-        {data.map((d) => {
-          const cls = classifyUnresolvedIp(d.ip);
-          return (
-            <div
-              key={d.ip}
-              title={cls.reason}
-              style={{
-                display: "flex",
-                alignItems: "center",
-                gap: "10px",
-                fontSize: "12px",
-                padding: "4px 8px",
-                background: "var(--bg-elevated)",
-                border: "1px solid var(--border-subtle)",
-              }}
-            >
-              <span
-                style={{
-                  fontFamily: "var(--font-mono)",
-                  color: "var(--text-primary)",
-                  minWidth: "118px",
-                }}
-              >
-                {d.ip}
-              </span>
-              <span
-                style={{
-                  fontFamily: "var(--font-cond)",
-                  fontSize: "10px",
-                  letterSpacing: "0.08em",
-                  textTransform: "uppercase",
-                  padding: "1px 6px",
-                  border: "1px solid var(--ink)",
-                  color: "var(--text-secondary)",
-                  background: "var(--card-bg)",
-                  whiteSpace: "nowrap",
-                }}
-              >
-                {cls.kind}
-              </span>
-              <span style={{ flex: 1 }} />
-              <span style={{ fontFamily: "var(--font-mono)", fontWeight: 600, color: "var(--text-primary)" }}>
-                {d.hits.toLocaleString()}
-              </span>
-            </div>
-          );
-        })}
-      </div>
-    </div>
-  );
-}
-
-function GeoipMap({
-  data,
-  loading,
-  unresolved,
-}: {
-  data: GeoipMapPoint[] | null;
-  loading: boolean;
-  unresolved: UnresolvedIp[] | null;
-}) {
-  const { theme } = useSettings();
-  const isLight = theme === "light";
-  const tileUrl = isLight
-    ? "https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}.png"
-    : "https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png";
-  const mapBg = isLight ? "#f5f6fa" : "#0b0f1e";
-  const legendBg = isLight ? "rgba(255,255,255,0.9)" : "rgba(11,15,30,0.85)";
-  const popupText = isLight ? "#1a1d2e" : "#e8ecf4";
-  const unresolvedList = unresolved ?? [];
-
-  if (!data || data.length === 0) {
-    if (loading) return <EmptyState loading={true} message="" />;
-    return (
-      <div style={{ height: "520px", width: "100%", borderRadius: "var(--radius-md)", overflow: "hidden", position: "relative" }}>
-        <MapContainer
-          center={[25, 0]}
-          zoom={2}
-          minZoom={2}
-          maxZoom={6}
-          scrollWheelZoom={false}
-          dragging={false}
-          touchZoom={false}
-          doubleClickZoom={false}
-          zoomControl={false}
-          keyboard={false}
-          worldCopyJump
-          style={{ height: "100%", width: "100%", background: mapBg, filter: "grayscale(0.5) opacity(0.55)" }}
-          attributionControl={false}
-        >
-          <TileLayer url={tileUrl} noWrap={false} />
-        </MapContainer>
-        <div
-          style={{
-            position: "absolute",
-            inset: 0,
-            zIndex: 500,
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            background: "linear-gradient(180deg, transparent 0%, rgba(0,0,0,0.15) 100%)",
-            pointerEvents: "none",
-          }}
-        >
-          <div
-            style={{
-              maxWidth: "440px",
-              padding: "20px 22px",
-              background: "var(--card-bg)",
-              border: "2px solid var(--ink)",
-              boxShadow: "var(--shadow-offset-sm)",
-              pointerEvents: "auto",
-            }}
-          >
-            <div
-              style={{
-                fontFamily: "var(--font-cond)",
-                fontSize: "11px",
-                letterSpacing: "0.14em",
-                textTransform: "uppercase",
-                color: "var(--text-secondary)",
-                marginBottom: "8px",
-              }}
-            >
-              GeoIP · waiting for external traffic
-            </div>
-            <div
-              style={{
-                fontFamily: "var(--font-display)",
-                fontSize: "20px",
-                fontWeight: 700,
-                lineHeight: 1.15,
-                color: "var(--text-primary)",
-                marginBottom: "12px",
-              }}
-            >
-              No geolocated requests in this window.
-            </div>
-            <ul
-              style={{
-                listStyle: "none",
-                padding: 0,
-                margin: 0,
-                fontSize: "12.5px",
-                lineHeight: 1.55,
-                color: "var(--text-secondary)",
-              }}
-            >
-              <li style={{ display: "flex", gap: "8px", marginBottom: "4px" }}>
-                <span style={{ color: "var(--red)", fontWeight: 700 }}>·</span>
-                Приватные IP (127.0.0.1, 172.x, 10.x, 192.168.x) не имеют GeoIP-координат — это нормально.
-              </li>
-              {unresolvedList.length > 0 ? (
-                <li style={{ display: "flex", gap: "8px", marginBottom: "4px" }}>
-                  <span style={{ color: "var(--red)", fontWeight: 700 }}>·</span>
-                  Внешние IP ниже не разрешились — обычно это RFC 5737 test-ranges (203.0.113.x, 198.51.100.x) из ваших curl-тестов, не настоящие атакующие.
-                </li>
-              ) : (
-                <>
-                  <li style={{ display: "flex", gap: "8px", marginBottom: "4px" }}>
-                    <span style={{ color: "var(--red)", fontWeight: 700 }}>·</span>
-                    Точки появятся, когда придёт реальный внешний трафик через Angie на одно из ваших подключений.
-                  </li>
-                  <li style={{ display: "flex", gap: "8px" }}>
-                    <span style={{ color: "var(--red)", fontWeight: 700 }}>·</span>
-                    Проверьте, что Angie работает (логи без ошибок upstream) и GeoLite2-City.mmdb смонтирован.
-                  </li>
-                </>
-              )}
-            </ul>
-            <UnresolvedIpsList data={unresolvedList} compact />
-          </div>
-        </div>
-      </div>
-    );
-  }
-  const maxHits = Math.max(...data.map((d) => d.hits), 1);
-  const minHits = Math.min(...data.map((d) => d.hits), 1);
-
-  const dotRadius = (hits: number) => {
-    const minR = 5;
-    const maxR = 22;
-    if (maxHits === minHits) return (minR + maxR) / 2;
-    return minR + ((hits - minHits) / (maxHits - minHits)) * (maxR - minR);
-  };
-  const dotColor = (hits: number) => {
-    const ratio = maxHits === minHits ? 0.5 : (hits - minHits) / (maxHits - minHits);
-    if (ratio < 0.33) return "#10b981";
-    if (ratio < 0.66) return "#f59e0b";
-    return "#f43f5e";
-  };
-
-  return (
-    <div>
-    <div style={{ height: "520px", width: "100%", borderRadius: "var(--radius-md)", overflow: "hidden", position: "relative" }}>
-      <MapContainer
-        center={[25, 0]}
-        zoom={2}
-        minZoom={2}
-        maxZoom={6}
-        scrollWheelZoom
-        dragging
-        touchZoom
-        doubleClickZoom
-        zoomControl={false}
-        keyboard={false}
-        worldCopyJump
-        maxBounds={[[-90, -180], [90, 180]]}
-        maxBoundsViscosity={0.5}
-        style={{ height: "100%", width: "100%", background: mapBg }}
-        attributionControl={false}
-      >
-        <TileLayer url={tileUrl} noWrap={false} />
-        {data.map((d, i) => (
-          <CircleMarker
-            key={i}
-            center={[d.latitude, d.longitude]}
-            radius={dotRadius(d.hits)}
-            pathOptions={{ fillColor: dotColor(d.hits), color: dotColor(d.hits), weight: 1.5, opacity: 0.9, fillOpacity: 0.55 }}
-          >
-            <Popup>
-              <div style={{ fontSize: "12px", color: popupText }}>
-                <strong>{d.city_name || d.country_code}</strong>
-                <br />
-                {d.hits.toLocaleString()} requests
-                {d.country_code && d.city_name ? <><br />{d.country_code}</> : null}
-              </div>
-            </Popup>
-          </CircleMarker>
-        ))}
-      </MapContainer>
-      <div
-        style={{
-          position: "absolute",
-          bottom: "12px",
-          left: "12px",
-          zIndex: 1000,
-          background: legendBg,
-          backdropFilter: "blur(6px)",
-          borderRadius: "var(--radius-sm)",
-          padding: "8px 12px",
-          display: "flex",
-          alignItems: "center",
-          gap: "14px",
-          fontSize: "11px",
-          color: "var(--text-secondary)",
-          border: "1px solid var(--border-subtle)",
-        }}
-      >
-        <div className="map-legend-item">
-          <div className="map-legend-dot" style={{ background: "#f43f5e" }} />
-          High
-        </div>
-        <div className="map-legend-item">
-          <div className="map-legend-dot" style={{ background: "#f59e0b" }} />
-          Medium
-        </div>
-        <div className="map-legend-item">
-          <div className="map-legend-dot" style={{ background: "#10b981" }} />
-          Low
-        </div>
-      </div>
-    </div>
-      <UnresolvedIpsList data={unresolvedList} />
-    </div>
-  );
-}
 
 function GrafanaTab({
   connections,
@@ -1187,6 +932,7 @@ function GrafanaTab({
   connectionId: number | null;
   onConnectionChange: (id: number | null) => void;
 }) {
+  const { t } = useSettings();
   const selected = useMemo(() => connections.find((c) => c.id === connectionId) ?? null, [connections, connectionId]);
   const varConnection = useMemo(() => {
     if (!selected || !selected.domains || selected.domains.length === 0) return null;
@@ -1223,7 +969,7 @@ function GrafanaTab({
           border: "1px solid var(--border-color, #2a2a2a)",
         }}
       >
-        <span style={{ fontSize: "13px", color: "var(--text-secondary, #888)", fontWeight: 500 }}>Domain:</span>
+        <span style={{ fontSize: "13px", color: "var(--text-secondary, #888)", fontWeight: 500 }}>{t("dashboard.ui.domain")}</span>
         <select
           data-testid="grafana-connection-picker"
           value={connectionId ?? ""}
@@ -1243,7 +989,7 @@ function GrafanaTab({
             minWidth: "220px",
           }}
         >
-          <option value="">All domains (global dashboard)</option>
+          <option value="">{t("dashboard.ui.allDomainsGlobal")}</option>
           {connections.filter((c) => c.enabled).map((c) => (
             <option key={c.id} value={c.id}>
               {c.name}
@@ -1258,7 +1004,7 @@ function GrafanaTab({
           ref={iframeRef}
           src={src}
           style={{ border: "none", width: "100%", height: "100%", borderRadius: "var(--radius-md)" }}
-          title="Grafana Dashboard"
+          title={t("dashboard.ui.grafanaDashboardTitle")}
           sandbox="allow-scripts allow-same-origin allow-forms allow-popups"
         />
       </div>
@@ -1275,6 +1021,7 @@ function NativePanels({
   connectionId: number | null;
   visiblePanels: Set<PanelKey>;
 }) {
+  const { t } = useSettings();
   const deps = useMemo(() => [hours, connectionId] as const, [hours, connectionId]);
 
   const metrics = useDashboardPanel<Metrics>(
@@ -1302,9 +1049,12 @@ function NativePanels({
   const byCountry = useDashboardPanel<CountryHit[]>(() => api.getRequestsByCountry(hours, connectionId), deps, 30_000, visiblePanels.has("byCountry"));
   const trafficVolume = useDashboardPanel<BytesPoint[]>(() => api.getTrafficVolume(hours, connectionId), deps, 15_000, visiblePanels.has("trafficVolume"));
   const rps = useDashboardPanel<RpsPoint[]>(() => api.getRequestsPerSecond(hours, connectionId), deps, 15_000, visiblePanels.has("rps"));
-  const events = useDashboardPanel<SecurityEvent[]>(() => api.getEvents(15, "all", hours, connectionId), deps, 15_000, visiblePanels.has("securityEvents"));
-  const geoip = useDashboardPanel<GeoipMapPoint[]>(() => api.getGeoipMap(hours, connectionId), deps, 30_000, visiblePanels.has("geoipMap"));
-  const geoipUnresolved = useDashboardPanel<UnresolvedIp[]>(() => api.getGeoipUnresolved(hours, connectionId), deps, 30_000, visiblePanels.has("geoipMap"));
+  const events = useDashboardPanel<SecurityEvent[]>(
+    () => api.getEvents(15, "all", hours, connectionId),
+    deps,
+    15_000,
+    visiblePanels.has("securityEvents"),
+  );
 
   const m = metrics.data;
 
@@ -1323,10 +1073,10 @@ function NativePanels({
               <div className="metric-icon indigo">
                 <Gauge size={18} />
               </div>
-              <div className="metric-label">Total Requests</div>
+              <div className="metric-label">{t("dashboard.metric.totalRequests")}</div>
               <div className="metric-value">{m ? formatNumber(m.total_requests) : metrics.initialLoading ? "…" : "—"}</div>
               <div className={`metric-change ${(m?.total_requests_change ?? 0) >= 0 ? "up" : "down"}`}>
-                {m ? `${m.total_requests_change >= 0 ? "+" : ""}${m.total_requests_change}% vs previous` : "—"}
+                {m ? `${m.total_requests_change >= 0 ? "+" : ""}${m.total_requests_change}% ${t("dashboard.metric.vsPrevious")}` : "—"}
               </div>
             </div>
           )}
@@ -1338,9 +1088,9 @@ function NativePanels({
               <div className="metric-icon rose">
                 <ShieldOff size={18} />
               </div>
-              <div className="metric-label">Blocked Threats</div>
+              <div className="metric-label">{t("dashboard.metric.blockedThreats")}</div>
               <div className="metric-value">{m ? formatNumber(m.blocked_threats) : metrics.initialLoading ? "…" : "—"}</div>
-              <div className="metric-change down">{m ? `${m.high_severity_count} high severity` : "Monitored by WAF"}</div>
+              <div className="metric-change down">{m ? `${m.high_severity_count} ${t("dashboard.metric.highSeverity")}` : t("dashboard.metric.monitoredByWaf")}</div>
             </div>
           )}
           {visiblePanels.has("metricAvgLatency") && (
@@ -1351,9 +1101,9 @@ function NativePanels({
               <div className="metric-icon violet">
                 <Clock size={18} />
               </div>
-              <div className="metric-label">Avg Latency</div>
+              <div className="metric-label">{t("dashboard.metric.avgLatency")}</div>
               <div className="metric-value">{m ? `${m.avg_latency_ms.toFixed(1)} ms` : metrics.initialLoading ? "…" : "—"}</div>
-              <div className="metric-change up">{m ? `Health ${m.system_health}%` : "Performance metrics"}</div>
+              <div className="metric-change up">{m ? `Health ${m.system_health}%` : t("dashboard.metric.performance")}</div>
             </div>
           )}
           {visiblePanels.has("metricActiveRules") && (
@@ -1364,28 +1114,28 @@ function NativePanels({
               <div className="metric-icon emerald">
                 <ScrollText size={18} />
               </div>
-              <div className="metric-label">Active Rules</div>
+              <div className="metric-label">{t("dashboard.metric.activeRules")}</div>
               <div className="metric-value">{m ? m.active_rules.toLocaleString() : metrics.initialLoading ? "…" : "—"}</div>
-              <div className="metric-change up">CRS Protection</div>
+              <div className="metric-change up">{t("dashboard.metric.crsProtection")}</div>
             </div>
           )}
         </div>
       )}
 
       {visiblePanels.has("trafficChart") && (
-        <PanelCard title="Traffic Overview (Clean vs Malicious)" icon={<BarChart3 size={16} />}>
+        <PanelCard title={t("dashboard.panel.traffic")} icon={<BarChart3 size={16} />}>
           <TrafficChart data={traffic.data} loading={traffic.initialLoading} />
         </PanelCard>
       )}
 
       {visiblePanels.has("wafEvents") && (
-        <PanelCard title="🔥 WAF Events Over Time" icon={<Activity size={16} />}>
+        <PanelCard title={t("dashboard.panel.events")} icon={<Activity size={16} />}>
           <TimelineSeries
             data={wafEvents.data}
             loading={wafEvents.initialLoading}
             valueOf={(d) => (d as TimelinePoint).hits}
             color="#ef4444"
-            valueLabel="WAF events"
+            valueLabel={t("dashboard.tooltip.wafEvents")}
           />
         </PanelCard>
       )}
@@ -1393,12 +1143,12 @@ function NativePanels({
       {(visiblePanels.has("topRules") || visiblePanels.has("severity")) && (
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "16px", marginBottom: "16px" }}>
           {visiblePanels.has("topRules") && (
-            <PanelCard title="🚨 Top Rules by Trigger Count" icon={<ShieldAlert size={16} />} style={{ marginBottom: 0 }}>
+            <PanelCard title={t("dashboard.panel.topRules")} icon={<ShieldAlert size={16} />} style={{ marginBottom: 0 }}>
               <HorizontalBars data={topRules.data} loading={topRules.initialLoading} labelOf={(d: RuleHit) => injectionLabel(d.rule)} valueOf={(d: RuleHit) => d.hits} />
             </PanelCard>
           )}
           {visiblePanels.has("severity") && (
-            <PanelCard title="⚠️ Severity Distribution" icon={<PieChart size={16} />} style={{ marginBottom: 0 }}>
+            <PanelCard title={t("dashboard.panel.severityDist")} icon={<PieChart size={16} />} style={{ marginBottom: 0 }}>
               <SeverityDonut data={severity.data} loading={severity.initialLoading} />
             </PanelCard>
           )}
@@ -1408,18 +1158,18 @@ function NativePanels({
       {(visiblePanels.has("topAttackers") || visiblePanels.has("anomaly")) && (
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "16px", marginBottom: "16px" }}>
           {visiblePanels.has("topAttackers") && (
-            <PanelCard title="🌍 Top Attacking IPs" icon={<Users size={16} />} style={{ marginBottom: 0 }}>
+            <PanelCard title={t("dashboard.panel.topAttackingIPs")} icon={<Users size={16} />} style={{ marginBottom: 0 }}>
               <HorizontalBars data={topAttackers.data} loading={topAttackers.initialLoading} labelOf={(d: IpHit) => d.ip} valueOf={(d: IpHit) => d.hits} gradient="linear-gradient(90deg, var(--danger), #f59e0b)" />
             </PanelCard>
           )}
           {visiblePanels.has("anomaly") && (
-            <PanelCard title="🧠 Anomaly Score Timeline" icon={<AlertTriangle size={16} />} style={{ marginBottom: 0 }}>
+            <PanelCard title={t("dashboard.panel.anomalyTimeline")} icon={<AlertTriangle size={16} />} style={{ marginBottom: 0 }}>
               <TimelineSeries
                 data={anomaly.data}
                 loading={anomaly.initialLoading}
                 valueOf={(d) => (d as AnomalyPoint).score}
                 color="#f97316"
-                valueLabel="Anomaly score"
+                valueLabel={t("dashboard.tooltip.anomalyScore")}
               />
             </PanelCard>
           )}
@@ -1429,12 +1179,12 @@ function NativePanels({
       {(visiblePanels.has("threatOrigins") || visiblePanels.has("topTags")) && (
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "16px", marginBottom: "16px" }}>
           {visiblePanels.has("threatOrigins") && (
-            <PanelCard title="Threat Origins by Country" icon={<Globe size={16} />} style={{ marginBottom: 0 }}>
+            <PanelCard title={t("dashboard.panel.threatOrigins")} icon={<Globe size={16} />} style={{ marginBottom: 0 }}>
               <ThreatOriginsChart data={threatOrigins.data} loading={threatOrigins.initialLoading} />
             </PanelCard>
           )}
           {visiblePanels.has("topTags") && (
-            <PanelCard title="🏷 Top Tags" icon={<Tag size={16} />} style={{ marginBottom: 0 }}>
+            <PanelCard title={t("dashboard.panel.topTags")} icon={<Tag size={16} />} style={{ marginBottom: 0 }}>
               <HorizontalBars data={topTags.data} loading={topTags.initialLoading} labelOf={(d: TagHit) => d.tag} valueOf={(d: TagHit) => d.hits} gradient="linear-gradient(90deg, var(--accent-2), var(--accent-1))" />
             </PanelCard>
           )}
@@ -1444,12 +1194,12 @@ function NativePanels({
       {(visiblePanels.has("topUris") || visiblePanels.has("topRuleFiles")) && (
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "16px", marginBottom: "16px" }}>
           {visiblePanels.has("topUris") && (
-            <PanelCard title="📄 Top Blocked URIs" icon={<Link size={16} />} style={{ marginBottom: 0 }}>
+            <PanelCard title={t("dashboard.panel.topUris")} icon={<Link size={16} />} style={{ marginBottom: 0 }}>
               <HorizontalBars data={topUris.data} loading={topUris.initialLoading} labelOf={(d: UriHit) => d.uri} valueOf={(d: UriHit) => d.hits} />
             </PanelCard>
           )}
           {visiblePanels.has("topRuleFiles") && (
-            <PanelCard title="🧩 Top Attack Families" icon={<FileCode size={16} />} style={{ marginBottom: 0 }}>
+            <PanelCard title={t("dashboard.panel.topFamilies")} icon={<FileCode size={16} />} style={{ marginBottom: 0 }}>
               <HorizontalBars data={topRuleFiles.data} loading={topRuleFiles.initialLoading} labelOf={(d: RuleFileHit) => ruleFileToFamily(d.file)} valueOf={(d: RuleFileHit) => d.hits} />
             </PanelCard>
           )}
@@ -1457,7 +1207,7 @@ function NativePanels({
       )}
 
       {visiblePanels.has("statusCodes") && (
-        <PanelCard title="📈 HTTP Status Codes Over Time" icon={<TrendingUp size={16} />}>
+        <PanelCard title={t("dashboard.panel.statusCodes")} icon={<TrendingUp size={16} />}>
           <StatusCodesChart data={statusCodes.data} loading={statusCodes.initialLoading} />
         </PanelCard>
       )}
@@ -1465,12 +1215,12 @@ function NativePanels({
       {(visiblePanels.has("topClientIps") || visiblePanels.has("topUserAgents")) && (
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "16px", marginBottom: "16px" }}>
           {visiblePanels.has("topClientIps") && (
-            <PanelCard title="🌐 Top Client IPs" icon={<HardDrive size={16} />} style={{ marginBottom: 0 }}>
+            <PanelCard title={t("dashboard.panel.topClientIPs")} icon={<HardDrive size={16} />} style={{ marginBottom: 0 }}>
               <HorizontalBars data={topClientIps.data} loading={topClientIps.initialLoading} labelOf={(d: IpHit) => d.ip} valueOf={(d: IpHit) => d.hits} gradient="linear-gradient(90deg, #6366f1, #8b5cf6)" />
             </PanelCard>
           )}
           {visiblePanels.has("topUserAgents") && (
-            <PanelCard title="🤖 Top User-Agents" icon={<Bot size={16} />} style={{ marginBottom: 0 }}>
+            <PanelCard title={t("dashboard.panel.topUserAgents")} icon={<Bot size={16} />} style={{ marginBottom: 0 }}>
               <HorizontalBars
                 data={topUserAgents.data}
                 loading={topUserAgents.initialLoading}
@@ -1485,19 +1235,19 @@ function NativePanels({
       {(visiblePanels.has("byCountry") || visiblePanels.has("trafficVolume")) && (
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "16px", marginBottom: "16px" }}>
           {visiblePanels.has("byCountry") && (
-            <PanelCard title="🌍 Requests by Country" icon={<Flag size={16} />} style={{ marginBottom: 0 }}>
+            <PanelCard title={t("dashboard.panel.byCountry")} icon={<Flag size={16} />} style={{ marginBottom: 0 }}>
               <HorizontalBars data={byCountry.data} loading={byCountry.initialLoading} labelOf={(d: CountryHit) => d.country_code} valueOf={(d: CountryHit) => d.hits} gradient="linear-gradient(90deg, #10b981, var(--accent-1))" />
             </PanelCard>
           )}
           {visiblePanels.has("trafficVolume") && (
-            <PanelCard title="📊 Traffic Volume (Bytes)" icon={<BarChart3 size={16} />} style={{ marginBottom: 0 }}>
+            <PanelCard title={t("dashboard.panel.bytesVolume")} icon={<BarChart3 size={16} />} style={{ marginBottom: 0 }}>
               <TimelineSeries
                 data={trafficVolume.data}
                 loading={trafficVolume.initialLoading}
                 valueOf={(d) => (d as BytesPoint).bytes}
                 color="#3b82f6"
                 unit="bytes"
-                valueLabel="Bytes sent"
+                valueLabel={t("dashboard.tooltip.bytesSent")}
               />
             </PanelCard>
           )}
@@ -1505,34 +1255,30 @@ function NativePanels({
       )}
 
       {visiblePanels.has("rps") && (
-        <PanelCard title="⏱ Requests per Second" icon={<Zap size={16} />}>
+        <PanelCard title={t("dashboard.panel.rps")} icon={<Zap size={16} />}>
           <TimelineSeries
             data={rps.data}
             loading={rps.initialLoading}
             valueOf={(d) => (d as RpsPoint).rps}
             color="#06b6d4"
             unit="rps"
-            valueLabel="Req / sec"
+            valueLabel={t("dashboard.tooltip.reqPerSec")}
           />
         </PanelCard>
       )}
 
       {visiblePanels.has("securityEvents") && (
-        <PanelCard title="Recent Security Events" icon={<ShieldAlert size={16} />}>
+        <PanelCard title={t("dashboard.panel.recentEvents")} icon={<ShieldAlert size={16} />}>
           <EventsTable data={events.data} loading={events.initialLoading} />
         </PanelCard>
       )}
 
-      {visiblePanels.has("geoipMap") && (
-        <PanelCard title="GeoIP Attack Origins Map" icon={<Map size={16} />}>
-          <GeoipMap data={geoip.data} loading={geoip.initialLoading} unresolved={geoipUnresolved.data} />
-        </PanelCard>
-      )}
     </>
   );
 }
 
 export default function Dashboard() {
+  const { t } = useSettings();
   const [activeTab, setActiveTab] = useState<Tab>("grafana");
 
   const [timeValue, setTimeValue] = useState<number>(24);
@@ -1597,11 +1343,11 @@ export default function Dashboard() {
     <div>
       <div className="page-header">
         <div>
-          <h1>Dashboard</h1>
+          <h1>{t("dashboard.title")}</h1>
           <p>
             {activeTab === "grafana"
-              ? "Real-time WAF monitoring and analytics powered by Grafana"
-              : "Native WAF metrics, threat intelligence and traffic analytics"}
+              ? t("dashboard.subtitle")
+              : t("dashboard.subtitle.native")}
           </p>
         </div>
       </div>
@@ -1622,7 +1368,7 @@ export default function Dashboard() {
             transition: "color 0.2s, border-color 0.2s",
           }}
         >
-          Grafana Panels
+          {t("dashboard.tab.grafana")}
         </button>
         <button
           onClick={() => setActiveTab("native")}
@@ -1639,7 +1385,7 @@ export default function Dashboard() {
             transition: "color 0.2s, border-color 0.2s",
           }}
         >
-          Native Panels
+          {t("dashboard.tab.native")}
         </button>
       </div>
 
@@ -1658,7 +1404,7 @@ export default function Dashboard() {
               flexWrap: "wrap",
             }}
           >
-            <span style={{ fontSize: "13px", color: "var(--text-secondary, #888)", fontWeight: 500 }}>Time Range:</span>
+            <span style={{ fontSize: "13px", color: "var(--text-secondary, #888)", fontWeight: 500 }}>{t("dashboard.ui.timeRange")}</span>
             <input
               type="number"
               min={1}
@@ -1694,14 +1440,14 @@ export default function Dashboard() {
               }}
             >
               {UNITS.map((unit) => (
-                <option key={unit.value} value={unit.value}>{unit.label}</option>
+                <option key={unit.value} value={unit.value}>{t(unit.labelKey)}</option>
               ))}
             </select>
             <span style={{ fontSize: "12px", color: "var(--text-secondary, #666)" }}>
-              (last {timeValue} {timeUnit === "minutes" ? "min" : timeUnit === "hours" ? "hr" : "day"}{timeValue !== 1 ? "s" : ""})
+              (last {timeValue} {timeUnit === "minutes" ? t("dashboard.ui.min") : timeUnit === "hours" ? t("dashboard.ui.hr") : t("dashboard.ui.day")}{timeValue !== 1 ? "s" : ""})
             </span>
 
-            <span style={{ fontSize: "13px", color: "var(--text-secondary, #888)", fontWeight: 500, marginLeft: "12px" }}>Domain:</span>
+            <span style={{ fontSize: "13px", color: "var(--text-secondary, #888)", fontWeight: 500, marginLeft: "12px" }}>{t("dashboard.ui.domain")}</span>
             <select
               data-testid="dashboard-connection-picker"
               value={connectionId ?? ""}
@@ -1721,7 +1467,7 @@ export default function Dashboard() {
                 minWidth: "180px",
               }}
             >
-              <option value="">All domains</option>
+              <option value="">{t("dashboard.ui.allDomains")}</option>
               {connections.filter((c) => c.enabled).map((c) => (
                 <option key={c.id} value={c.id}>
                   {c.name}
@@ -1735,7 +1481,7 @@ export default function Dashboard() {
                 data-testid="dashboard-gear"
                 className="settings-gear-btn"
                 onClick={() => setGearOpen(!gearOpen)}
-                title="Panel Visibility"
+                title={t("dashboard.ui.panelVisibility")}
                 style={{ width: "32px", height: "32px" }}
               >
                 <Cog size={16} />
@@ -1760,13 +1506,13 @@ export default function Dashboard() {
                   }}
                 >
                   <div style={{ fontSize: "10px", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.06em", color: "var(--text-muted)", padding: "8px 10px 4px" }}>
-                    Metrics
+                    {t("dashboard.ui.sectionMetrics")}
                   </div>
                   {METRIC_ITEMS.map((p) => (
                     <PanelToggleRow key={p.key} item={p} on={visiblePanels.has(p.key)} onClick={() => togglePanel(p.key)} />
                   ))}
                   <div style={{ fontSize: "10px", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.06em", color: "var(--text-muted)", padding: "12px 10px 4px", borderTop: "1px solid var(--border-subtle)", marginTop: "2px" }}>
-                    Panels
+                    {t("dashboard.ui.sectionPanels")}
                   </div>
                   {PANEL_ITEMS.map((p) => (
                     <PanelToggleRow key={p.key} item={p} on={visiblePanels.has(p.key)} onClick={() => togglePanel(p.key)} />
@@ -1792,10 +1538,11 @@ function PanelToggleRow({
   on,
   onClick,
 }: {
-  item: { key: PanelKey; icon: React.ReactNode; label: string };
+  item: { key: PanelKey; icon: React.ReactNode; labelKey: string };
   on: boolean;
   onClick: () => void;
 }) {
+  const { t } = useSettings();
   return (
     <div className="checkbox-row" onClick={onClick} style={{ padding: "8px 10px", cursor: "pointer" }}>
       <div
@@ -1825,7 +1572,7 @@ function PanelToggleRow({
       </div>
       <span style={{ display: "flex", alignItems: "center", gap: "8px", fontSize: "13px" }}>
         {item.icon}
-        {item.label}
+        {t(item.labelKey)}
       </span>
     </div>
   );

@@ -388,7 +388,7 @@ function CrowdsecCatalog({ translate }: { translate: (key: string) => string }) 
   if (scenarios === null) {
     return (
       <div className="card" style={{ padding: 32, textAlign: "center", color: "var(--text-muted)" }}>
-        Loading…
+        {translate("tests.loading")}
       </div>
     );
   }

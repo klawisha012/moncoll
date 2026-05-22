@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { NavLink, Outlet, useNavigate } from "react-router-dom";
 import {
   LayoutDashboard,
@@ -11,6 +11,9 @@ import {
   LogOut,
   Users as UsersIcon,
   TestTube,
+  Home as HomeIcon,
+  PanelLeftClose,
+  PanelLeftOpen,
 } from "lucide-react";
 import { useSettings } from "../context/SettingsContext";
 import { useAuth } from "../context/AuthContext";
@@ -18,11 +21,30 @@ import SettingsPopover from "./SettingsPopover";
 import logoDark from "../assets/images/dark theme logo.png";
 import logoLight from "../assets/images/ligth theme logo.png";
 
+const SIDEBAR_STORAGE_KEY = "waf-sidebar-collapsed";
+
+function loadCollapsed(): boolean {
+  try {
+    return localStorage.getItem(SIDEBAR_STORAGE_KEY) === "1";
+  } catch {
+    return false;
+  }
+}
+
 export default function Layout() {
   const { t, theme } = useSettings();
   const { user, logout } = useAuth();
   const navigate = useNavigate();
   const [popoverOpen, setPopoverOpen] = useState(false);
+  const [collapsed, setCollapsed] = useState<boolean>(loadCollapsed);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(SIDEBAR_STORAGE_KEY, collapsed ? "1" : "0");
+    } catch {
+      // ignore
+    }
+  }, [collapsed]);
 
   const handleLogout = async () => {
     await logout();
@@ -30,21 +52,51 @@ export default function Layout() {
   };
 
   return (
-    <div className="layout">
+    <div className={`layout ${collapsed ? "sidebar-collapsed" : ""}`}>
+      {collapsed && (
+        <button
+          type="button"
+          className="sidebar-reopen"
+          onClick={() => setCollapsed(false)}
+          aria-label={t("sidebar.expand")}
+          title={t("sidebar.expand")}
+        >
+          <PanelLeftOpen size={18} />
+        </button>
+      )}
       <aside className="sidebar">
         <div className="sidebar-brand">
           <div className="brand-icon">
-            <img src={theme === "light" ? logoLight : logoDark} alt="WAF logo" />
+            <img src={theme === "light" ? logoLight : logoDark} alt={t("brand.logoAlt")} />
           </div>
           <div className="brand-text">
             <span className="brand-name">{t("brand.name")}</span>
             <span className="brand-sub">{t("brand.sub")}</span>
           </div>
+          <button
+            type="button"
+            className="sidebar-collapse-btn"
+            onClick={() => setCollapsed(true)}
+            aria-label={t("sidebar.collapse")}
+            title={t("sidebar.collapse")}
+          >
+            <PanelLeftClose size={16} />
+          </button>
         </div>
 
         <nav className="sidebar-nav">
           <div className="nav-section">
             <div className="nav-section-title">{t("nav.overview")}</div>
+            <NavLink
+              to="/home"
+              end
+              className={({ isActive }) =>
+                `nav-link ${isActive ? "active" : ""}`
+              }
+            >
+              <HomeIcon />
+              {t("nav.home")}
+            </NavLink>
             <NavLink
               to="/dashboard"
               className={({ isActive }) =>

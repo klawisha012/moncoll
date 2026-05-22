@@ -2,6 +2,7 @@ import { Routes, Route, Navigate } from "react-router-dom";
 import Layout from "./components/Layout";
 import ProtectedRoute from "./components/ProtectedRoute";
 import AdminOnly from "./components/AdminOnly";
+import Home from "./pages/Home";
 import Dashboard from "./pages/Dashboard";
 import Connections from "./pages/Connections";
 import ConfigEditor from "./pages/ConfigEditor";
@@ -19,7 +20,8 @@ function App() {
       <Route element={<ProtectedRoute />}>
         <Route path="/change-password" element={<ChangePassword />} />
         <Route path="/" element={<Layout />}>
-          <Route index element={<Navigate to="/dashboard" replace />} />
+          <Route index element={<Home />} />
+          <Route path="home" element={<Home />} />
           <Route path="dashboard" element={<Dashboard />} />
           <Route path="monitoring" element={<Monitoring />} />
           <Route
@@ -64,7 +66,7 @@ function App() {
           />
         </Route>
       </Route>
-      <Route path="*" element={<Navigate to="/dashboard" replace />} />
+      <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
   );
 }

@@ -144,7 +144,7 @@ export default function CrowdSec() {
       setServiceEnabled(svc.enabled);
       setConnections(conns);
     } catch {
-      showToast("Failed to load CrowdSec data", "error");
+      showToast(t("crowdsec.error.loadFailed"), "error");
     } finally {
       setLoading(false);
     }
@@ -173,7 +173,7 @@ export default function CrowdSec() {
 
   async function handleBlock() {
     if (!blockIp.trim()) {
-      showToast("Please enter an IP address", "error");
+      showToast(t("crowdsec.input.ipRequired"), "error");
       return;
     }
     setActionLoading("block");
@@ -192,16 +192,16 @@ export default function CrowdSec() {
         const domainInfo = blockConnectionIds.length > 0
           ? ` on ${blockConnectionIds.length} domain(s)`
           : " on all domains";
-        showToast(`IP ${blockIp} blocked successfully${domainInfo}`, "success");
+        showToast(t("crowdsec.toast.ipBlocked", { ip: blockIp, domainInfo }), "success");
         setBlockIp("");
         setBlockReason("manual block");
         setBlockConnectionIds([]);
         loadData();
       } else {
-        showToast(result.message || "Failed to block IP", "error");
+        showToast(result.message || t("crowdsec.toast.blockFailed"), "error");
       }
     } catch (e: any) {
-      showToast(e.message || "Failed to block IP", "error");
+      showToast(e.message || t("crowdsec.toast.blockFailed"), "error");
     } finally {
       setActionLoading(null);
     }
@@ -212,13 +212,13 @@ export default function CrowdSec() {
     try {
       const result = await api.deleteCrowdSecDecision(ip);
       if (result.success) {
-        showToast(`IP ${ip} unblocked`, "success");
+        showToast(t("crowdsec.toast.ipUnblocked", { ip }), "success");
         loadData();
       } else {
-        showToast(result.message || "Failed to unblock", "error");
+        showToast(result.message || t("crowdsec.toast.unblockFailed"), "error");
       }
     } catch (e: any) {
-      showToast(e.message || "Failed to unblock", "error");
+      showToast(e.message || t("crowdsec.toast.unblockFailed"), "error");
     } finally {
       setActionLoading(null);
     }
@@ -229,13 +229,13 @@ export default function CrowdSec() {
     try {
       const result = await api.deleteAllCrowdSecDecisions();
       if (result.success) {
-        showToast("All blocks removed", "success");
+        showToast(t("crowdsec.toast.allRemoved"), "success");
         loadData();
       } else {
-        showToast(result.message || "Failed", "error");
+        showToast(result.message || t("crowdsec.toast.removeAllFailed"), "error");
       }
     } catch (e: any) {
-      showToast(e.message || "Failed to delete all", "error");
+      showToast(e.message || t("crowdsec.toast.removeAllFailed"), "error");
     } finally {
       setActionLoading(null);
     }
@@ -246,7 +246,7 @@ export default function CrowdSec() {
     try {
       const result = await api.installCrowdSecScenario(name);
       showToast(
-        result.success ? `Scenario installed` : result.message || "Failed",
+        result.success ? t("crowdsec.toast.scenarioInstalled") : result.message || t("crowdsec.toast.scenarioInstallFailed"),
         result.success ? "success" : "error"
       );
       loadData();
@@ -262,7 +262,7 @@ export default function CrowdSec() {
     try {
       const result = await api.removeCrowdSecScenario(name);
       showToast(
-        result.success ? `Scenario removed` : result.message || "Failed",
+        result.success ? t("crowdsec.toast.scenarioRemoved") : result.message || t("crowdsec.toast.scenarioRemoveFailed"),
         result.success ? "success" : "error"
       );
       loadData();
@@ -279,8 +279,8 @@ export default function CrowdSec() {
       const result = await api.toggleCrowdSecScenario(name);
       showToast(
         result.success
-          ? `Scenario ${result.enabled ? "enabled" : "disabled"}`
-          : result.message || "Failed to toggle scenario",
+          ? (result.enabled ? t("crowdsec.toast.scenarioEnabled") : t("crowdsec.toast.scenarioDisabled"))
+          : result.message || t("crowdsec.toast.toggleFailed"),
         result.success ? "success" : "error"
       );
       loadData();
@@ -298,16 +298,16 @@ export default function CrowdSec() {
       const result = await api.toggleCrowdSecService(target);
       if (result.success) {
         showToast(
-          `CrowdSec service ${result.enabled ? "enabled" : "disabled"}`,
+          result.enabled ? t("crowdsec.toast.serviceEnabled") : t("crowdsec.toast.serviceDisabled"),
           "success"
         );
         setServiceEnabled(result.enabled);
         loadData();
       } else {
-        showToast(result.message || "Failed to toggle service", "error");
+        showToast(result.message || t("crowdsec.toast.serviceToggleFailed"), "error");
       }
     } catch (e: any) {
-      showToast(e.message || "Failed to toggle service", "error");
+      showToast(e.message || t("crowdsec.toast.serviceToggleFailed"), "error");
     } finally {
       setActionLoading(null);
     }
@@ -318,7 +318,7 @@ export default function CrowdSec() {
     try {
       const result = await api.reloadCrowdSec();
       showToast(
-        result.success ? "CrowdSec reloaded" : result.message || "Failed",
+        result.success ? t("crowdsec.toast.reloaded") : result.message || t("crowdsec.toast.reloadFailed"),
         result.success ? "success" : "error"
       );
       loadData();
@@ -403,7 +403,7 @@ export default function CrowdSec() {
   if (loading) {
     return (
       <div className="page-wrapper" style={{ padding: "32px" }}>
-        <div className="loading-spinner">Loading CrowdSec data...</div>
+        <div className="loading-spinner">{t("crowdsec.loading")}</div>
       </div>
     );
   }
@@ -490,7 +490,7 @@ export default function CrowdSec() {
       <div className="page-header">
         <div>
           <h1>CrowdSec</h1>
-          <p>Manage IP blocks, scenarios, and security decisions</p>
+          <p>{t("crowdsec.subtitle")}</p>
         </div>
       </div>
 
@@ -510,7 +510,7 @@ export default function CrowdSec() {
       >
         {/* Time range selector (same UX as the Dashboard native panels) */}
         <span style={{ fontSize: "13px", color: "var(--text-secondary, #888)", fontWeight: 500 }}>
-          Time Range:
+          {t("dashboard.ui.timeRange")}
         </span>
         <input
           type="number"
@@ -555,9 +555,10 @@ export default function CrowdSec() {
           ))}
         </select>
         <span style={{ fontSize: "12px", color: "var(--text-secondary, #666)" }}>
-          (alerts &amp; manual blocks for the last {timeValue}{" "}
-          {timeUnit === "minutes" ? "min" : timeUnit === "hours" ? "hr" : "day"}
-          {timeValue !== 1 ? "s" : ""})
+          {t("crowdsec.subtitle.range", {
+            n: timeValue,
+            unit: timeUnit === "minutes" ? "min" : timeUnit === "hours" ? "hr" : "day",
+          })}
         </span>
 
         {/* Gear button */}
@@ -670,7 +671,7 @@ export default function CrowdSec() {
                 <Shield size={18} />
               </div>
               <div>
-                <div className="metric-label">Status</div>
+                <div className="metric-label">{t("crowdsec.panel.status")}</div>
                 <div style={{ display: "flex", alignItems: "center", gap: "8px", marginTop: "2px" }}>
                   <span
                     className="badge"
@@ -680,7 +681,7 @@ export default function CrowdSec() {
                         : { background: "rgba(244,63,94,0.12)", color: "var(--danger)" }
                     }
                   >
-                    {!serviceEnabled ? "DISABLED" : status?.running ? "RUNNING" : "STOPPED"}
+                    {!serviceEnabled ? t("crowdsec.status.disabled") : status?.running ? t("crowdsec.status.running") : t("crowdsec.status.stopped")}
                   </span>
                   <span style={{ fontSize: "12px", color: "var(--text-muted)" }}>
                     {status?.version || "Unknown"}
@@ -705,7 +706,7 @@ export default function CrowdSec() {
                   ) : (
                     <Power size={14} />
                   )}
-                  {serviceEnabled ? "Disable" : "Enable"}
+                  {serviceEnabled ? t("crowdsec.btn.disable") : t("crowdsec.btn.enable")}
                 </button>
                 <button
                   className="btn btn-outline"
@@ -716,7 +717,7 @@ export default function CrowdSec() {
                     size={14}
                     style={{ animation: actionLoading === "reload" ? "spin 1s linear infinite" : "none" }}
                   />
-                  Reload
+                  {t("crowdsec.btn.reload")}
                 </button>
               </div>
             </div>
@@ -737,7 +738,7 @@ export default function CrowdSec() {
                 <Ban size={18} />
               </div>
               <div>
-                <div className="metric-label">Active Blocks</div>
+                <div className="metric-label">{t("crowdsec.panel.blocks")}</div>
                 <div className="metric-value" style={{ margin: 0, fontSize: "18px" }}>
                   {status?.decisions_count ?? 0}
                 </div>
@@ -751,15 +752,15 @@ export default function CrowdSec() {
               <div style={{ padding: "16px 20px", borderBottom: "1px solid var(--border-default)" }}>
                 <h4 style={{ fontSize: "13px", fontWeight: 600, marginBottom: "12px", display: "flex", alignItems: "center", gap: "6px" }}>
                   <Ban size={14} style={{ color: "var(--danger)" }} />
-                  Block IP Manually
+                  {t("crowdsec.section.blockManually")}
                 </h4>
                 <div style={{ display: "flex", gap: "10px", alignItems: "flex-end", flexWrap: "wrap" }}>
                   <div className="form-group" style={{ marginBottom: 0 }}>
-                    <label className="label" style={{ fontSize: "11px" }}>IP Address</label>
+                    <label className="label" style={{ fontSize: "11px" }}>{t("crowdsec.ipAddress")}</label>
                     <input
                       type="text"
                       className="input"
-                      placeholder="192.168.1.100"
+                      placeholder={t("crowdsec.placeholder.ipAddr")}
                       value={blockIp}
                       onChange={(e) => setBlockIp(e.target.value)}
                       onKeyDown={(e) => e.key === "Enter" && handleBlock()}
@@ -767,7 +768,7 @@ export default function CrowdSec() {
                     />
                   </div>
                   <div className="form-group" style={{ marginBottom: 0 }}>
-                    <label className="label" style={{ fontSize: "11px" }}>Duration</label>
+                    <label className="label" style={{ fontSize: "11px" }}>{t("crowdsec.duration")}</label>
                     <select
                       className="input"
                       value={blockDuration}
@@ -786,11 +787,11 @@ export default function CrowdSec() {
                     </select>
                   </div>
                   <div className="form-group" style={{ marginBottom: 0 }}>
-                    <label className="label" style={{ fontSize: "11px" }}>Reason</label>
+                    <label className="label" style={{ fontSize: "11px" }}>{t("crowdsec.reason")}</label>
                     <input
                       type="text"
                       className="input"
-                      placeholder="Reason..."
+                      placeholder={t("crowdsec.placeholder.reason")}
                       value={blockReason}
                       onChange={(e) => setBlockReason(e.target.value)}
                       style={{ height: "34px", fontSize: "13px", width: "160px" }}
@@ -798,7 +799,7 @@ export default function CrowdSec() {
                   </div>
                   {/* Domain selector */}
                   <div className="form-group" style={{ marginBottom: 0, position: "relative" }} ref={domainDropdownRef}>
-                    <label className="label" style={{ fontSize: "11px" }}>Domains</label>
+                    <label className="label" style={{ fontSize: "11px" }}>{t("crowdsec.field.domains")}</label>
                     <button
                       type="button"
                       className="input"
@@ -826,8 +827,8 @@ export default function CrowdSec() {
                         color: blockConnectionIds.length === 0 ? "var(--text-muted)" : "var(--text-primary)",
                       }}>
                         {blockConnectionIds.length === 0
-                          ? "All domains"
-                          : `${blockConnectionIds.length} domain(s)`}
+                          ? t("crowdsec.placeholder.allDomains")
+                          : t("crowdsec.domains.count", { n: blockConnectionIds.length })}
                       </span>
                       <span style={{ color: "var(--text-muted)", fontSize: "10px" }}>
                         {domainDropdownOpen ? "▲" : "▼"}
@@ -879,12 +880,12 @@ export default function CrowdSec() {
                             style={{ marginRight: "8px", accentColor: "var(--accent-1)" }}
                           />
                           {blockConnectionIds.length === connections.filter(c => c.enabled).length
-                            ? "Deselect All"
-                            : "Select All"}
+                            ? t("crowdsec.btn.deselectAll")
+                            : t("crowdsec.btn.selectAll")}
                         </div>
                         {connections.length === 0 ? (
                           <div style={{ padding: "12px", fontSize: "12px", color: "var(--text-muted)", textAlign: "center" }}>
-                            No connections configured
+                            {t("crowdsec.empty.noConnections")}
                           </div>
                         ) : (
                           connections.filter(c => c.enabled).map(conn => (
@@ -909,7 +910,7 @@ export default function CrowdSec() {
                               />
                               <span style={{ fontWeight: 500 }}>{conn.name}</span>
                               <span style={{ color: "var(--text-muted)", marginLeft: "6px", fontSize: "11px" }}>
-                                ({conn.domains?.join(", ") || "no domains"})
+                                {conn.domains?.length ? `(${conn.domains.join(", ")})` : t("crowdsec.noDomains")}
                               </span>
                             </div>
                           ))
@@ -928,7 +929,7 @@ export default function CrowdSec() {
                     ) : (
                       <Ban size={14} />
                     )}
-                    Block IP
+                    {t("crowdsec.btn.blockIp")}
                   </button>
                 </div>
               </div>
@@ -938,7 +939,7 @@ export default function CrowdSec() {
                 <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "8px" }}>
                   <h4 style={{ fontSize: "13px", fontWeight: 600, margin: 0, display: "flex", alignItems: "center", gap: "6px" }}>
                     <Globe size={14} style={{ color: "var(--accent-1)" }} />
-                    Active Decisions
+                    {t("crowdsec.section.activeDecisions")}
                   </h4>
                   <button
                     className="btn btn-outline btn-sm"
@@ -946,26 +947,26 @@ export default function CrowdSec() {
                     disabled={actionLoading === "deleteAll" || decisions.length === 0}
                   >
                     <Trash2 size={11} />
-                    Clear All
+                    {t("crowdsec.btn.clearAll")}
                   </button>
                 </div>
                 <div className="table-wrapper" style={{ maxHeight: "240px", overflowY: "auto" }}>
                   <table className="table">
                     <thead>
                       <tr>
-                        <th>IP</th>
-                        <th>Type</th>
-                        <th>Reason</th>
-                        <th>Blocked On</th>
-                        <th>Expires</th>
-                        <th>Action</th>
+                        <th>{t("crowdsec.table.ip")}</th>
+                        <th>{t("crowdsec.table.type")}</th>
+                        <th>{t("crowdsec.table.reason")}</th>
+                        <th>{t("crowdsec.table.blockedOn")}</th>
+                        <th>{t("crowdsec.table.expires")}</th>
+                        <th>{t("crowdsec.table.action")}</th>
                       </tr>
                     </thead>
                     <tbody>
                       {decisions.length === 0 ? (
                         <tr>
                           <td colSpan={6} style={{ textAlign: "center", color: "var(--text-muted)", padding: "16px" }}>
-                            No active decisions
+                            {t("crowdsec.empty.noDecisions")}
                           </td>
                         </tr>
                       ) : (
@@ -1000,7 +1001,7 @@ export default function CrowdSec() {
                                       </span>
                                     );
                                   })
-                                : <span style={{ color: "var(--text-muted)", fontStyle: "italic" }}>all</span>
+                                : <span style={{ color: "var(--text-muted)", fontStyle: "italic" }}>{t("crowdsec.all")}</span>
                               }
                             </td>
                             <td style={{ fontSize: "11px", color: "var(--text-muted)" }}>
@@ -1014,7 +1015,7 @@ export default function CrowdSec() {
                                 style={{ color: "var(--success)", borderColor: "rgba(16,185,129,0.3)" }}
                               >
                                 <Unlock size={11} />
-                                Unblock
+                                {t("crowdsec.btn.unblock")}
                               </button>
                             </td>
                           </tr>
@@ -1029,24 +1030,24 @@ export default function CrowdSec() {
               <div style={{ padding: "12px 20px" }}>
                 <h4 style={{ fontSize: "13px", fontWeight: 600, marginBottom: "8px", display: "flex", alignItems: "center", gap: "6px" }}>
                   <Clock size={14} style={{ color: "var(--accent-2)" }} />
-                  Manual Block History
+                  {t("crowdsec.section.manualHistory")}
                 </h4>
                 <div className="table-wrapper" style={{ maxHeight: "240px", overflowY: "auto" }}>
                   <table className="table">
                     <thead>
                       <tr>
-                        <th>Time</th>
-                        <th>Action</th>
-                        <th>IP</th>
-                        <th>Duration</th>
-                        <th>Reason</th>
+                        <th>{t("crowdsec.table.time")}</th>
+                        <th>{t("crowdsec.table.action")}</th>
+                        <th>{t("crowdsec.table.ip")}</th>
+                        <th>{t("crowdsec.table.duration")}</th>
+                        <th>{t("crowdsec.table.reason")}</th>
                       </tr>
                     </thead>
                     <tbody>
                       {manualLog.length === 0 ? (
                         <tr>
                           <td colSpan={5} style={{ textAlign: "center", color: "var(--text-muted)", padding: "16px" }}>
-                            No manual blocks yet
+                            {t("crowdsec.empty.noManual")}
                           </td>
                         </tr>
                       ) : (
@@ -1092,7 +1093,7 @@ export default function CrowdSec() {
                 <Package size={18} />
               </div>
               <div>
-                <div className="metric-label">Scenarios</div>
+                <div className="metric-label">{t("crowdsec.panel.scenarios")}</div>
                 <div className="metric-value" style={{ margin: 0, fontSize: "18px" }}>
                   {status?.scenarios_count ?? 0}
                 </div>
@@ -1119,7 +1120,7 @@ export default function CrowdSec() {
                   <input
                     type="text"
                     className="input"
-                    placeholder="Search scenarios..."
+                    placeholder={t("crowdsec.placeholder.searchScenarios")}
                     value={scenarioSearch}
                     onChange={(e) => setScenarioSearch(e.target.value)}
                     onClick={(e) => e.stopPropagation()}
@@ -1158,39 +1159,39 @@ export default function CrowdSec() {
                   style={{ whiteSpace: "nowrap" }}
                 >
                   <Plus size={12} />
-                  Browse Hub
+                  {t("crowdsec.btn.browseHub")}
                 </button>
               </div>
 
               {/* Installed scenarios */}
               <div style={{ padding: "8px 20px 4px" }}>
                 <h4 style={{ fontSize: "12px", color: "var(--text-muted)", textTransform: "uppercase", letterSpacing: "0.05em", margin: 0 }}>
-                  Installed Scenarios
+                  {t("crowdsec.installedScenarios")}
                 </h4>
               </div>
               <div className="table-wrapper" style={{ maxHeight: "260px", overflowY: "auto" }}>
                 <table className="table">
                   <thead>
                     <tr>
-                      <th>Name</th>
-                      <th>Description</th>
-                      <th>Type</th>
-                      <th>Status</th>
-                      <th>Labels</th>
-                      <th>Action</th>
+                      <th>{t("crowdsec.table.name")}</th>
+                      <th>{t("crowdsec.table.description")}</th>
+                      <th>{t("crowdsec.table.type")}</th>
+                      <th>{t("crowdsec.panel.status")}</th>
+                      <th>{t("crowdsec.table.labels")}</th>
+                      <th>{t("crowdsec.table.action")}</th>
                     </tr>
                   </thead>
                   <tbody>
                     {scenarios.length === 0 ? (
                       <tr>
                         <td colSpan={6} style={{ textAlign: "center", color: "var(--text-muted)", padding: "20px" }}>
-                          No scenarios installed
+                          {t("crowdsec.empty.noInstalled")}
                         </td>
                       </tr>
                     ) : filteredScenarios.length === 0 ? (
                       <tr>
                         <td colSpan={6} style={{ textAlign: "center", color: "var(--text-muted)", padding: "20px" }}>
-                          No scenarios match "{scenarioSearch}"
+                          {t("crowdsec.empty.noMatch", { query: scenarioSearch })}
                         </td>
                       </tr>
                     ) : (
@@ -1203,14 +1204,14 @@ export default function CrowdSec() {
                             {s.description || "-"}
                           </td>
                           <td>
-                            <span className="badge badge-secondary" style={{ fontSize: "10px" }}>{s.type || "scenario"}</span>
+                            <span className="badge badge-secondary" style={{ fontSize: "10px" }}>{s.type || t("crowdsec.badge.scenario")}</span>
                           </td>
                           <td>
                             <span
                               className={`badge ${s.loaded ? "badge-success" : "badge-secondary"}`}
                               style={{ fontSize: "10px" }}
                             >
-                              {s.loaded ? "active" : "inactive"}
+                              {s.loaded ? t("crowdsec.active") : t("crowdsec.inactive")}
                             </span>
                           </td>
                           <td>
@@ -1238,7 +1239,7 @@ export default function CrowdSec() {
                                   fontSize: "10px",
                                   padding: "2px 6px",
                                 }}
-                                title={s.loaded ? "Disable" : "Enable"}
+                                title={s.loaded ? t("crowdsec.btn.disable") : t("crowdsec.btn.enable")}
                               >
                                 {actionLoading === `toggle-${s.name}` ? (
                                   <RefreshCw size={10} style={{ animation: "spin 1s linear infinite" }} />
@@ -1247,7 +1248,7 @@ export default function CrowdSec() {
                                 ) : (
                                   <ToggleLeft size={10} />
                                 )}
-                                {s.loaded ? "Disable" : "Enable"}
+                                {s.loaded ? t("crowdsec.btn.disable") : t("crowdsec.btn.enable")}
                               </button>
                               <button
                                 className="btn btn-outline btn-sm"
@@ -1256,7 +1257,7 @@ export default function CrowdSec() {
                                 style={{ color: "var(--danger)", borderColor: "rgba(244,63,94,0.2)", fontSize: "10px", padding: "2px 6px" }}
                               >
                                 <Trash2 size={10} />
-                                Remove
+                                {t("crowdsec.btn.remove")}
                               </button>
                             </div>
                           </td>
@@ -1282,7 +1283,7 @@ export default function CrowdSec() {
                     onClick={(e) => { e.stopPropagation(); setHubExpanded(!hubExpanded); }}
                   >
                     <h4 style={{ fontSize: "12px", color: "var(--text-muted)", textTransform: "uppercase", letterSpacing: "0.05em", margin: 0 }}>
-                      Available in Hub ({filteredHubScenarios.length})
+                      {t("crowdsec.section.hub", { n: filteredHubScenarios.length })}
                     </h4>
                     {hubExpanded ? <ChevronUp size={14} style={{ color: "var(--text-muted)" }} /> : <ChevronDown size={14} style={{ color: "var(--text-muted)" }} />}
                   </div>
@@ -1291,17 +1292,17 @@ export default function CrowdSec() {
                       <table className="table">
                         <thead>
                           <tr>
-                            <th>Name</th>
-                            <th>Description</th>
+                            <th>{t("crowdsec.table.name")}</th>
+                            <th>{t("crowdsec.table.description")}</th>
                             <th>Author</th>
-                            <th>Action</th>
+                            <th>{t("crowdsec.table.action")}</th>
                           </tr>
                         </thead>
                         <tbody>
                           {filteredHubScenarios.length === 0 ? (
                             <tr>
                               <td colSpan={4} style={{ textAlign: "center", color: "var(--text-muted)", padding: "20px" }}>
-                                {scenarioSearch ? `No hub scenarios match "${scenarioSearch}"` : "No hub scenarios available"}
+                                {scenarioSearch ? t("crowdsec.empty.noHubMatch", { query: scenarioSearch }) : t("crowdsec.empty.noHub")}
                               </td>
                             </tr>
                           ) : (
@@ -1318,7 +1319,7 @@ export default function CrowdSec() {
                                 </td>
                                 <td>
                                   {s.installed ? (
-                                    <span className="badge badge-success" style={{ fontSize: "10px" }}>Installed</span>
+                                    <span className="badge badge-success" style={{ fontSize: "10px" }}>{t("crowdsec.installed")}</span>
                                   ) : (
                                     <button
                                       className="btn btn-outline btn-sm"
@@ -1327,7 +1328,7 @@ export default function CrowdSec() {
                                       style={{ fontSize: "10px", padding: "2px 6px" }}
                                     >
                                       <Plus size={10} />
-                                      Install
+                                      {t("crowdsec.btn.install")}
                                     </button>
                                   )}
                                 </td>
@@ -1358,7 +1359,7 @@ export default function CrowdSec() {
                 <HardDrive size={18} />
               </div>
               <div>
-                <div className="metric-label">Alerts</div>
+                <div className="metric-label">{t("crowdsec.panel.alerts")}</div>
                 <div className="metric-value" style={{ margin: 0, fontSize: "18px" }}>
                   {status?.alerts_count ?? 0}
                 </div>
@@ -1372,18 +1373,18 @@ export default function CrowdSec() {
                 <table className="table">
                   <thead>
                     <tr>
-                      <th>Scenario</th>
-                      <th>Message</th>
-                      <th>Source IP</th>
-                      <th>Decisions</th>
-                      <th>Started</th>
+                      <th>{t("crowdsec.table.scenario")}</th>
+                      <th>{t("crowdsec.table.message")}</th>
+                      <th>{t("crowdsec.table.sourceIp")}</th>
+                      <th>{t("crowdsec.table.decisions")}</th>
+                      <th>{t("crowdsec.table.started")}</th>
                     </tr>
                   </thead>
                   <tbody>
                     {alerts.length === 0 ? (
                       <tr>
                         <td colSpan={5} style={{ textAlign: "center", color: "var(--text-muted)", padding: "24px" }}>
-                          No alerts
+                          {t("crowdsec.empty.noAlerts")}
                         </td>
                       </tr>
                     ) : (

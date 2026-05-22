@@ -10,7 +10,7 @@ interface SettingsContextValue {
   toggleTheme: () => void;
   lang: Lang;
   setLang: (lang: Lang) => void;
-  t: (key: string) => string;
+  t: (key: string, vars?: Record<string, string | number>) => string;
 }
 
 const SettingsContext = createContext<SettingsContextValue | null>(null);
@@ -78,7 +78,10 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
     }
   }, []);
 
-  const t = useCallback((key: string) => translate(lang, key), [lang]);
+  const t = useCallback(
+    (key: string, vars?: Record<string, string | number>) => translate(lang, key, vars),
+    [lang],
+  );
 
   return (
     <SettingsContext.Provider value={{ theme, setTheme, toggleTheme, lang, setLang, t }}>

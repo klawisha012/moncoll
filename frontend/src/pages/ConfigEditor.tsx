@@ -73,6 +73,7 @@ function CheckboxLabel({
 }
 
 export default function ConfigEditor() {
+  const { t } = useSettings();
   const [activeTab, setActiveTab] = useState<TabType>("modsecurity");
   const [modsec, setModsec] = useState<ModSecuritySettings | null>(null);
   const [angie, setAngie] = useState<AngieSettings | null>(null);
@@ -97,7 +98,7 @@ export default function ConfigEditor() {
       setModsec(m);
       setAngie(a);
     } catch {
-      showToast("Failed to load settings", "error");
+      showToast(t("config.toast.loadFailed"), "error");
     } finally {
       setLoading(false);
     }
@@ -116,9 +117,9 @@ export default function ConfigEditor() {
     setSaving(true);
     try {
       await api.updateModsecSettings(modsec);
-      showToast("ModSecurity settings saved", "success");
+      showToast(t("config.toast.modsecSaved"), "success");
     } catch {
-      showToast("Failed to save ModSecurity settings", "error");
+      showToast(t("config.toast.modsecSaveFailed"), "error");
     } finally {
       setSaving(false);
     }
@@ -129,9 +130,9 @@ export default function ConfigEditor() {
     setSaving(true);
     try {
       await api.updateAngieSettings(angie);
-      showToast("Angie settings saved", "success");
+      showToast(t("config.toast.angieSaved"), "success");
     } catch {
-      showToast("Failed to save Angie settings", "error");
+      showToast(t("config.toast.angieSaveFailed"), "error");
     } finally {
       setSaving(false);
     }
@@ -144,12 +145,12 @@ export default function ConfigEditor() {
           ? await api.reloadModsec()
           : await api.reloadAngie();
       if (result.success) {
-        showToast("Reloaded successfully", "success");
+        showToast(t("config.toast.reloaded"), "success");
       } else {
-        showToast(`Reload failed: ${result.message}`, "error");
+        showToast(t("config.toast.reloadFailedMsg", { msg: result.message }), "error");
       }
     } catch {
-      showToast("Reload request failed", "error");
+      showToast(t("config.toast.reloadError"), "error");
     }
   }
 
@@ -179,7 +180,7 @@ export default function ConfigEditor() {
     return (
       <div className="loading">
         <div className="spinner" />
-        Loading settings…
+        {t("config.loading")}
       </div>
     );
   }
@@ -188,8 +189,8 @@ export default function ConfigEditor() {
     <div>
       <div className="page-header">
         <div>
-          <h1>Configuration</h1>
-          <p>Manage ModSecurity rules and Angie engine settings</p>
+          <h1>{t("config.title")}</h1>
+          <p>{t("config.subtitle")}</p>
         </div>
       </div>
 
@@ -199,14 +200,14 @@ export default function ConfigEditor() {
           onClick={() => setActiveTab("modsecurity")}
         >
           <Shield size={14} style={{ marginRight: "6px" }} />
-          ModSecurity
+          {t("config.tab.modsec")}
         </button>
         <button
           className={`tab ${activeTab === "angie" ? "active" : ""}`}
           onClick={() => setActiveTab("angie")}
         >
           <Cog size={14} style={{ marginRight: "6px" }} />
-          Angie
+          {t("config.tab.angie")}
         </button>
       </div>
 
@@ -256,21 +257,22 @@ function ModSecurityTab({
   onReload: () => void;
   saving: boolean;
 }) {
+  const { t } = useSettings();
   return (
     <div>
       <div className="card">
         <div className="card-header">
-          <h3>Rule Engine</h3>
+          <h3>{t("config.ruleEngine")}</h3>
         </div>
         <div className="form-group">
-          <FieldLabel label="SecRuleEngine" tooltipKey="tooltip.rule_engine" />
+          <FieldLabel label={t("config.secRuleEngine")} tooltipKey="tooltip.rule_engine" />
           <select
             value={settings.rule_engine}
             onChange={(e) => onChange("rule_engine", e.target.value)}
           >
-            <option value="On">On (Blocking)</option>
-            <option value="Off">Off (Disabled)</option>
-            <option value="DetectionOnly">DetectionOnly (Logging only)</option>
+            <option value="On">{t("config.on")}</option>
+            <option value="Off">{t("config.off")}</option>
+            <option value="DetectionOnly">{t("config.detectionOnly")}</option>
           </select>
         </div>
         <label
@@ -279,7 +281,7 @@ function ModSecurityTab({
         >
           <input type="checkbox" checked={settings.status_engine} readOnly />
           <CheckboxLabel
-            text="SecStatusEngine — share version info"
+            text={t("config.statusEngine")}
             tooltipKey="tooltip.status_engine"
           />
         </label>
@@ -287,7 +289,7 @@ function ModSecurityTab({
 
       <div className="card">
         <div className="card-header">
-          <h3>Request Body</h3>
+          <h3>{t("config.section.requestBody")}</h3>
         </div>
         <label
           className="checkbox-row"
@@ -301,13 +303,13 @@ function ModSecurityTab({
             readOnly
           />
           <CheckboxLabel
-            text="SecRequestBodyAccess — inspect request bodies"
+            text={t("config.field.bodyAccess")}
             tooltipKey="tooltip.request_body_access"
           />
         </label>
         <div className="form-group">
           <FieldLabel
-            label="SecRequestBodyLimit (bytes)"
+            label={t("config.field.bodyLimit")}
             tooltipKey="tooltip.request_body_limit"
           />
           <input
@@ -320,7 +322,7 @@ function ModSecurityTab({
         </div>
         <div className="form-group">
           <FieldLabel
-            label="SecRequestBodyNoFilesLimit (bytes)"
+            label={t("config.field.noFilesLimit")}
             tooltipKey="tooltip.request_body_no_files_limit"
           />
           <input
@@ -333,7 +335,7 @@ function ModSecurityTab({
         </div>
         <div className="form-group">
           <FieldLabel
-            label="SecRequestBodyLimitAction"
+            label={t("config.field.bodyLimitAction")}
             tooltipKey="tooltip.request_body_limit_action"
           />
           <select
@@ -342,13 +344,13 @@ function ModSecurityTab({
               onChange("request_body_limit_action", e.target.value)
             }
           >
-            <option value="Reject">Reject</option>
-            <option value="ProcessPartial">ProcessPartial</option>
+            <option value="Reject">{t("config.option.reject")}</option>
+            <option value="ProcessPartial">{t("config.option.processPartial")}</option>
           </select>
         </div>
         <div className="form-group">
           <FieldLabel
-            label="SecRequestBodyJsonDepthLimit"
+            label={t("config.field.jsonDepth")}
             tooltipKey="tooltip.request_body_json_depth_limit"
           />
           <input
@@ -364,7 +366,7 @@ function ModSecurityTab({
         </div>
         <div className="form-group">
           <FieldLabel
-            label="SecArgumentsLimit"
+            label={t("config.field.argumentsLimit")}
             tooltipKey="tooltip.arguments_limit"
           />
           <input
@@ -379,7 +381,7 @@ function ModSecurityTab({
 
       <div className="card">
         <div className="card-header">
-          <h3>Response Body</h3>
+          <h3>{t("config.section.responseBody")}</h3>
         </div>
         <label
           className="checkbox-row"
@@ -393,13 +395,13 @@ function ModSecurityTab({
             readOnly
           />
           <CheckboxLabel
-            text="SecResponseBodyAccess — inspect response bodies"
+            text={t("config.field.responseAccess")}
             tooltipKey="tooltip.response_body_access"
           />
         </label>
         <div className="form-group">
           <FieldLabel
-            label="SecResponseBodyLimit (bytes)"
+            label={t("config.field.responseLimit")}
             tooltipKey="tooltip.response_body_limit"
           />
           <input
@@ -412,7 +414,7 @@ function ModSecurityTab({
         </div>
         <div className="form-group">
           <FieldLabel
-            label="SecResponseBodyLimitAction"
+            label={t("config.field.responseLimitAction")}
             tooltipKey="tooltip.response_body_limit_action"
           />
           <select
@@ -421,59 +423,59 @@ function ModSecurityTab({
               onChange("response_body_limit_action", e.target.value)
             }
           >
-            <option value="ProcessPartial">ProcessPartial</option>
-            <option value="Reject">Reject</option>
+            <option value="ProcessPartial">{t("config.option.processPartial")}</option>
+            <option value="Reject">{t("config.option.reject")}</option>
           </select>
         </div>
       </div>
 
       <div className="card">
         <div className="card-header">
-          <h3>Audit Log</h3>
+          <h3>{t("config.section.auditLog")}</h3>
         </div>
         <div className="form-group">
           <FieldLabel
-            label="SecAuditEngine"
+            label={t("config.field.auditEngine")}
             tooltipKey="tooltip.audit_engine"
           />
           <select
             value={settings.audit_engine}
             onChange={(e) => onChange("audit_engine", e.target.value)}
           >
-            <option value="On">On</option>
-            <option value="Off">Off</option>
-            <option value="RelevantOnly">RelevantOnly</option>
+            <option value="On">{t("config.option.onAudit")}</option>
+            <option value="Off">{t("config.option.offAudit")}</option>
+            <option value="RelevantOnly">{t("config.option.relevantOnly")}</option>
           </select>
         </div>
         <div className="form-group">
           <FieldLabel
-            label="SecAuditLogType"
+            label={t("config.field.auditLogType")}
             tooltipKey="tooltip.audit_log_type"
           />
           <select
             value={settings.audit_log_type}
             onChange={(e) => onChange("audit_log_type", e.target.value)}
           >
-            <option value="Serial">Serial</option>
-            <option value="Concurrent">Concurrent</option>
+            <option value="Serial">{t("config.option.serial")}</option>
+            <option value="Concurrent">{t("config.option.concurrent")}</option>
           </select>
         </div>
         <div className="form-group">
           <FieldLabel
-            label="SecAuditLogFormat"
+            label={t("config.field.auditLogFormat")}
             tooltipKey="tooltip.audit_log_format"
           />
           <select
             value={settings.audit_log_format}
             onChange={(e) => onChange("audit_log_format", e.target.value)}
           >
-            <option value="JSON">JSON</option>
-            <option value="Native">Native</option>
+            <option value="JSON">{t("config.option.json")}</option>
+            <option value="Native">{t("config.option.native")}</option>
           </select>
         </div>
         <div className="form-group">
           <FieldLabel
-            label="SecAuditLogParts"
+            label={t("config.field.auditLogParts")}
             tooltipKey="tooltip.audit_log_parts"
           />
           <input
@@ -484,7 +486,7 @@ function ModSecurityTab({
         </div>
         <div className="form-group">
           <FieldLabel
-            label="SecAuditLogRelevantStatus (regex)"
+            label={t("config.field.auditRelevantStatus")}
             tooltipKey="tooltip.audit_log_relevant_status"
           />
           <input
@@ -497,7 +499,7 @@ function ModSecurityTab({
         </div>
         <div className="form-group">
           <FieldLabel
-            label="SecAuditLog path"
+            label={t("config.field.auditLogPath")}
             tooltipKey="tooltip.audit_log_path"
           />
           <input
@@ -510,11 +512,11 @@ function ModSecurityTab({
 
       <div className="card">
         <div className="card-header">
-          <h3>PCRE & Filesystem</h3>
+          <h3>{t("config.pcre")}</h3>
         </div>
         <div className="form-group">
           <FieldLabel
-            label="SecPcreMatchLimit"
+            label={t("config.field.pcreLimit")}
             tooltipKey="tooltip.pcre_match_limit"
           />
           <input
@@ -527,7 +529,7 @@ function ModSecurityTab({
         </div>
         <div className="form-group">
           <FieldLabel
-            label="SecPcreMatchLimitRecursion"
+            label={t("config.field.pcreLimitRecursion")}
             tooltipKey="tooltip.pcre_match_limit_recursion"
           />
           <input
@@ -539,7 +541,7 @@ function ModSecurityTab({
           />
         </div>
         <div className="form-group">
-          <FieldLabel label="SecTmpDir" tooltipKey="tooltip.tmp_dir" />
+          <FieldLabel label={t("config.field.tmpDir")} tooltipKey="tooltip.tmp_dir" />
           <input
             type="text"
             value={settings.tmp_dir}
@@ -547,7 +549,7 @@ function ModSecurityTab({
           />
         </div>
         <div className="form-group">
-          <FieldLabel label="SecDataDir" tooltipKey="tooltip.data_dir" />
+          <FieldLabel label={t("config.field.dataDir")} tooltipKey="tooltip.data_dir" />
           <input
             type="text"
             value={settings.data_dir}
@@ -563,11 +565,11 @@ function ModSecurityTab({
           disabled={saving}
         >
           <Save size={16} />
-          {saving ? "Saving…" : "Save ModSecurity Settings"}
+          {saving ? t("general.saving") : t("config.btn.saveModSec")}
         </button>
         <button className="btn btn-success" onClick={onReload}>
           <RefreshCw size={16} />
-          Reload Angie
+          {t("config.btn.reloadAngie")}
         </button>
       </div>
     </div>
@@ -590,11 +592,12 @@ function AngieTab({
   onToggleCountry: (code: string) => void;
   saving: boolean;
 }) {
+  const { t } = useSettings();
   return (
     <div>
       <div className="card">
         <div className="card-header">
-          <h3>GeoIP Blocked Countries</h3>
+          <h3>{t("config.section.geoBlocked")}</h3>
           <Tooltip tooltipKey="tooltip.geoip_countries" />
         </div>
         <div className="checkbox-grid">
@@ -622,11 +625,11 @@ function AngieTab({
           disabled={saving}
         >
           <Save size={16} />
-          {saving ? "Saving…" : "Save Angie Settings"}
+          {saving ? t("general.saving") : t("config.btn.saveAngie")}
         </button>
         <button className="btn btn-success" onClick={onReload}>
           <RefreshCw size={16} />
-          Reload Angie
+          {t("config.btn.reloadAngie")}
         </button>
       </div>
     </div>

@@ -6,27 +6,28 @@ import {
   SourceType,
 } from "../api/client";
 import { Plus, Edit2, Trash2, RefreshCw, X, Shield } from "lucide-react";
+import { useSettings } from "../context/SettingsContext";
 
-const SOURCE_TYPES: { value: SourceType; label: string; hint: string }[] = [
+const SOURCE_TYPES: { value: SourceType; labelKey: string; hintKey: string }[] = [
   {
     value: "nginx_config",
-    label: "Nginx config",
-    hint: "Deploy an existing nginx .conf (includes are expanded).",
+    labelKey: "connections.sourceType.nginx_config.label",
+    hintKey: "connections.sourceType.nginx_config.hint",
   },
   {
     value: "static_generate",
-    label: "Static site",
-    hint: "Generate config from index.html + domain list.",
+    labelKey: "connections.sourceType.static_generate.label",
+    hintKey: "connections.sourceType.static_generate.hint",
   },
   {
     value: "container",
-    label: "Container / Service",
-    hint: "Reverse-proxy to host:port of a container or k8s service.",
+    labelKey: "connections.sourceType.container.label",
+    hintKey: "connections.sourceType.container.hint",
   },
   {
     value: "docker_compose",
-    label: "Docker Compose",
-    hint: "Paste a compose YAML — the WAF brings the stack up and proxies to the chosen service.",
+    labelKey: "connections.sourceType.docker_compose.label",
+    hintKey: "connections.sourceType.docker_compose.hint",
   },
 ];
 
@@ -58,6 +59,7 @@ const DEFAULT_FORM: ConnectionCreate = {
 };
 
 export default function Connections() {
+  const { t } = useSettings();
   const [connections, setConnections] = useState<Connection[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -107,7 +109,7 @@ export default function Connections() {
       const data = await api.getConnections();
       setConnections(data);
     } catch {
-      showToast("Failed to load connections", "error");
+      showToast(t("connections.toast.loadFailed"), "error");
     } finally {
       setLoading(false);
     }
@@ -173,28 +175,28 @@ export default function Connections() {
       };
       if (editingId !== null) {
         await api.updateConnection(editingId, payload);
-        showToast("Connection updated successfully", "success");
+        showToast(t("connections.toast.updated"), "success");
       } else {
         await api.createConnection(payload);
-        showToast("Connection created successfully", "success");
+        showToast(t("connections.toast.created"), "success");
       }
       resetForm();
       loadConnections();
     } catch (err: any) {
-      showToast(err?.message || "Failed to save connection", "error");
+      showToast(err?.message || t("connections.toast.saveFailed"), "error");
     } finally {
       setSaving(false);
     }
   }
 
   async function handleDelete(id: number) {
-    if (!confirm("Are you sure you want to delete this connection?")) return;
+    if (!confirm(t("connections.confirmDelete"))) return;
     try {
       await api.deleteConnection(id);
-      showToast("Connection deleted", "success");
+      showToast(t("connections.toast.deleted"), "success");
       loadConnections();
     } catch {
-      showToast("Failed to delete connection", "error");
+      showToast(t("connections.toast.deleteFailed"), "error");
     }
   }
 
@@ -203,11 +205,11 @@ export default function Connections() {
       await api.updateConnection(conn.id, { enabled: !conn.enabled });
       loadConnections();
       showToast(
-        conn.enabled ? "Connection disabled" : "Connection enabled",
+        conn.enabled ? t("connections.toast.disabled") : t("connections.toast.enabled"),
         "success"
       );
     } catch {
-      showToast("Failed to toggle connection", "error");
+      showToast(t("connections.toast.toggleFailed"), "error");
     }
   }
 
@@ -216,12 +218,12 @@ export default function Connections() {
     try {
       const result = await api.reloadAngie();
       if (result.success) {
-        showToast("Angie reloaded successfully", "success");
+        showToast(t("connections.toast.reloaded"), "success");
       } else {
-        showToast(`Reload failed: ${result.message}`, "error");
+        showToast(t("connections.toast.reloadFailedMsg", { msg: result.message }), "error");
       }
     } catch {
-      showToast("Failed to reload Angie", "error");
+      showToast(t("connections.toast.reloadFailed"), "error");
     } finally {
       setReloading(false);
     }
@@ -238,7 +240,7 @@ export default function Connections() {
     return (
       <div className="loading">
         <div className="spinner" />
-        Loading connections…
+        {t("connections.loading")}
       </div>
     );
   }
@@ -249,8 +251,8 @@ export default function Connections() {
     <div>
       <div className="page-header">
         <div>
-          <h1>Connections</h1>
-          <p>Manage site connections proxied through the WAF</p>
+          <h1>{t("connections.title")}</h1>
+          <p>{t("connections.subtitle")}</p>
         </div>
         <div className="header-actions">
           <button
@@ -259,14 +261,14 @@ export default function Connections() {
             disabled={reloading}
           >
             <RefreshCw size={16} />
-            {reloading ? "Reloading…" : "Reload Nginx"}
+            {reloading ? t("connections.reloading") : t("connections.reload")}
           </button>
           <button
             className="btn btn-primary"
             onClick={() => setShowForm(true)}
           >
             <Plus size={16} />
-            Add Connection
+            {t("connections.add")}
           </button>
         </div>
       </div>
@@ -279,10 +281,10 @@ export default function Connections() {
               style={{ color: "var(--text-muted)", marginBottom: "16px" }}
             />
             <p style={{ fontSize: "16px", fontWeight: 600, marginBottom: "8px" }}>
-              No connections configured
+              {t("connections.empty")}
             </p>
             <p className="text-muted">
-              Add a connection to start proxying traffic through the WAF.
+              {t("connections.emptyDesc")}
             </p>
           </div>
         </div>
@@ -303,7 +305,7 @@ export default function Connections() {
                     type="button"
                     className={`btn btn-sm ${conn.enabled ? "btn-success" : "btn-secondary"}`}
                     onClick={() => handleToggleEnabled(conn)}
-                    title={conn.enabled ? "Click to disable" : "Click to enable"}
+                    title={conn.enabled ? t("connections.clickToDisable") : t("connections.clickToEnable")}
                     style={{
                       padding: "4px 12px",
                       fontSize: "12px",
@@ -311,21 +313,21 @@ export default function Connections() {
                       borderRadius: "var(--radius-sm)",
                     }}
                   >
-                    {conn.enabled ? "ON" : "OFF"}
+                    {conn.enabled ? t("connections.on") : t("connections.off")}
                   </button>
                 </div>
                 <div style={{ display: "flex", gap: "4px" }}>
                   <button
                     className="btn-icon"
                     onClick={() => handleEdit(conn)}
-                    title="Edit"
+                    title={t("connections.edit")}
                   >
                     <Edit2 size={15} />
                   </button>
                   <button
                     className="btn-icon danger"
                     onClick={() => handleDelete(conn.id)}
-                    title="Delete"
+                    title={t("connections.delete")}
                   >
                     <Trash2 size={15} />
                   </button>
@@ -334,13 +336,13 @@ export default function Connections() {
 
               <div className="connection-details">
                 <div className="detail-row">
-                  <strong>Source</strong>
+                  <strong>{t("connections.detail.source")}</strong>
                   <span className="badge badge-primary">
                     {conn.source_type}
                   </span>
                 </div>
                 <div className="detail-row">
-                  <strong>Domains</strong>
+                  <strong>{t("connections.detail.domains")}</strong>
                   <div style={{ display: "flex", gap: "4px", flexWrap: "wrap" }}>
                     {conn.domains.length > 0 ? (
                       conn.domains.map((d) => (
@@ -349,26 +351,26 @@ export default function Connections() {
                         </span>
                       ))
                     ) : (
-                      <span className="text-muted">(catch all)</span>
+                      <span className="text-muted">{t("connections.detail.catchAll")}</span>
                     )}
                   </div>
                 </div>
 
                 {conn.source_type === "nginx_config" && conn.nginx_config_path && (
                   <div className="detail-row">
-                    <strong>Config</strong>
+                    <strong>{t("connections.detail.config")}</strong>
                     <code className="codeblock">{conn.nginx_config_path}</code>
                   </div>
                 )}
                 {conn.source_type === "static_generate" && conn.static_dir && (
                   <div className="detail-row">
-                    <strong>Static Dir</strong>
+                    <strong>{t("connections.detail.staticDir")}</strong>
                     <code className="codeblock">{conn.static_dir}</code>
                   </div>
                 )}
                 {conn.source_type === "container" && conn.backend_url && (
                   <div className="detail-row">
-                    <strong>Backend</strong>
+                    <strong>{t("connections.detail.backend")}</strong>
                     <code className="codeblock">{conn.backend_url}</code>
                   </div>
                 )}
@@ -376,7 +378,7 @@ export default function Connections() {
                   <>
                     {conn.compose_service && (
                       <div className="detail-row">
-                        <strong>Service</strong>
+                        <strong>{t("connections.detail.service")}</strong>
                         <code className="codeblock">
                           {conn.compose_service}
                           {conn.compose_port ? `:${conn.compose_port}` : ""}
@@ -385,7 +387,7 @@ export default function Connections() {
                     )}
                     {conn.backend_url && (
                       <div className="detail-row">
-                        <strong>Backend</strong>
+                        <strong>{t("connections.detail.backend")}</strong>
                         <code className="codeblock">{conn.backend_url}</code>
                       </div>
                     )}
@@ -393,7 +395,7 @@ export default function Connections() {
                 )}
 
                 <div className="detail-row">
-                  <strong>Updated</strong>
+                  <strong>{t("connections.detail.updated")}</strong>
                   <span className="text-muted">
                     {new Date(conn.updated_at).toLocaleString()}
                   </span>
@@ -422,7 +424,7 @@ export default function Connections() {
         >
           <div className="modal">
             <div className="modal-header">
-              <h2>{editingId ? "Edit Connection" : "New Connection"}</h2>
+              <h2>{editingId ? t("connections.modal.editTitle") : t("connections.modal.newTitle")}</h2>
               <button className="btn-icon" onClick={resetForm}>
                 <X size={20} />
               </button>
@@ -430,7 +432,7 @@ export default function Connections() {
 
             <form onSubmit={handleSubmit}>
               <div className="form-group">
-                <label>Connection type *</label>
+                <label>{t("connections.field.type")}</label>
                 <div
                   role="tablist"
                   style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}
@@ -447,25 +449,28 @@ export default function Connections() {
                         className={`btn btn-sm ${active ? "btn-primary" : "btn-outline"}`}
                         onClick={() => updateFormField("source_type", opt.value)}
                       >
-                        {opt.label}
+                        {t(opt.labelKey)}
                       </button>
                     );
                   })}
                 </div>
                 <small>
-                  {SOURCE_TYPES.find((o) => o.value === sourceType)?.hint}
+                  {(() => {
+                    const k = SOURCE_TYPES.find((o) => o.value === sourceType)?.hintKey;
+                    return k ? t(k) : null;
+                  })()}
                 </small>
               </div>
 
               <div className="form-group">
-                <label>Name *</label>
+                <label>{t("connections.field.name")}</label>
                 <div style={{ display: "flex", gap: "12px", alignItems: "center" }}>
                   <input
                     type="text"
                     data-testid="conn-name"
                     value={formData.name}
                     onChange={(e) => updateFormField("name", e.target.value)}
-                    placeholder="My Web App"
+                    placeholder={t("connections.field.namePlaceholder")}
                     required
                     style={{ flex: 1 }}
                   />
@@ -473,13 +478,13 @@ export default function Connections() {
                     type="button"
                     className={`toggle-btn ${formData.enabled ? "active" : ""}`}
                     onClick={() => updateFormField("enabled", !formData.enabled)}
-                    title={formData.enabled ? "Enabled — click to disable" : "Disabled — click to enable"}
+                    title={formData.enabled ? t("connections.field.enabledTitle") : t("connections.field.disabledTitle")}
                   >
                     <span className="toggle-track">
                       <span className="toggle-thumb" />
                     </span>
                     <span className="toggle-label">
-                      {formData.enabled ? "ON" : "OFF"}
+                      {formData.enabled ? t("connections.on") : t("connections.off")}
                     </span>
                   </button>
                 </div>
@@ -487,7 +492,7 @@ export default function Connections() {
 
               <div className="form-group">
                 <label>
-                  Domains
+                  {t("connections.field.domains")}
                   {sourceType === "static_generate" || sourceType === "container"
                     ? " *"
                     : ""}
@@ -497,26 +502,26 @@ export default function Connections() {
                   data-testid="conn-domains"
                   value={domainsInput}
                   onChange={(e) => setDomainsInput(e.target.value)}
-                  placeholder="example.com, www.example.com"
+                  placeholder={t("connections.field.domainsPlaceholder")}
                 />
                 <small>
                   {sourceType === "nginx_config"
-                    ? <>Auto-populated from <code>server_name</code> in the uploaded nginx.conf. Leave empty or edit after upload.</>
-                    : "Comma- or space-separated."}
+                    ? <>{t("connections.help.domainsNginx.before")}<code>server_name</code>{t("connections.help.domainsNginx.after")}</>
+                    : t("connections.help.domainsDefault")}
                 </small>
               </div>
 
               {sourceType === "nginx_config" && (
                 <div className="form-group">
-                  <label>Nginx config folder *</label>
+                  <label>{t("connections.field.nginxFolder")}</label>
                   <div style={{ display: "flex", gap: "8px", alignItems: "center", flexWrap: "wrap" }}>
                     <button
                       type="button"
                       className="btn btn-primary"
                       onClick={() => nginxConfigInputRef.current?.click()}
-                      title="Select a folder containing nginx.conf and related files"
+                      title={t("connections.title.selectConfigFolder")}
                     >
-                      Select config folder
+                      {t("connections.btn.selectConfigFolder")}
                     </button>
                     {formData.nginx_config_path && (
                       <code className="codeblock" style={{ fontSize: "12px" }}>
@@ -535,7 +540,7 @@ export default function Connections() {
                           const result = await api.uploadNginxConfig(files);
                           updateFormField("nginx_config_path", result.path);
                           showToast(
-                            `Uploaded ${files.length} file(s) from folder → ${result.filename}`,
+                            t("connections.toast.uploadedFolder", { count: files.length, filename: result.filename }),
                             "success"
                           );
                           // Auto-fill domains & backend_url from parsed nginx.conf
@@ -556,23 +561,21 @@ export default function Connections() {
                             typeof err.message === "string"
                               ? err.message
                               : JSON.stringify(err.message || err);
-                          showToast(`Upload failed: ${msg}`, "error");
+                          showToast(t("connections.toast.uploadFailedMsg", { msg }), "error");
                         }
                         e.target.value = "";
                       }}
                     />
                   </div>
                   <small>
-                    Select the <strong>folder</strong> containing <code>nginx.conf</code>.
-                    All files (locations, includes, index.html, …) are uploaded together.
-                    Domains and backend URL are parsed automatically.
+                    {t("connections.help.nginxConfig.part1")}<strong>{t("connections.help.nginxConfig.folder")}</strong>{t("connections.help.nginxConfig.part2")}<code>{t("connections.help.nginxConfig.file")}</code>{t("connections.help.nginxConfig.part3")}
                   </small>
                 </div>
               )}
 
               {sourceType === "static_generate" && (
                 <div className="form-group">
-                  <label>Path to static directory or index.html *</label>
+                  <label>{t("connections.field.staticPath")}</label>
                   <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
                     <input
                       type="text"
@@ -581,7 +584,7 @@ export default function Connections() {
                       onChange={(e) =>
                         updateFormField("static_dir", e.target.value || null)
                       }
-                      placeholder="examples  or  /app/site-templates/mysite"
+                      placeholder={t("connections.field.staticPlaceholder")}
                       style={{ flex: 1, minWidth: "200px" }}
                       required
                     />
@@ -589,17 +592,17 @@ export default function Connections() {
                       type="button"
                       className="btn btn-outline btn-sm"
                       onClick={() => fileInputRef.current?.click()}
-                      title="Upload a single index.html"
+                      title={t("connections.title.uploadIndex")}
                     >
-                      Upload index.html
+                      {t("connections.btn.uploadIndex")}
                     </button>
                     <button
                       type="button"
                       className="btn btn-primary btn-sm"
                       onClick={() => staticDirInputRef.current?.click()}
-                      title="Upload a built site directory (e.g. Astro/Vite dist/)"
+                      title={t("connections.title.uploadFolder")}
                     >
-                      Upload folder
+                      {t("connections.btn.uploadFolder")}
                     </button>
                     <input
                       type="file"
@@ -613,12 +616,14 @@ export default function Connections() {
                           const result = await api.uploadStaticFile(file);
                           updateFormField("static_dir", result.path);
                           showToast(
-                            `Uploaded ${result.filename} → ${result.path}`,
+                            t("connections.toast.uploadedFile", { filename: result.filename, path: result.path }),
                             "success"
                           );
                         } catch (err: any) {
                           showToast(
-                            `Upload failed: ${err.message || "Unknown error"}`,
+                            err?.message
+                              ? t("connections.toast.uploadFailedMsg", { msg: err.message })
+                              : t("connections.toast.uploadFailedUnknown"),
                             "error"
                           );
                         }
@@ -643,13 +648,13 @@ export default function Connections() {
                             // so the create payload references it.
                             updateFormField("static_dir", result.path);
                             showToast(
-                              `Staged ${files.length} file(s) → ${result.path}`,
+                              t("connections.toast.stagedFiles", { count: files.length, path: result.path }),
                               "success",
                             );
                           } else {
                             // Edit flow: written directly into conn_<id>/site.
                             showToast(
-                              `Uploaded ${result.files ?? files.length} file(s) to connection site`,
+                              t("connections.toast.uploadedSiteFiles", { count: result.files ?? files.length }),
                               "success",
                             );
                           }
@@ -658,26 +663,21 @@ export default function Connections() {
                             typeof err.message === "string"
                               ? err.message
                               : JSON.stringify(err.message || err);
-                          showToast(`Upload failed: ${msg}`, "error");
+                          showToast(t("connections.toast.uploadFailedMsg", { msg }), "error");
                         }
                         e.target.value = "";
                       }}
                     />
                   </div>
                   <small>
-                    Backend-accessible path. Relative names resolve under{" "}
-                    <code>/app/site-templates/</code>. Pointing to an{" "}
-                    <code>index.html</code> uses its parent directory. Use{" "}
-                    <strong>Upload folder</strong> for built sites (Astro/Vite{" "}
-                    <code>dist/</code>) so subroutes like <code>/blog</code> and{" "}
-                    <code>/about</code> work.
+                    {t("connections.help.static.part1")}<code>{t("connections.help.static.path")}</code>{t("connections.help.static.part2")}<code>{t("connections.help.static.indexFile")}</code>{t("connections.help.static.part3")}<strong>{t("connections.help.static.uploadFolderStrong")}</strong>{t("connections.help.static.part4")}<code>{t("connections.help.static.distPath")}</code>{t("connections.help.static.part5")}<code>{t("connections.help.static.blog")}</code>{t("connections.help.static.part6")}<code>{t("connections.help.static.about")}</code>{t("connections.help.static.part7")}
                   </small>
                 </div>
               )}
 
               {sourceType === "container" && (
                 <div className="form-group">
-                  <label>Backend host:port *</label>
+                  <label>{t("connections.field.backendHostPort")}</label>
                   <input
                     type="text"
                     data-testid="conn-backend-url"
@@ -685,13 +685,11 @@ export default function Connections() {
                     onChange={(e) =>
                       updateFormField("backend_url", e.target.value)
                     }
-                    placeholder="myservice:8080  or  http://service.ns.svc:80"
+                    placeholder={t("connections.field.backendPlaceholder")}
                     required
                   />
                   <small>
-                    Container name + port (docker compose default network) or
-                    k8s service DNS. <code>http://</code> is added automatically
-                    if omitted.
+                    {t("connections.help.backend.part1")}<code>{t("connections.help.backend.code")}</code>{t("connections.help.backend.part2")}
                   </small>
                 </div>
               )}
@@ -699,7 +697,7 @@ export default function Connections() {
               {sourceType === "docker_compose" && (
                 <>
                   <div className="form-group">
-                    <label>Compose service name *</label>
+                    <label>{t("connections.field.composeService")}</label>
                     <input
                       type="text"
                       data-testid="conn-compose-service"
@@ -710,18 +708,16 @@ export default function Connections() {
                           e.target.value || null
                         )
                       }
-                      placeholder="app"
+                      placeholder={t("connections.field.composeServicePlaceholder")}
                       required
                     />
                     <small>
-                      Service name defined in your compose YAML below. Traffic
-                      will be reverse-proxied to{" "}
-                      <code>service:port</code> on the WAF docker network.
+                      {t("connections.help.composeService.part1")}<code>{t("connections.help.composeService.code")}</code>{t("connections.help.composeService.part2")}
                     </small>
                   </div>
 
                   <div className="form-group">
-                    <label>Service port</label>
+                    <label>{t("connections.field.composePort")}</label>
                     <input
                       type="number"
                       min={1}
@@ -740,14 +736,12 @@ export default function Connections() {
                       placeholder="80"
                     />
                     <small>
-                      Leave empty to auto-detect from the first{" "}
-                      <code>expose:</code> or <code>ports:</code> entry on the
-                      service.
+                      {t("connections.help.composePort.part1")}<code>{t("connections.help.composePort.code1")}</code>{t("connections.help.composePort.part2")}<code>{t("connections.help.composePort.code2")}</code>{t("connections.help.composePort.part3")}
                     </small>
                   </div>
 
                   <div className="form-group">
-                    <label>docker-compose.yml *</label>
+                    <label>{t("connections.field.composeYaml")}</label>
                     <textarea
                       data-testid="conn-compose-yaml"
                       value={formData.compose_yaml || ""}
@@ -768,11 +762,7 @@ export default function Connections() {
                       }}
                     />
                     <small>
-                      The backend writes this to{" "}
-                      <code>/var/lib/waf/compose/conn_&lt;id&gt;/docker-compose.yml</code>{" "}
-                      and runs <code>docker compose up -d</code>. The compose
-                      project is torn down automatically when the connection is
-                      deleted.
+                      {t("connections.help.composeYaml.part1")}<code>{t("connections.help.composeYaml.code")}</code>{t("connections.help.composeYaml.part2")}<code>{t("connections.help.composeYaml.cmd")}</code>{t("connections.help.composeYaml.part3")}
                     </small>
                   </div>
                 </>
@@ -784,7 +774,7 @@ export default function Connections() {
                   className="btn btn-outline"
                   onClick={resetForm}
                 >
-                  Cancel
+                  {t("general.cancel")}
                 </button>
                 <button
                   type="submit"
@@ -793,10 +783,10 @@ export default function Connections() {
                   disabled={saving}
                 >
                   {saving
-                    ? "Saving…"
+                    ? t("general.saving")
                     : editingId
-                    ? "Update"
-                    : "Create"}
+                    ? t("connections.btn.update")
+                    : t("connections.btn.create")}
                 </button>
               </div>
             </form>

@@ -19,7 +19,12 @@ export default function Login() {
     setSubmitting(true);
     try {
       const user = await login(username, password);
-      navigate(user.must_change_password ? "/change-password" : "/dashboard", {
+      try {
+        localStorage.setItem("waf-sidebar-collapsed", "1");
+      } catch {
+        // ignore
+      }
+      navigate(user.must_change_password ? "/change-password" : "/home", {
         replace: true,
       });
     } catch (err) {
@@ -36,30 +41,27 @@ export default function Login() {
       <section className="cv-manifest">
         <div className="cv-eyebrow">
           <span className="cv-n">01</span>
-          <span className="cv-eyebrow-text">— Authentication</span>
+          <span className="cv-eyebrow-text">{t("auth.login.eyebrow")}</span>
         </div>
         <h1 className="cv-h1">
-          <span className="cv-stack">Вход</span>
+          <span className="cv-stack">{t("auth.login.heroLine1")}</span>
           <span className="cv-stack">
-            <span className="cv-ws">в систему</span>
+            <span className="cv-ws">{t("auth.login.heroLine2")}</span>
           </span>
           <span className="cv-stack">
-            <span className="cv-tilt">контроля.</span>
+            <span className="cv-tilt">{t("auth.login.heroLine3")}</span>
           </span>
         </h1>
-        <p className="cv-deck">
-          «Безопасность — это не продукт, а процесс.
-          Каждый запрос — повод для выбора.»
-        </p>
+        <p className="cv-deck">{t("auth.login.quote")}</p>
         <div className="cv-disc" aria-hidden />
       </section>
 
       <section className="cv-form-side">
         <form onSubmit={submit} className="cv-form">
           <div className="cv-form-head">
-            <span className="cv-kicker">№ 02 / форма авторизации</span>
+            <span className="cv-kicker">{t("auth.login.kicker")}</span>
             <span className="cv-creds-hint">
-              <span className="cv-creds-lab">Дефолт</span>
+              <span className="cv-creds-lab">{t("auth.login.defaultsLabel")}</span>
               admin&nbsp;·&nbsp;admin
             </span>
           </div>
@@ -97,9 +99,9 @@ export default function Login() {
                 className="cv-reveal"
                 onClick={() => setShowPassword((v) => !v)}
                 tabIndex={-1}
-                aria-label={showPassword ? "Скрыть пароль" : "Показать пароль"}
+                aria-label={showPassword ? t("auth.hidePassword") : t("auth.showPassword")}
               >
-                {showPassword ? "скрыть" : "показ"}
+                {showPassword ? t("auth.hidePasswordShort") : t("auth.showPasswordShort")}
               </button>
             </div>
           </div>

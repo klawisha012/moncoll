@@ -139,6 +139,7 @@ function Field({
   show: boolean;
   onToggleShow: () => void;
 }) {
+  const { t } = useSettings();
   return (
     <div style={{ marginBottom: 14 }}>
       <label
@@ -175,7 +176,7 @@ function Field({
           type="button"
           onClick={onToggleShow}
           tabIndex={-1}
-          aria-label={show ? "Hide password" : "Show password"}
+          aria-label={show ? t("auth.hidePassword") : t("auth.showPassword")}
           style={{
             position: "absolute",
             right: 8,
