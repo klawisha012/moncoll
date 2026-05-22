@@ -910,7 +910,7 @@ export default function CrowdSec() {
                               />
                               <span style={{ fontWeight: 500 }}>{conn.name}</span>
                               <span style={{ color: "var(--text-muted)", marginLeft: "6px", fontSize: "11px" }}>
-                                {conn.domains?.length ? `(${conn.domains.join(", ")})` : t("crowdsec.noDomains")}
+                                {conn.domain ? `(${conn.domain})` : t("crowdsec.noDomains")}
                               </span>
                             </div>
                           ))
@@ -987,7 +987,7 @@ export default function CrowdSec() {
                               {d.blocked_on?.length > 0
                                 ? d.blocked_on.map((name, idx) => {
                                     const conn = connections.find(c => c.name === name);
-                                    const domains = conn?.domains?.join(", ") || "";
+                                    const domains = conn?.domain || "";
                                     return (
                                       <span key={name}>
                                         <span

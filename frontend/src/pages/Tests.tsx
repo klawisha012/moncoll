@@ -278,7 +278,7 @@ export default function Tests() {
           <option value="">{t("tests.target.localhost")}</option>
           {connections.map((c) => (
             <option key={c.id} value={c.id}>
-              {c.name} {c.domains.length ? `(${c.domains[0]})` : ""}
+              {c.name} {c.domain ? `(${c.domain})` : ""}
             </option>
           ))}
         </select>

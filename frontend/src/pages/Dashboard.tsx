@@ -935,8 +935,10 @@ function GrafanaTab({
   const { t } = useSettings();
   const selected = useMemo(() => connections.find((c) => c.id === connectionId) ?? null, [connections, connectionId]);
   const varConnection = useMemo(() => {
-    if (!selected || !selected.domains || selected.domains.length === 0) return null;
-    return selected.domains;
+    if (!selected || !selected.domain) return null;
+    // Kept as a single-element array for backwards compatibility with the
+    // downstream Grafana URL builder that expects a list.
+    return [selected.domain];
   }, [selected]);
 
   const src = useMemo(() => {
@@ -993,7 +995,7 @@ function GrafanaTab({
           {connections.filter((c) => c.enabled).map((c) => (
             <option key={c.id} value={c.id}>
               {c.name}
-              {c.domains && c.domains.length > 0 ? ` (${c.domains.join(", ")})` : ""}
+              {c.domain ? ` (${c.domain})` : ""}
             </option>
           ))}
         </select>
@@ -1471,7 +1473,7 @@ export default function Dashboard() {
               {connections.filter((c) => c.enabled).map((c) => (
                 <option key={c.id} value={c.id}>
                   {c.name}
-                  {c.domains && c.domains.length > 0 ? ` (${c.domains.join(", ")})` : ""}
+                  {c.domain ? ` (${c.domain})` : ""}
                 </option>
               ))}
             </select>
