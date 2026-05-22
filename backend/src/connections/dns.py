@@ -18,42 +18,79 @@ from ipaddress import ip_address
 
 import dns.asyncresolver
 import dns.exception
+import dns.message
 import dns.rdatatype
+import httpx
 
 logger = logging.getLogger(__name__)
 
-# ── Public resolvers ────────────────────────────────────────────────────────
-# We intentionally bypass the container's local resolver (/etc/resolv.conf →
-# 127.0.0.11 inside Docker) because Docker's embedded DNS caches aggressively
-# and can serve stale negative responses long after a customer publishes their
-# TXT/A record. Verified live: TXT record present at 8.8.8.8 but the Docker
-# resolver returned an older value for 5+ minutes after the user updated DNS.
+# ── DNS-over-HTTPS (DoH) is the primary resolver ─────────────────────────────
+# Docker's embedded resolver (127.0.0.11) caches aggressively and serves stale
+# negatives. Plain UDP/53 to public resolvers is unreliable on hardened VPS
+# hosts — verified live on 80.72.24.108 where outbound UDP/53 is filtered to
+# everything except Cloudflare, AND Cloudflare's recursive view was minutes
+# behind on a newly-published TXT record.
 #
-# Override via WAF_DNS_RESOLVERS env var (comma-separated). Default is
-# Google + Cloudflare for redundancy.
-# Cloudflare first — Google's 8.8.8.8 and Quad9's 9.9.9.9 are blocked from
-# parts of the Russian internet (RKN). Cloudflare 1.1.1.1 has stayed
-# reachable. We keep the others as fallbacks so the variable still works
-# from regions where Cloudflare is the one being blocked.
-_DEFAULT_PUBLIC_RESOLVERS = ("1.1.1.1", "1.0.0.1", "8.8.8.8", "8.8.4.4")
+# DoH (UDP-wrapped-in-HTTPS-on-443) sidesteps both problems: it bypasses
+# Docker's resolver entirely, and goes through TCP/443 which is virtually
+# never filtered. Verified the same TXT lookup that failed on Cloudflare UDP
+# resolved cleanly via Google DoH on the same host.
+#
+# Override the endpoint list via WAF_DNS_DOH_URLS (comma-separated full URLs).
+# Default order: Google first (most-trusted recursive), Cloudflare second
+# (geographic redundancy).
+_DEFAULT_DOH_URLS = (
+    "https://dns.google/dns-query",
+    "https://cloudflare-dns.com/dns-query",
+)
+# Legacy UDP resolvers for fallback when DoH endpoints all fail.
+_FALLBACK_UDP_RESOLVERS = ("1.1.1.1", "1.0.0.1")
 
 
-def _public_resolvers() -> list[str]:
-    raw = (os.environ.get("WAF_DNS_RESOLVERS") or "").strip()
+def _doh_urls() -> list[str]:
+    raw = (os.environ.get("WAF_DNS_DOH_URLS") or "").strip()
     if not raw:
-        return list(_DEFAULT_PUBLIC_RESOLVERS)
-    out = [r.strip() for r in raw.split(",") if r.strip()]
-    return out or list(_DEFAULT_PUBLIC_RESOLVERS)
+        return list(_DEFAULT_DOH_URLS)
+    out = [u.strip() for u in raw.split(",") if u.strip()]
+    return out or list(_DEFAULT_DOH_URLS)
 
 
-def _make_resolver(timeout: float) -> dns.asyncresolver.Resolver:
-    """Build a fresh resolver pinned to public nameservers."""
+async def _doh_query(
+    name: str, rdtype: int, *, timeout: float = 6.0
+) -> dns.message.Message | None:
+    """Try every DoH endpoint in order. Returns the first successful reply.
+
+    Returns None if all endpoints failed (network unreachable, etc) so the
+    caller can decide whether to fall back to UDP.
+    """
+    q = dns.message.make_query(name, rdtype)
+    wire = q.to_wire()
+    headers = {
+        "Content-Type": "application/dns-message",
+        "Accept": "application/dns-message",
+    }
+    last_exc: Exception | None = None
+    async with httpx.AsyncClient(timeout=timeout, http2=False) as client:
+        for url in _doh_urls():
+            try:
+                r = await client.post(url, content=wire, headers=headers)
+                r.raise_for_status()
+                return dns.message.from_wire(r.content)
+            except Exception as exc:  # network, HTTP, parse — all retry-worthy
+                last_exc = exc
+                logger.debug("DoH %s failed for %s: %s", url, name, exc)
+                continue
+    if last_exc is not None:
+        logger.warning("All DoH endpoints failed for %s: %s", name, last_exc)
+    return None
+
+
+def _make_udp_resolver(timeout: float) -> dns.asyncresolver.Resolver:
+    """Fallback UDP resolver — used only when DoH is entirely unreachable."""
     r = dns.asyncresolver.Resolver(configure=False)
-    r.nameservers = _public_resolvers()
+    r.nameservers = list(_FALLBACK_UDP_RESOLVERS)
     r.timeout = timeout
     r.lifetime = timeout
-    # cache=None — never reuse answers; we want every lookup to see real
-    # current DNS state. Worth the ~50ms extra latency for a wizard probe.
     r.cache = None
     return r
 
@@ -126,43 +163,72 @@ def is_blocked_ip(addr: str) -> bool:
     )
 
 
-async def resolve_a(domain: str, *, timeout: float = 5.0) -> tuple[list[str], int]:
+def _rrset_ttl(msg: dns.message.Message, name: str) -> int:
+    for rr in msg.answer:
+        if rr.rdtype in (dns.rdatatype.A, dns.rdatatype.AAAA, dns.rdatatype.TXT):
+            return int(rr.ttl)
+    return 60
+
+
+async def resolve_a(domain: str, *, timeout: float = 6.0) -> tuple[list[str], int]:
     """Resolve A records → (public_ips, ttl_seconds).
 
-    Raises DnsResolutionError if every resolved address is blocked (SSRF
-    defence) or if the lookup fails outright. Returns the dns_ttl_seconds
-    of the resolved record so the poller can honour it.
+    Tries DoH first (works through HTTPS:443 even when UDP/53 is filtered);
+    falls back to UDP resolvers only if every DoH endpoint failed. Raises
+    DnsResolutionError if all addresses are blocked by the SSRF deny-list
+    or if the lookup itself fails outright.
     """
-    resolver = _make_resolver(timeout)
-    try:
-        answer = await resolver.resolve(domain, rdtype=dns.rdatatype.A)
-    except dns.exception.DNSException as exc:
-        raise DnsResolutionError(f"DNS A lookup failed for {domain}: {exc}") from exc
-    ips_all = [r.address for r in answer]
+    msg = await _doh_query(domain, dns.rdatatype.A, timeout=timeout)
+    if msg is None:
+        # DoH unreachable — try UDP as last resort.
+        try:
+            answer = await _make_udp_resolver(timeout).resolve(domain, dns.rdatatype.A)
+        except dns.exception.DNSException as exc:
+            raise DnsResolutionError(f"DNS A lookup failed for {domain}: {exc}") from exc
+        ips_all = [r.address for r in answer]
+        ttl = int(answer.rrset.ttl) if answer.rrset is not None else 60
+    else:
+        ips_all = [rd.address for rr in msg.answer if rr.rdtype == dns.rdatatype.A for rd in rr]
+        ttl = _rrset_ttl(msg, domain)
+        if not ips_all:
+            raise DnsResolutionError(f"No A records for {domain}")
+
     ips_public = [ip for ip in ips_all if not is_blocked_ip(ip)]
     if not ips_public:
         blocked = ", ".join(ips_all)
         raise DnsResolutionError(
             f"All resolved addresses for {domain} are private/reserved ({blocked}); refusing to proxy"
         )
-    ttl = int(answer.rrset.ttl) if answer.rrset is not None else 60
-    return ips_public, max(ttl, 30)  # floor TTL at 30s to avoid runaway polling
+    return ips_public, max(ttl, 30)  # floor TTL at 30s
 
 
-async def resolve_txt(domain: str, *, timeout: float = 5.0) -> list[str]:
-    """Return all TXT record values for *domain* (joined for multi-string records)."""
-    resolver = _make_resolver(timeout)
+async def resolve_txt(domain: str, *, timeout: float = 6.0) -> list[str]:
+    """Return all TXT record values for *domain* (joined for multi-string records).
+
+    DoH-first like resolve_a. Returns [] on any failure path — TXT absence
+    is a legitimate state (record not published yet) and the caller treats
+    "not found" identically whether it's NXDOMAIN, propagation lag, or
+    network failure.
+    """
+    msg = await _doh_query(domain, dns.rdatatype.TXT, timeout=timeout)
+    if msg is not None:
+        out: list[str] = []
+        for rr in msg.answer:
+            if rr.rdtype != dns.rdatatype.TXT:
+                continue
+            for rdata in rr:
+                joined = b"".join(rdata.strings).decode("utf-8", errors="replace")
+                out.append(joined)
+        return out
+    # DoH unreachable — try UDP fallback.
     try:
-        answer = await resolver.resolve(domain, rdtype=dns.rdatatype.TXT)
+        answer = await _make_udp_resolver(timeout).resolve(domain, dns.rdatatype.TXT)
     except dns.exception.DNSException as exc:
-        logger.debug("TXT lookup for %s failed: %s", domain, exc)
+        logger.debug("TXT lookup (UDP fallback) for %s failed: %s", domain, exc)
         return []
-    out: list[str] = []
-    for rdata in answer:
-        # Each rdata.strings is a tuple of bytes; concat per RFC 7208.
-        joined = b"".join(rdata.strings).decode("utf-8", errors="replace")
-        out.append(joined)
-    return out
+    return [
+        b"".join(rd.strings).decode("utf-8", errors="replace") for rd in answer
+    ]
 
 
 async def verify_txt_token(domain: str, expected_token: str) -> bool:
