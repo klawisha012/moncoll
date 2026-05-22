@@ -377,10 +377,30 @@ function Wizard({
       ? {
           txt_record_name: `_waf-verify.${conn.domain}`,
           txt_record_value: conn.verify_token,
-          edge_ipv4: "", // resolved from the server's env on backend; surfaced via probe below
+          edge_ipv4: "", // backfilled below via api.getEdgeInfo
         }
       : null
   );
+
+  // Backfill edge_ipv4 from the platform's /edge-info endpoint when we
+  // entered the wizard on Resume (the create-response carries the IP, but
+  // we don't keep that response across page reloads).
+  useEffect(() => {
+    if (!conn) return;
+    let cancelled = false;
+    void api
+      .getEdgeInfo()
+      .then((info) => {
+        if (cancelled) return;
+        setInstructions((cur) =>
+          cur ? { ...cur, edge_ipv4: info.edge_ipv4 } : cur
+        );
+      })
+      .catch(() => {/* leaves edge_ipv4 empty; step 3 shows the operator-missing message */});
+    return () => {
+      cancelled = true;
+    };
+  }, [conn]);
   const [verifying, setVerifying] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
 

@@ -6,6 +6,7 @@ authenticated admin who created it.
 
 Endpoints (spec §4):
 
+  GET    /edge-info   → per-deploy edge IPv4 the wizard surfaces in step 3
   POST   /            → create row (pending_verification) + TXT instructions
   GET    /            → list connections
   GET    /{id}        → fetch one
@@ -16,6 +17,8 @@ Endpoints (spec §4):
 """
 
 from __future__ import annotations
+
+import os
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
@@ -34,6 +37,25 @@ class CreateResponse(BaseModel):
 
     connection: Connection
     instructions: VerifyInstructions
+
+
+class EdgeInfo(BaseModel):
+    """Per-deploy platform config the wizard needs on every step.
+
+    Returned by GET /edge-info so the wizard's Step 3 can show the correct
+    A-record value even when the user resumes setup from the list (the
+    instructions object isn't re-issued by the backend on resume — only
+    on initial create).
+    """
+
+    edge_ipv4: str
+
+
+# Declared BEFORE /{connection_id} so FastAPI doesn't match "edge-info" as
+# a connection_id path parameter.
+@connections_router.get("/edge-info", response_model=EdgeInfo)
+async def get_edge_info():
+    return EdgeInfo(edge_ipv4=(os.environ.get("WAF_EDGE_IPV4") or "").strip())
 
 
 @connections_router.get("/", response_model=list[Connection])
