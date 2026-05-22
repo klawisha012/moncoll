@@ -15,53 +15,63 @@ docker compose up -d --build
 ./deploy.sh
 ```
 
-## Security model
+## Connections
 
-### Threat model: `admin` role is host-root equivalent
+WAF runs as a reverse-proxy edge in front of customer-owned origin servers.
+Users connect their websites by **changing DNS** — the platform never hosts
+the site, never executes the customer's code, never mounts their volumes.
 
-The `docker_compose` connection source type (introduced 2026-05) lets an
-**admin** user submit an inline `docker-compose.yml` body that the backend
-brings up with `docker compose up -d`. Because the WAF backend container
-already mounts `/var/run/docker.sock` (required for Angie reloads and
-container introspection), a compose body interpreted by the host Docker
-daemon can — by design — create privileged containers, bind-mount host
-paths, or mount the Docker socket itself.
+Full design: [docs/superpowers/specs/2026-05-22-connections-domain-only-design.md](docs/superpowers/specs/2026-05-22-connections-domain-only-design.md).
+Approved wizard mockup: [docs/wireframes/connections-wizard/index.html](docs/wireframes/connections-wizard/index.html).
 
-**The `admin` role is therefore equivalent to host root** on the machine
-running the WAF. This is intentional for a self-hosted single-tenant
-deployment.
+Onboarding (3 steps, Inset-Modal wizard in the admin UI):
 
-#### Defense-in-depth that is in place
+1. **Domain** — user enters `acme.com` + name + Origin TLS mode (Strict or
+   Lenient). Backend resolves the current A record, verifies the origin is
+   reachable over HTTPS, and rejects any private/reserved/link-local
+   address (RFC 1918, AWS IMDS `169.254.169.254`, IPv6 ULA, etc.).
+2. **TXT verify** — user adds `_waf-verify.acme.com TXT <token>` to their
+   DNS. Backend polls every 10s; on match, advances to step 3.
+3. **DNS switch** — user points the `A` record of `acme.com` at
+   `WAF_EDGE_IPV4`. The background poller detects the flip, triggers an
+   ACME HTTP-01 cert issuance with exponential backoff (1m / 5m / 30m /
+   2h / 12h ±20% jitter, MAX_RETRIES=5), and the connection enters
+   `active` state.
 
-- All connection-management endpoints (`POST/PUT/DELETE /api/connections/*`)
-  require `require_admin`. Viewers and unauthenticated users cannot reach
-  them. See [`backend/src/main.py`](backend/src/main.py).
-- The compose-YAML body is run through a deny-list before
-  `docker compose up -d`. See `_validate_compose_yaml` in
-  [`backend/src/connections/service.py`](backend/src/connections/service.py).
-  Patterns currently rejected (case-insensitive):
-  - `privileged: true`
-  - `pid: host`, `network_mode: host`, `ipc: host`, `userns_mode: host`
-  - any `cap_add:` block
-  - bind mounts of `/`, `/etc`, `/proc`, `/sys`, `/root`, or
-    `/var/run/docker.sock`
-  - any `devices:` block
-- The generated `docker-compose.yml` is written with mode `0o600` inside a
-  `0o700` project directory so other processes sharing the volume cannot
-  read secrets embedded in `environment:` blocks.
+State machine: `pending_verification` → `pending_dns` → `provisioning_cert`
+→ `active` (or → `error` after exhausted retries; manual `/probe` clears it).
 
-The deny-list is a string scan, **not** a hardened parser. It is meant as
-one layer of defense in depth on top of the admin-only restriction, not as
-a sandbox. Do **not** add a role that can create connections without also
-restricting it from `source_type: docker_compose`.
+### Security model
+
+The previous 4-mode source_type machinery (nginx_config / static_generate /
+container / docker_compose) was removed in the 2026-05-22 rewrite. The
+`admin` role no longer accepts arbitrary `docker-compose.yml` bodies — the
+host-root-equivalent threat vector that came with that feature is gone.
+
+What protects the platform now:
+
+- All connection endpoints (`/api/connections/*`) are gated by
+  `require_admin`. See [`backend/src/main.py`](backend/src/main.py).
+- Every IP the backend ever resolves passes through `is_blocked_ip` in
+  [`backend/src/connections/dns.py`](backend/src/connections/dns.py) before
+  it touches an HTTP probe or an Angie `proxy_pass`. RFC 1918, loopback,
+  link-local, multicast, reserved, IPv4 unspecified, and IPv6 ULA all
+  reject with `422`. Closes the AWS-IMDS-style exfil vector.
+- Domain ownership is proven via a TXT record (`_waf-verify.<domain>`)
+  with a random 24-byte URL-safe token before the connection becomes
+  active. Multi-tenant `user_id` FK on `connections` table means one
+  admin cannot claim another's domain (decision 1B in the design spec).
+- Origin TLS defaults to **strict** (`proxy_ssl_verify on` against the
+  system CA bundle); operators can opt individual origins down to
+  `lenient` for self-signed back-ends without losing channel encryption.
 
 #### What you must NOT do
 
-- Do **not** add a `viewer` or `editor` role that can create connections
-  without also rejecting `source_type: docker_compose` for that role.
-- Do **not** loosen the deny-list without an explicit security review.
 - Do **not** expose the WAF admin panel to untrusted networks. Put it
   behind your own VPN or IP allow-list.
+- Do **not** loosen the `is_blocked_ip` deny-list without a security review.
+- Do **not** disable TXT verification — the multi-tenant security model
+  relies on it.
 
 ### Other notable security defaults
 
