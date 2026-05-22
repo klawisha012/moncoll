@@ -44,7 +44,9 @@ def test_pending_dns_emits_only_port_80():
 def test_pending_dns_includes_acme_challenge():
     out = ac.render(_base_conn(status="pending_dns"))
     assert "/.well-known/acme-challenge/" in out
-    assert "/etc/angie/http.d/conn_7/acme" in out
+    # Webroot must match certificates.service.trigger_acme_request webroot
+    # (.../conn_<id>/site) — see angie_config._acme_dir docstring.
+    assert "/etc/angie/http.d/conn_7/site" in out
 
 
 def test_pending_dns_proxies_immediately():

@@ -42,7 +42,12 @@ def _conn_dir(conn_id: int) -> Path:
 
 
 def _acme_dir(conn_id: int) -> Path:
-    return _conn_dir(conn_id) / "acme"
+    # Must match certificates.service.trigger_acme_request webroot:
+    #   /var/lib/angie/http.d/conn_<id>/site  (host volume mount)
+    # → /etc/angie/http.d/conn_<id>/site      (Angie container view)
+    # certbot writes /.well-known/acme-challenge/<token> under this root,
+    # so the Angie location block has to use the same root or HTTP-01 fails.
+    return _conn_dir(conn_id) / "site"
 
 
 def _parse_http_versions(value: str | None) -> list[str]:
@@ -152,7 +157,7 @@ def render(conn: dict) -> str:
     lines.append("")
 
     blocked_ips_include = f"    include http.d/conn_{conn_id}/blocked_ips.conf;"
-    acme_root = f"/etc/angie/http.d/conn_{conn_id}/acme"
+    acme_root = f"/etc/angie/http.d/conn_{conn_id}/site"
     proxy_block = _emit_proxy_block(conn_id, domain, tls_mode)
 
     # ── Plain HTTP server block (always emitted; ACME + either proxy or redirect) ──
