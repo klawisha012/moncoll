@@ -564,6 +564,7 @@ function Wizard({
           <Step2
             instructions={instructions}
             verifying={verifying}
+            statusDetail={createdConn?.status_detail ?? null}
             onCopy={onCopy}
             onVerifyNow={async () => {
               const ok = await checkVerified();
@@ -726,17 +727,27 @@ function Step1({
 function Step2({
   instructions,
   verifying,
+  statusDetail,
   onCopy,
   onVerifyNow,
   onCancel,
 }: {
   instructions: VerifyInstructions;
   verifying: boolean;
+  statusDetail: string | null;
   onCopy: (value: string) => void;
   onVerifyNow: () => void;
   onCancel: () => void;
 }) {
   const { t } = useSettings();
+  // Distinguish a "fresh first probe" from a "we checked and didn't find it
+  // yet" state — the latter deserves a more pointed message than the
+  // generic auto-poll hint.
+  const txtNotFound =
+    !verifying &&
+    !!statusDetail &&
+    (statusDetail.toLowerCase().includes("not found") || statusDetail.toLowerCase().includes("propagation"));
+
   return (
     <>
       <h3 style={{ fontSize: 16, marginBottom: 6 }}>{t("wizard.step2.title")}</h3>
@@ -745,9 +756,41 @@ function Step2({
       <KeyValueBlock label="Name" value={instructions.txt_record_name} onCopy={onCopy} />
       <KeyValueBlock label="TXT value" value={instructions.txt_record_value} onCopy={onCopy} />
 
-      <div style={{ fontSize: 12, color: "var(--ink-soft)", margin: "10px 0 18px" }}>
-        {t("wizard.step2.polling")}
+      <div
+        role="status"
+        aria-live="polite"
+        style={{
+          fontSize: 12,
+          color: txtNotFound ? "var(--red-deep)" : "var(--ink-soft)",
+          margin: "10px 0 18px",
+          minHeight: 18,
+          display: "flex",
+          alignItems: "center",
+          gap: 6,
+        }}
+      >
+        {verifying && (
+          <span
+            aria-hidden
+            style={{
+              display: "inline-block",
+              animation: "spin 0.9s linear infinite",
+              fontSize: 14,
+              lineHeight: 1,
+            }}
+          >
+            ◐
+          </span>
+        )}
+        {verifying
+          ? "Checking DNS for the TXT record…"
+          : txtNotFound
+          ? statusDetail
+          : t("wizard.step2.polling")}
       </div>
+
+      {/* Local keyframes (Constructivist system has no spinner utility yet). */}
+      <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
 
       <div style={{ display: "flex", justifyContent: "flex-end", gap: 12 }}>
         <button type="button" className="btn-outline" onClick={onCancel}>
@@ -759,8 +802,23 @@ function Step2({
           onClick={onVerifyNow}
           disabled={verifying}
           aria-busy={verifying}
+          style={{ minWidth: 150 }}
         >
-          {verifying ? "◐" : <Check size={14} />} {t("wizard.step2.verifyNow")}
+          {verifying ? (
+            <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
+              <span
+                aria-hidden
+                style={{ animation: "spin 0.9s linear infinite", display: "inline-block" }}
+              >
+                ◐
+              </span>
+              {"Checking…"}
+            </span>
+          ) : (
+            <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
+              <Check size={14} /> {t("wizard.step2.verifyNow")}
+            </span>
+          )}
         </button>
       </div>
     </>

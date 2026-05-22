@@ -28,6 +28,7 @@ from .dns import (
     is_blocked_ip,
     resolve_a,
     validate_domain,
+    verify_txt_token,
 )
 from .schemas import Connection, ConnectionCreate, ConnectionUpdate, VerifyInstructions
 
@@ -231,17 +232,67 @@ async def delete_connection(session: AsyncSession, conn_id: int) -> bool:
 
 
 async def probe_connection(session: AsyncSession, conn_id: int) -> Connection | None:
-    """Force the next poller tick to run NOW by zeroing next_poll_at.
+    """Probe a connection NOW and return the updated row.
 
-    Doesn't perform the work synchronously (avoid blocking the request); the
-    background task picks the row up on its next loop iteration (max 1s under
-    normal load). Use case: user clicks "Verify now" or "Retry" in the UI.
+    Synchronous for the two states the wizard cares about:
+
+      * ``pending_verification`` — does the TXT record exist? If yes,
+        flip to ``pending_dns``. Otherwise update ``status_detail`` so the
+        UI can render a clear "TXT not found yet" message.
+      * ``pending_dns`` — does the domain's current A record point at
+        the WAF edge? If yes, flip to ``provisioning_cert`` so the
+        background poller picks it up and runs ACME on its next tick.
+
+    For all other states (or when the synchronous check raises), we just
+    zero ``next_poll_at`` and let the background poller handle it on its
+    next iteration. Synchronous work matters here because the user is
+    actively waiting on a wizard button — surfacing the real outcome in
+    the response keeps the UX honest.
     """
+    import os
+
     row = await session.get(ConnectionModel, conn_id)
     if row is None:
         return None
+
+    row.last_checked_at = _now()
+
+    if row.status == "pending_verification" and row.verify_token:
+        try:
+            found = await verify_txt_token(row.domain, row.verify_token)
+        except Exception as exc:  # DNS infra error — surface, don't crash
+            logger.warning("Conn %d probe: TXT lookup failed: %s", conn_id, exc)
+            found = False
+        if found:
+            row.status = "pending_dns"
+            row.verified_at = _now()
+            row.status_detail = "Domain ownership verified."
+        else:
+            row.status_detail = (
+                "TXT record not found yet — DNS propagation can take 5-30 minutes."
+            )
+    elif row.status == "pending_dns":
+        edge = (os.environ.get("WAF_EDGE_IPV4") or "").strip()
+        if edge:
+            try:
+                ips, ttl = await resolve_a(row.domain)
+                row.dns_ttl_seconds = ttl
+                if edge in ips:
+                    row.status = "provisioning_cert"
+                    row.status_detail = "DNS now points to WAF edge; issuing certificate."
+                else:
+                    row.status_detail = (
+                        f"A-record points to {','.join(ips)}; expecting {edge}."
+                    )
+            except DnsResolutionError as exc:
+                row.status_detail = f"DNS lookup: {exc}"
+        else:
+            row.status_detail = "WAF_EDGE_IPV4 env var not set; ask the operator."
+
+    # Always wake the poller for follow-up work (ACME, periodic re-resolve).
     row.next_poll_at = _now()
-    row.acme_next_retry_at = None  # un-park error retries too
+    row.acme_next_retry_at = None  # un-park error retries
+
     await session.commit()
     await session.refresh(row)
     return Connection.model_validate(_to_dict(row))
