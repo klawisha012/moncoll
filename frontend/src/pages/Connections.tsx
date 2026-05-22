@@ -1,807 +1,902 @@
-import { useState, useEffect, useRef, useCallback } from "react";
+/**
+ * Connections page — domain-only model (spec §7).
+ *
+ * Two surfaces:
+ *
+ *   1. List page — table of (domain, status, origin, actions). Status badges
+ *      use Constructivist tokens; rows in pending_* state expose "Resume setup".
+ *
+ *   2. Three-step wizard modal (variant A — Inset Modal, approved via
+ *      /design-shotgun on 2026-05-22):
+ *
+ *        Step 1: Name + Domain + Origin TLS mode
+ *        Step 2: TXT _waf-verify token + auto-poll every 10s + "Verify now"
+ *        Step 3: Edge IP instructions + Done
+ *
+ *      Closing the modal mid-flight does NOT delete the row — it stays in
+ *      its current pending_* state and the list shows a "Resume setup"
+ *      button next to its badge (spec §7.7 / decision D3A).
+ */
+
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { Plus, Trash2, RefreshCw, X, Copy, Shield, Check } from "lucide-react";
+
 import {
   api,
   Connection,
   ConnectionCreate,
-  SourceType,
+  ConnectionStatus,
+  OriginTlsMode,
+  VerifyInstructions,
 } from "../api/client";
-import { Plus, Edit2, Trash2, RefreshCw, X, Shield } from "lucide-react";
 import { useSettings } from "../context/SettingsContext";
 
-const SOURCE_TYPES: { value: SourceType; labelKey: string; hintKey: string }[] = [
-  {
-    value: "nginx_config",
-    labelKey: "connections.sourceType.nginx_config.label",
-    hintKey: "connections.sourceType.nginx_config.hint",
-  },
-  {
-    value: "static_generate",
-    labelKey: "connections.sourceType.static_generate.label",
-    hintKey: "connections.sourceType.static_generate.hint",
-  },
-  {
-    value: "container",
-    labelKey: "connections.sourceType.container.label",
-    hintKey: "connections.sourceType.container.hint",
-  },
-  {
-    value: "docker_compose",
-    labelKey: "connections.sourceType.docker_compose.label",
-    hintKey: "connections.sourceType.docker_compose.hint",
-  },
-];
-
-const DEFAULT_COMPOSE_YAML = `services:
-  app:
-    image: nginx:alpine
-    expose:
-      - "80"
-`;
-
-const DEFAULT_FORM: ConnectionCreate = {
-  name: "",
-  domains: [],
-  source_type: "static_generate",
-  nginx_config_path: null,
-  static_dir: null,
-  backend_url: "",
-  compose_yaml: null,
-  compose_service: null,
-  compose_port: null,
-  http_versions: "h1,h2,h3",
-  compression_algo: "auto",
-  enabled: true,
-  ssl_enabled: false,
-  ssl_cert_path: null,
-  ssl_key_path: null,
-  preserve_host: true,
-  custom_nginx_config: null,
+// ── Status badge palette (matches spec §7.1) ─────────────────────────────────
+const BADGE_TONE: Record<ConnectionStatus, { bg: string; fg: string; icon: string }> = {
+  pending_verification: { bg: "var(--cream-3)", fg: "var(--ink-soft)", icon: "▢" },
+  pending_dns: { bg: "rgba(178, 122, 0, 0.16)", fg: "var(--amber)", icon: "▷" },
+  provisioning_cert: { bg: "rgba(12, 12, 12, 0.08)", fg: "var(--ink)", icon: "◐" },
+  active: { bg: "rgba(44, 122, 61, 0.16)", fg: "var(--ok)", icon: "■" },
+  error: { bg: "var(--red-soft)", fg: "var(--red-deep)", icon: "▲" },
 };
+
+type Toast = { kind: "success" | "error" | "info"; msg: string };
+
+// Auto-poll interval while step 2 (TXT verify) is open. Spec §7.8 (decision D2A).
+const TXT_POLL_MS = 10_000;
+
+// Background refresh interval for the list page — picks up poller status changes.
+const LIST_REFRESH_MS = 15_000;
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Page
+// ─────────────────────────────────────────────────────────────────────────────
 
 export default function Connections() {
   const { t } = useSettings();
-  const [connections, setConnections] = useState<Connection[]>([]);
+  const [rows, setRows] = useState<Connection[]>([]);
   const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
-  const [reloading, setReloading] = useState(false);
-  const [toast, setToast] = useState<{
-    message: string;
-    type: "success" | "error" | "info";
-  } | null>(null);
-  const [showForm, setShowForm] = useState(false);
-  const [editingId, setEditingId] = useState<number | null>(null);
-  const [formData, setFormData] = useState<ConnectionCreate>(DEFAULT_FORM);
-  const [domainsInput, setDomainsInput] = useState("");
-  const fileInputRef = useRef<HTMLInputElement>(null);
-  const nginxConfigInputRef = useRef<HTMLInputElement | null>(null);
-  const setNginxConfigRef = useCallback((el: HTMLInputElement | null) => {
-    nginxConfigInputRef.current = el;
-    if (el) {
-      el.setAttribute("webkitdirectory", "");
-      el.setAttribute("directory", "");
-    }
-  }, []);
-  const staticDirInputRef = useRef<HTMLInputElement | null>(null);
-  const setStaticDirRef = useCallback((el: HTMLInputElement | null) => {
-    staticDirInputRef.current = el;
-    if (el) {
-      el.setAttribute("webkitdirectory", "");
-      el.setAttribute("directory", "");
-    }
+  const [toast, setToast] = useState<Toast | null>(null);
+  const [wizardConnId, setWizardConnId] = useState<number | "new" | null>(null);
+
+  const showToast = useCallback((kind: Toast["kind"], msg: string) => {
+    setToast({ kind, msg });
+    setTimeout(() => setToast(null), 4000);
   }, []);
 
-  useEffect(() => {
-    loadConnections();
-  }, []);
-
-  useEffect(() => {
-    if (!showForm) return;
-    function onKey(e: KeyboardEvent) {
-      if (e.key === "Escape") resetForm();
-    }
-    document.addEventListener("keydown", onKey);
-    return () => document.removeEventListener("keydown", onKey);
-  }, [showForm]);
-
-  async function loadConnections() {
-    setLoading(true);
+  const reload = useCallback(async () => {
     try {
       const data = await api.getConnections();
-      setConnections(data);
+      setRows(data);
     } catch {
-      showToast(t("connections.toast.loadFailed"), "error");
+      showToast("error", t("connections.toast.loadFailed"));
     } finally {
       setLoading(false);
     }
-  }
+  }, [showToast, t]);
 
-  function showToast(
-    message: string,
-    type: "success" | "error" | "info"
-  ) {
-    setToast({ message, type });
-    setTimeout(() => setToast(null), 3000);
-  }
+  useEffect(() => {
+    void reload();
+  }, [reload]);
 
-  function resetForm() {
-    setFormData(DEFAULT_FORM);
-    setDomainsInput("");
-    setEditingId(null);
-    setShowForm(false);
-    if (fileInputRef.current) fileInputRef.current.value = "";
-    if (nginxConfigInputRef.current) nginxConfigInputRef.current.value = "";
-    if (staticDirInputRef.current) staticDirInputRef.current.value = "";
-  }
+  // Refresh while page is open so badge transitions land without F5.
+  useEffect(() => {
+    const id = window.setInterval(() => void reload(), LIST_REFRESH_MS);
+    return () => window.clearInterval(id);
+  }, [reload]);
 
-  function handleEdit(conn: Connection) {
-    setEditingId(conn.id);
-    setFormData({
-      name: conn.name,
-      domains: conn.domains,
-      source_type: conn.source_type,
-      nginx_config_path: conn.nginx_config_path,
-      static_dir: conn.static_dir,
-      backend_url: conn.backend_url,
-      compose_yaml: conn.compose_yaml,
-      compose_service: conn.compose_service,
-      compose_port: conn.compose_port,
-      http_versions: conn.http_versions || "h1,h2,h3",
-      compression_algo: conn.compression_algo || "auto",
-      enabled: conn.enabled,
-      ssl_enabled: conn.ssl_enabled,
-      ssl_cert_path: conn.ssl_cert_path,
-      ssl_key_path: conn.ssl_key_path,
-      preserve_host: conn.preserve_host,
-      custom_nginx_config: conn.custom_nginx_config,
-    });
-    setDomainsInput(conn.domains.join(", "));
-    setShowForm(true);
-  }
-
-  function parseDomains(text: string): string[] {
-    return text
-      .split(/[,\s]+/)
-      .map((d) => d.trim())
-      .filter(Boolean);
-  }
-
-  async function handleSubmit(e: React.FormEvent) {
-    e.preventDefault();
-    setSaving(true);
-    try {
-      const payload: ConnectionCreate = {
-        ...formData,
-        domains: parseDomains(domainsInput),
-      };
-      if (editingId !== null) {
-        await api.updateConnection(editingId, payload);
-        showToast(t("connections.toast.updated"), "success");
-      } else {
-        await api.createConnection(payload);
-        showToast(t("connections.toast.created"), "success");
+  const onDelete = useCallback(
+    async (conn: Connection) => {
+      if (!window.confirm(t("connections.confirmDelete"))) return;
+      try {
+        await api.deleteConnection(conn.id);
+        showToast("success", t("connections.toast.deleted"));
+        await reload();
+      } catch {
+        showToast("error", t("connections.toast.deleteFailed"));
       }
-      resetForm();
-      loadConnections();
-    } catch (err: any) {
-      showToast(err?.message || t("connections.toast.saveFailed"), "error");
-    } finally {
-      setSaving(false);
-    }
-  }
+    },
+    [reload, showToast, t]
+  );
 
-  async function handleDelete(id: number) {
-    if (!confirm(t("connections.confirmDelete"))) return;
-    try {
-      await api.deleteConnection(id);
-      showToast(t("connections.toast.deleted"), "success");
-      loadConnections();
-    } catch {
-      showToast(t("connections.toast.deleteFailed"), "error");
-    }
-  }
-
-  async function handleToggleEnabled(conn: Connection) {
-    try {
-      await api.updateConnection(conn.id, { enabled: !conn.enabled });
-      loadConnections();
-      showToast(
-        conn.enabled ? t("connections.toast.disabled") : t("connections.toast.enabled"),
-        "success"
-      );
-    } catch {
-      showToast(t("connections.toast.toggleFailed"), "error");
-    }
-  }
-
-  async function handleReload() {
-    setReloading(true);
-    try {
-      const result = await api.reloadAngie();
-      if (result.success) {
-        showToast(t("connections.toast.reloaded"), "success");
-      } else {
-        showToast(t("connections.toast.reloadFailedMsg", { msg: result.message }), "error");
+  const onProbe = useCallback(
+    async (conn: Connection) => {
+      try {
+        await api.probeConnection(conn.id);
+        showToast("info", t("connections.toast.probeOk"));
+        await reload();
+      } catch {
+        showToast("error", t("connections.toast.toggleFailed"));
       }
-    } catch {
-      showToast(t("connections.toast.reloadFailed"), "error");
-    } finally {
-      setReloading(false);
-    }
-  }
-
-  function updateFormField<K extends keyof ConnectionCreate>(
-    key: K,
-    value: ConnectionCreate[K]
-  ) {
-    setFormData((prev) => ({ ...prev, [key]: value }));
-  }
-
-  if (loading) {
-    return (
-      <div className="loading">
-        <div className="spinner" />
-        {t("connections.loading")}
-      </div>
-    );
-  }
-
-  const sourceType = formData.source_type ?? "static_generate";
+    },
+    [reload, showToast, t]
+  );
 
   return (
-    <div>
-      <div className="page-header">
+    <div className="page">
+      <header className="page-header">
         <div>
-          <h1>{t("connections.title")}</h1>
-          <p>{t("connections.subtitle")}</p>
+          <h1 className="page-title">{t("connections.title")}</h1>
+          <p className="page-subtitle">{t("connections.subtitle")}</p>
         </div>
-        <div className="header-actions">
-          <button
-            className="btn btn-success"
-            onClick={handleReload}
-            disabled={reloading}
-          >
-            <RefreshCw size={16} />
-            {reloading ? t("connections.reloading") : t("connections.reload")}
-          </button>
-          <button
-            className="btn btn-primary"
-            onClick={() => setShowForm(true)}
-          >
-            <Plus size={16} />
-            {t("connections.add")}
-          </button>
-        </div>
-      </div>
+        <button
+          type="button"
+          className="btn-primary"
+          onClick={() => setWizardConnId("new")}
+        >
+          <Plus size={16} /> {t("connections.add")}
+        </button>
+      </header>
 
-      {connections.length === 0 ? (
-        <div className="card">
-          <div style={{ textAlign: "center", padding: "48px 24px" }}>
-            <Shield
-              size={48}
-              style={{ color: "var(--text-muted)", marginBottom: "16px" }}
-            />
-            <p style={{ fontSize: "16px", fontWeight: 600, marginBottom: "8px" }}>
-              {t("connections.empty")}
-            </p>
-            <p className="text-muted">
-              {t("connections.emptyDesc")}
-            </p>
-          </div>
-        </div>
+      {loading ? (
+        <div className="card">{t("connections.loading")}</div>
+      ) : rows.length === 0 ? (
+        <EmptyState onAdd={() => setWizardConnId("new")} />
       ) : (
-        <div className="connections-grid">
-          {connections.map((conn) => (
-            <div
-              key={conn.id}
-              className={`card connection-card ${
-                conn.enabled ? "" : "disabled"
-              }`}
-              data-testid={`connection-card-${conn.id}`}
-            >
-              <div className="card-header">
-                <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
-                  <h3>{conn.name}</h3>
-                  <button
-                    type="button"
-                    className={`btn btn-sm ${conn.enabled ? "btn-success" : "btn-secondary"}`}
-                    onClick={() => handleToggleEnabled(conn)}
-                    title={conn.enabled ? t("connections.clickToDisable") : t("connections.clickToEnable")}
-                    style={{
-                      padding: "4px 12px",
-                      fontSize: "12px",
-                      fontWeight: 600,
-                      borderRadius: "var(--radius-sm)",
-                    }}
-                  >
-                    {conn.enabled ? t("connections.on") : t("connections.off")}
-                  </button>
-                </div>
-                <div style={{ display: "flex", gap: "4px" }}>
-                  <button
-                    className="btn-icon"
-                    onClick={() => handleEdit(conn)}
-                    title={t("connections.edit")}
-                  >
-                    <Edit2 size={15} />
-                  </button>
-                  <button
-                    className="btn-icon danger"
-                    onClick={() => handleDelete(conn.id)}
-                    title={t("connections.delete")}
-                  >
-                    <Trash2 size={15} />
-                  </button>
-                </div>
-              </div>
-
-              <div className="connection-details">
-                <div className="detail-row">
-                  <strong>{t("connections.detail.source")}</strong>
-                  <span className="badge badge-primary">
-                    {conn.source_type}
-                  </span>
-                </div>
-                <div className="detail-row">
-                  <strong>{t("connections.detail.domains")}</strong>
-                  <div style={{ display: "flex", gap: "4px", flexWrap: "wrap" }}>
-                    {conn.domains.length > 0 ? (
-                      conn.domains.map((d) => (
-                        <span key={d} className="badge badge-secondary">
-                          {d}
-                        </span>
-                      ))
-                    ) : (
-                      <span className="text-muted">{t("connections.detail.catchAll")}</span>
-                    )}
-                  </div>
-                </div>
-
-                {conn.source_type === "nginx_config" && conn.nginx_config_path && (
-                  <div className="detail-row">
-                    <strong>{t("connections.detail.config")}</strong>
-                    <code className="codeblock">{conn.nginx_config_path}</code>
-                  </div>
-                )}
-                {conn.source_type === "static_generate" && conn.static_dir && (
-                  <div className="detail-row">
-                    <strong>{t("connections.detail.staticDir")}</strong>
-                    <code className="codeblock">{conn.static_dir}</code>
-                  </div>
-                )}
-                {conn.source_type === "container" && conn.backend_url && (
-                  <div className="detail-row">
-                    <strong>{t("connections.detail.backend")}</strong>
-                    <code className="codeblock">{conn.backend_url}</code>
-                  </div>
-                )}
-                {conn.source_type === "docker_compose" && (
-                  <>
-                    {conn.compose_service && (
-                      <div className="detail-row">
-                        <strong>{t("connections.detail.service")}</strong>
-                        <code className="codeblock">
-                          {conn.compose_service}
-                          {conn.compose_port ? `:${conn.compose_port}` : ""}
-                        </code>
-                      </div>
-                    )}
-                    {conn.backend_url && (
-                      <div className="detail-row">
-                        <strong>{t("connections.detail.backend")}</strong>
-                        <code className="codeblock">{conn.backend_url}</code>
-                      </div>
-                    )}
-                  </>
-                )}
-
-                <div className="detail-row">
-                  <strong>{t("connections.detail.updated")}</strong>
-                  <span className="text-muted">
-                    {new Date(conn.updated_at).toLocaleString()}
-                  </span>
-                </div>
-              </div>
-            </div>
-          ))}
-        </div>
+        <ConnectionsTable
+          rows={rows}
+          onDelete={onDelete}
+          onProbe={onProbe}
+          onResume={(id) => setWizardConnId(id)}
+        />
       )}
 
-      {showForm && (
-        <div
-          className="modal-overlay"
-          onMouseDown={(e) => {
-            if (e.target === e.currentTarget) {
-              (e.currentTarget as HTMLElement).dataset.mousedownTarget = "overlay";
-            }
+      {wizardConnId !== null && (
+        <Wizard
+          conn={wizardConnId === "new" ? null : rows.find((r) => r.id === wizardConnId) ?? null}
+          onClose={() => {
+            setWizardConnId(null);
+            void reload();
           }}
-          onMouseUp={(e) => {
-            const overlay = e.currentTarget as HTMLElement;
-            if (overlay.dataset.mousedownTarget === "overlay" && e.target === e.currentTarget) {
-              resetForm();
-            }
-            delete overlay.dataset.mousedownTarget;
+          onSavedResume={() => {
+            setWizardConnId(null);
+            showToast("info", t("connections.toast.savedResume"));
+            void reload();
           }}
-        >
-          <div className="modal">
-            <div className="modal-header">
-              <h2>{editingId ? t("connections.modal.editTitle") : t("connections.modal.newTitle")}</h2>
-              <button className="btn-icon" onClick={resetForm}>
-                <X size={20} />
-              </button>
-            </div>
-
-            <form onSubmit={handleSubmit}>
-              <div className="form-group">
-                <label>{t("connections.field.type")}</label>
-                <div
-                  role="tablist"
-                  style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}
-                >
-                  {SOURCE_TYPES.map((opt) => {
-                    const active = sourceType === opt.value;
-                    return (
-                      <button
-                        key={opt.value}
-                        type="button"
-                        role="tab"
-                        aria-selected={active}
-                        data-testid={`source-type-${opt.value}`}
-                        className={`btn btn-sm ${active ? "btn-primary" : "btn-outline"}`}
-                        onClick={() => updateFormField("source_type", opt.value)}
-                      >
-                        {t(opt.labelKey)}
-                      </button>
-                    );
-                  })}
-                </div>
-                <small>
-                  {(() => {
-                    const k = SOURCE_TYPES.find((o) => o.value === sourceType)?.hintKey;
-                    return k ? t(k) : null;
-                  })()}
-                </small>
-              </div>
-
-              <div className="form-group">
-                <label>{t("connections.field.name")}</label>
-                <div style={{ display: "flex", gap: "12px", alignItems: "center" }}>
-                  <input
-                    type="text"
-                    data-testid="conn-name"
-                    value={formData.name}
-                    onChange={(e) => updateFormField("name", e.target.value)}
-                    placeholder={t("connections.field.namePlaceholder")}
-                    required
-                    style={{ flex: 1 }}
-                  />
-                  <button
-                    type="button"
-                    className={`toggle-btn ${formData.enabled ? "active" : ""}`}
-                    onClick={() => updateFormField("enabled", !formData.enabled)}
-                    title={formData.enabled ? t("connections.field.enabledTitle") : t("connections.field.disabledTitle")}
-                  >
-                    <span className="toggle-track">
-                      <span className="toggle-thumb" />
-                    </span>
-                    <span className="toggle-label">
-                      {formData.enabled ? t("connections.on") : t("connections.off")}
-                    </span>
-                  </button>
-                </div>
-              </div>
-
-              <div className="form-group">
-                <label>
-                  {t("connections.field.domains")}
-                  {sourceType === "static_generate" || sourceType === "container"
-                    ? " *"
-                    : ""}
-                </label>
-                <input
-                  type="text"
-                  data-testid="conn-domains"
-                  value={domainsInput}
-                  onChange={(e) => setDomainsInput(e.target.value)}
-                  placeholder={t("connections.field.domainsPlaceholder")}
-                />
-                <small>
-                  {sourceType === "nginx_config"
-                    ? <>{t("connections.help.domainsNginx.before")}<code>server_name</code>{t("connections.help.domainsNginx.after")}</>
-                    : t("connections.help.domainsDefault")}
-                </small>
-              </div>
-
-              {sourceType === "nginx_config" && (
-                <div className="form-group">
-                  <label>{t("connections.field.nginxFolder")}</label>
-                  <div style={{ display: "flex", gap: "8px", alignItems: "center", flexWrap: "wrap" }}>
-                    <input
-                      type="text"
-                      data-testid="conn-nginx-config-path"
-                      value={formData.nginx_config_path || ""}
-                      onChange={(e) =>
-                        updateFormField("nginx_config_path", e.target.value || null)
-                      }
-                      placeholder="/app/site-templates/.../nginx.conf"
-                      style={{ flex: 1, minWidth: "240px" }}
-                    />
-                    <button
-                      type="button"
-                      className="btn btn-primary"
-                      onClick={() => nginxConfigInputRef.current?.click()}
-                      title={t("connections.title.selectConfigFolder")}
-                    >
-                      {t("connections.btn.selectConfigFolder")}
-                    </button>
-                    <input
-                      type="file"
-                      ref={setNginxConfigRef}
-                      style={{ display: "none" }}
-                      multiple
-                      onChange={async (e) => {
-                        const files = e.target.files;
-                        if (!files || files.length === 0) return;
-                        try {
-                          const result = await api.uploadNginxConfig(files);
-                          updateFormField("nginx_config_path", result.path);
-                          showToast(
-                            t("connections.toast.uploadedFolder", { count: files.length, filename: result.filename }),
-                            "success"
-                          );
-                          // Auto-fill domains & backend_url from parsed nginx.conf
-                          try {
-                            const parsed = await api.parseNginxConfig(result.path);
-                            if (parsed.domains.length > 0) {
-                              setDomainsInput(parsed.domains.join(", "));
-                              updateFormField("domains", parsed.domains);
-                            }
-                            if (parsed.backend_url && !formData.backend_url) {
-                              updateFormField("backend_url", parsed.backend_url);
-                            }
-                          } catch {
-                            // parse failure is non-fatal — user can fill manually
-                          }
-                        } catch (err: any) {
-                          const msg =
-                            typeof err.message === "string"
-                              ? err.message
-                              : JSON.stringify(err.message || err);
-                          showToast(t("connections.toast.uploadFailedMsg", { msg }), "error");
-                        }
-                        e.target.value = "";
-                      }}
-                    />
-                  </div>
-                  <small>
-                    {t("connections.help.nginxConfig.part1")}<strong>{t("connections.help.nginxConfig.folder")}</strong>{t("connections.help.nginxConfig.part2")}<code>{t("connections.help.nginxConfig.file")}</code>{t("connections.help.nginxConfig.part3")}
-                  </small>
-                </div>
-              )}
-
-              {sourceType === "static_generate" && (
-                <div className="form-group">
-                  <label>{t("connections.field.staticPath")}</label>
-                  <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
-                    <input
-                      type="text"
-                      data-testid="conn-static-dir"
-                      value={formData.static_dir || ""}
-                      onChange={(e) =>
-                        updateFormField("static_dir", e.target.value || null)
-                      }
-                      placeholder={t("connections.field.staticPlaceholder")}
-                      style={{ flex: 1, minWidth: "200px" }}
-                      required
-                    />
-                    <button
-                      type="button"
-                      className="btn btn-outline btn-sm"
-                      onClick={() => fileInputRef.current?.click()}
-                      title={t("connections.title.uploadIndex")}
-                    >
-                      {t("connections.btn.uploadIndex")}
-                    </button>
-                    <button
-                      type="button"
-                      className="btn btn-primary btn-sm"
-                      onClick={() => staticDirInputRef.current?.click()}
-                      title={t("connections.title.uploadFolder")}
-                    >
-                      {t("connections.btn.uploadFolder")}
-                    </button>
-                    <input
-                      type="file"
-                      ref={fileInputRef}
-                      style={{ display: "none" }}
-                      accept=".html,.htm"
-                      onChange={async (e) => {
-                        const file = e.target.files?.[0];
-                        if (!file) return;
-                        try {
-                          const result = await api.uploadStaticFile(file);
-                          updateFormField("static_dir", result.path);
-                          showToast(
-                            t("connections.toast.uploadedFile", { filename: result.filename, path: result.path }),
-                            "success"
-                          );
-                        } catch (err: any) {
-                          showToast(
-                            err?.message
-                              ? t("connections.toast.uploadFailedMsg", { msg: err.message })
-                              : t("connections.toast.uploadFailedUnknown"),
-                            "error"
-                          );
-                        }
-                        e.target.value = "";
-                      }}
-                    />
-                    <input
-                      type="file"
-                      ref={setStaticDirRef}
-                      style={{ display: "none" }}
-                      multiple
-                      onChange={async (e) => {
-                        const files = e.target.files;
-                        if (!files || files.length === 0) return;
-                        try {
-                          const result = await api.uploadStaticDir(
-                            files,
-                            editingId ?? undefined,
-                          );
-                          if (editingId === null) {
-                            // Create flow: temp staging — surface the path
-                            // so the create payload references it.
-                            updateFormField("static_dir", result.path);
-                            showToast(
-                              t("connections.toast.stagedFiles", { count: files.length, path: result.path }),
-                              "success",
-                            );
-                          } else {
-                            // Edit flow: written directly into conn_<id>/site.
-                            showToast(
-                              t("connections.toast.uploadedSiteFiles", { count: result.files ?? files.length }),
-                              "success",
-                            );
-                          }
-                        } catch (err: any) {
-                          const msg =
-                            typeof err.message === "string"
-                              ? err.message
-                              : JSON.stringify(err.message || err);
-                          showToast(t("connections.toast.uploadFailedMsg", { msg }), "error");
-                        }
-                        e.target.value = "";
-                      }}
-                    />
-                  </div>
-                  <small>
-                    {t("connections.help.static.part1")}<code>{t("connections.help.static.path")}</code>{t("connections.help.static.part2")}<code>{t("connections.help.static.indexFile")}</code>{t("connections.help.static.part3")}<strong>{t("connections.help.static.uploadFolderStrong")}</strong>{t("connections.help.static.part4")}<code>{t("connections.help.static.distPath")}</code>{t("connections.help.static.part5")}<code>{t("connections.help.static.blog")}</code>{t("connections.help.static.part6")}<code>{t("connections.help.static.about")}</code>{t("connections.help.static.part7")}
-                  </small>
-                </div>
-              )}
-
-              {sourceType === "container" && (
-                <div className="form-group">
-                  <label>{t("connections.field.backendHostPort")}</label>
-                  <input
-                    type="text"
-                    data-testid="conn-backend-url"
-                    value={formData.backend_url || ""}
-                    onChange={(e) =>
-                      updateFormField("backend_url", e.target.value)
-                    }
-                    placeholder={t("connections.field.backendPlaceholder")}
-                    required
-                  />
-                  <small>
-                    {t("connections.help.backend.part1")}<code>{t("connections.help.backend.code")}</code>{t("connections.help.backend.part2")}
-                  </small>
-                </div>
-              )}
-
-              {sourceType === "docker_compose" && (
-                <>
-                  <div className="form-group">
-                    <label>{t("connections.field.composeService")}</label>
-                    <input
-                      type="text"
-                      data-testid="conn-compose-service"
-                      value={formData.compose_service || ""}
-                      onChange={(e) =>
-                        updateFormField(
-                          "compose_service",
-                          e.target.value || null
-                        )
-                      }
-                      placeholder={t("connections.field.composeServicePlaceholder")}
-                      required
-                    />
-                    <small>
-                      {t("connections.help.composeService.part1")}<code>{t("connections.help.composeService.code")}</code>{t("connections.help.composeService.part2")}
-                    </small>
-                  </div>
-
-                  <div className="form-group">
-                    <label>{t("connections.field.composePort")}</label>
-                    <input
-                      type="number"
-                      min={1}
-                      max={65535}
-                      data-testid="conn-compose-port"
-                      value={formData.compose_port ?? ""}
-                      onChange={(e) => {
-                        const v = e.target.value
-                          ? parseInt(e.target.value, 10)
-                          : null;
-                        updateFormField(
-                          "compose_port",
-                          Number.isFinite(v as number) ? v : null
-                        );
-                      }}
-                      placeholder="80"
-                    />
-                    <small>
-                      {t("connections.help.composePort.part1")}<code>{t("connections.help.composePort.code1")}</code>{t("connections.help.composePort.part2")}<code>{t("connections.help.composePort.code2")}</code>{t("connections.help.composePort.part3")}
-                    </small>
-                  </div>
-
-                  <div className="form-group">
-                    <label>{t("connections.field.composeYaml")}</label>
-                    <textarea
-                      data-testid="conn-compose-yaml"
-                      value={formData.compose_yaml || ""}
-                      onChange={(e) =>
-                        updateFormField(
-                          "compose_yaml",
-                          e.target.value || null
-                        )
-                      }
-                      placeholder={DEFAULT_COMPOSE_YAML}
-                      rows={12}
-                      required
-                      style={{
-                        fontFamily: "monospace",
-                        fontSize: "12px",
-                        width: "100%",
-                        minHeight: "220px",
-                      }}
-                    />
-                    <small>
-                      {t("connections.help.composeYaml.part1")}<code>{t("connections.help.composeYaml.code")}</code>{t("connections.help.composeYaml.part2")}<code>{t("connections.help.composeYaml.cmd")}</code>{t("connections.help.composeYaml.part3")}
-                    </small>
-                  </div>
-                </>
-              )}
-
-              <div className="modal-actions">
-                <button
-                  type="button"
-                  className="btn btn-outline"
-                  onClick={resetForm}
-                >
-                  {t("general.cancel")}
-                </button>
-                <button
-                  type="submit"
-                  data-testid="conn-submit"
-                  className="btn btn-primary"
-                  disabled={saving}
-                >
-                  {saving
-                    ? t("general.saving")
-                    : editingId
-                    ? t("connections.btn.update")
-                    : t("connections.btn.create")}
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
+          showToast={showToast}
+        />
       )}
 
       {toast && (
-        <div className={`toast toast-${toast.type}`}>{toast.message}</div>
+        <div
+          role="status"
+          aria-live="polite"
+          className={`toast toast-${toast.kind}`}
+          style={{
+            position: "fixed",
+            bottom: 24,
+            right: 24,
+            padding: "12px 18px",
+            background: "var(--ink)",
+            color: "var(--cream)",
+            border: "2px solid var(--ink)",
+            boxShadow: "var(--shadow-offset-sm)",
+            fontFamily: "var(--font-cond)",
+            textTransform: "uppercase",
+            letterSpacing: "0.06em",
+            fontSize: 13,
+            zIndex: 1000,
+          }}
+        >
+          {toast.msg}
+        </div>
       )}
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Subcomponents
+// ─────────────────────────────────────────────────────────────────────────────
+
+function EmptyState({ onAdd }: { onAdd: () => void }) {
+  const { t } = useSettings();
+  return (
+    <div
+      className="card"
+      style={{
+        textAlign: "center",
+        padding: "48px 24px",
+        border: "2px solid var(--ink)",
+        boxShadow: "var(--shadow-offset)",
+        background: "var(--cream-2)",
+      }}
+    >
+      <Shield size={48} style={{ marginBottom: 12, color: "var(--ink)" }} />
+      <h2 style={{ fontFamily: "var(--font-display)", marginBottom: 8 }}>
+        {t("connections.empty.title")}
+      </h2>
+      <p style={{ color: "var(--ink-soft)", marginBottom: 20, maxWidth: 420, margin: "0 auto 20px" }}>
+        {t("connections.empty.desc")}
+      </p>
+      <button type="button" className="btn-primary" onClick={onAdd}>
+        <Plus size={16} /> {t("connections.add")}
+      </button>
+    </div>
+  );
+}
+
+function ConnectionsTable({
+  rows,
+  onDelete,
+  onProbe,
+  onResume,
+}: {
+  rows: Connection[];
+  onDelete: (c: Connection) => void;
+  onProbe: (c: Connection) => void;
+  onResume: (id: number) => void;
+}) {
+  const { t } = useSettings();
+  return (
+    <div className="card" style={{ border: "2px solid var(--ink)", overflow: "hidden" }}>
+      <table style={{ width: "100%", borderCollapse: "collapse" }}>
+        <thead>
+          <tr style={{ background: "var(--ink)", color: "var(--cream)" }}>
+            <Th>{t("connections.col.domain")}</Th>
+            <Th>{t("connections.col.status")}</Th>
+            <Th>{t("connections.col.origin")}</Th>
+            <Th style={{ textAlign: "right" }}>{t("connections.col.actions")}</Th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((c) => (
+            <tr key={c.id} style={{ borderTop: "1.5px solid var(--ink)" }}>
+              <Td>
+                <div style={{ fontFamily: "var(--font-mono)", fontSize: 14 }}>{c.domain}</div>
+                <div style={{ fontSize: 12, color: "var(--ink-soft)" }}>{c.name}</div>
+              </Td>
+              <Td>
+                <StatusBadge status={c.status} detail={c.status_detail} />
+              </Td>
+              <Td>
+                <code style={{ fontSize: 12, color: "var(--ink-soft)" }}>
+                  {c.origin_hosts.length ? c.origin_hosts.join(", ") : "—"}
+                </code>
+              </Td>
+              <Td style={{ textAlign: "right", whiteSpace: "nowrap" }}>
+                {(c.status === "pending_verification" || c.status === "pending_dns") && (
+                  <button
+                    type="button"
+                    className="btn-outline btn-sm"
+                    onClick={() => onResume(c.id)}
+                    style={{ marginRight: 8 }}
+                  >
+                    {t("connections.action.resume")}
+                  </button>
+                )}
+                {c.status === "error" && (
+                  <button
+                    type="button"
+                    className="btn-outline btn-sm"
+                    onClick={() => onProbe(c)}
+                    style={{ marginRight: 8 }}
+                  >
+                    <RefreshCw size={14} /> {t("connections.action.retry")}
+                  </button>
+                )}
+                <button
+                  type="button"
+                  className="btn-icon"
+                  aria-label={t("connections.delete")}
+                  onClick={() => onDelete(c)}
+                >
+                  <Trash2 size={16} />
+                </button>
+              </Td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+function Th({ children, style }: React.PropsWithChildren<{ style?: React.CSSProperties }>) {
+  return (
+    <th
+      style={{
+        padding: "10px 14px",
+        textAlign: "left",
+        fontFamily: "var(--font-cond)",
+        textTransform: "uppercase",
+        letterSpacing: "0.06em",
+        fontSize: 12,
+        ...style,
+      }}
+    >
+      {children}
+    </th>
+  );
+}
+
+function Td({ children, style }: React.PropsWithChildren<{ style?: React.CSSProperties }>) {
+  return <td style={{ padding: "12px 14px", verticalAlign: "middle", ...style }}>{children}</td>;
+}
+
+function StatusBadge({ status, detail }: { status: ConnectionStatus; detail: string | null }) {
+  const { t } = useSettings();
+  const tone = BADGE_TONE[status];
+  return (
+    <span
+      title={detail ?? ""}
+      style={{
+        display: "inline-flex",
+        alignItems: "center",
+        gap: 6,
+        padding: "3px 10px",
+        background: tone.bg,
+        color: tone.fg,
+        border: `1.5px solid ${tone.fg}`,
+        fontFamily: "var(--font-cond)",
+        fontSize: 11,
+        textTransform: "uppercase",
+        letterSpacing: "0.04em",
+      }}
+    >
+      <span style={{ fontSize: 13, lineHeight: 1 }}>{tone.icon}</span>
+      {t(`connections.status.${status}`)}
+    </span>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Wizard
+// ─────────────────────────────────────────────────────────────────────────────
+
+type WizardStep = 1 | 2 | 3;
+
+function Wizard({
+  conn,
+  onClose,
+  onSavedResume,
+  showToast,
+}: {
+  conn: Connection | null;
+  onClose: () => void;
+  onSavedResume: () => void;
+  showToast: (kind: Toast["kind"], msg: string) => void;
+}) {
+  const { t } = useSettings();
+
+  // Step is derived from the row's status when resuming; "new" rows start at 1.
+  const initialStep: WizardStep = useMemo(() => {
+    if (!conn) return 1;
+    if (conn.status === "pending_verification") return 2;
+    return 3;
+  }, [conn]);
+  const [step, setStep] = useState<WizardStep>(initialStep);
+
+  const [name, setName] = useState(conn?.name ?? "");
+  const [domain, setDomain] = useState(conn?.domain ?? "");
+  const [tlsMode, setTlsMode] = useState<OriginTlsMode>(conn?.origin_tls_mode ?? "strict");
+  const [submitting, setSubmitting] = useState(false);
+  const [createdConn, setCreatedConn] = useState<Connection | null>(conn);
+  const [instructions, setInstructions] = useState<VerifyInstructions | null>(
+    conn
+      ? {
+          txt_record_name: `_waf-verify.${conn.domain}`,
+          txt_record_value: conn.verify_token,
+          edge_ipv4: "", // resolved from the server's env on backend; surfaced via probe below
+        }
+      : null
+  );
+  const [verifying, setVerifying] = useState(false);
+  const [formError, setFormError] = useState<string | null>(null);
+
+  // Close on Esc — saved (not discarded), per decision D3A.
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      if (e.key === "Escape") {
+        if (step > 1 && createdConn) onSavedResume();
+        else onClose();
+      }
+    }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [step, createdConn, onClose, onSavedResume]);
+
+  // ── Step 1 → Step 2: create the row ──
+  const submitStep1 = useCallback(async () => {
+    setFormError(null);
+    if (!name.trim() || !domain.trim()) {
+      setFormError("Name and domain are required.");
+      return;
+    }
+    setSubmitting(true);
+    try {
+      const body: ConnectionCreate = {
+        name: name.trim(),
+        domain: domain.trim(),
+        origin_tls_mode: tlsMode,
+      };
+      const res = await api.createConnection(body);
+      setCreatedConn(res.connection);
+      setInstructions(res.instructions);
+      setStep(2);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      setFormError(msg);
+    } finally {
+      setSubmitting(false);
+    }
+  }, [name, domain, tlsMode]);
+
+  // ── Step 2 → Step 3: TXT verified ──
+  const checkVerified = useCallback(async (): Promise<boolean> => {
+    if (!createdConn) return false;
+    setVerifying(true);
+    try {
+      const fresh = await api.probeConnection(createdConn.id);
+      setCreatedConn(fresh);
+      // The poller advances pending_verification → pending_dns the moment TXT
+      // is seen. So any status past pending_verification means we're verified.
+      return fresh.status !== "pending_verification";
+    } catch {
+      return false;
+    } finally {
+      setVerifying(false);
+    }
+  }, [createdConn]);
+
+  // Auto-poll TXT every 10s while step 2 is open (decision D2A).
+  useEffect(() => {
+    if (step !== 2 || !createdConn) return;
+    let cancelled = false;
+    const tick = async () => {
+      if (cancelled) return;
+      const ok = await checkVerified();
+      if (ok && !cancelled) setStep(3);
+    };
+    void tick();
+    const id = window.setInterval(tick, TXT_POLL_MS);
+    return () => {
+      cancelled = true;
+      window.clearInterval(id);
+    };
+  }, [step, createdConn, checkVerified]);
+
+  const onCopy = useCallback(
+    async (value: string) => {
+      try {
+        await navigator.clipboard.writeText(value);
+        showToast("info", t("connections.toast.copyOk"));
+      } catch {
+        // clipboard may be denied in insecure contexts — silently fail
+      }
+    },
+    [showToast, t]
+  );
+
+  const backdropClick = useCallback(
+    (e: React.MouseEvent<HTMLDivElement>) => {
+      if (e.target === e.currentTarget) {
+        if (step > 1 && createdConn) onSavedResume();
+        else onClose();
+      }
+    },
+    [step, createdConn, onClose, onSavedResume]
+  );
+
+  return (
+    <div
+      onClick={backdropClick}
+      style={{
+        position: "fixed",
+        inset: 0,
+        background: "rgba(12, 12, 12, 0.55)",
+        display: "flex",
+        alignItems: "flex-start",
+        justifyContent: "center",
+        paddingTop: 64,
+        zIndex: 900,
+      }}
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="wizard-heading"
+    >
+      <div
+        style={{
+          width: 480,
+          maxWidth: "95vw",
+          background: "var(--cream)",
+          border: "2px solid var(--ink)",
+          boxShadow: "var(--shadow-offset-lg)",
+          padding: 24,
+          position: "relative",
+        }}
+      >
+        <button
+          type="button"
+          className="btn-icon"
+          onClick={() => {
+            if (step > 1 && createdConn) onSavedResume();
+            else onClose();
+          }}
+          aria-label="Close"
+          style={{ position: "absolute", top: 8, right: 8 }}
+        >
+          <X size={18} />
+        </button>
+
+        <StepIndicator current={step} />
+
+        <h2
+          id="wizard-heading"
+          style={{
+            fontFamily: "var(--font-display)",
+            fontWeight: 700,
+            fontSize: 22,
+            marginBottom: 4,
+          }}
+        >
+          {t("wizard.title")}
+        </h2>
+        <div
+          style={{
+            fontFamily: "var(--font-cond)",
+            textTransform: "uppercase",
+            letterSpacing: "0.06em",
+            fontSize: 11,
+            color: "var(--ink-soft)",
+            marginBottom: 20,
+          }}
+        >
+          {t("wizard.stepOf").replace("{n}", String(step))}
+        </div>
+
+        {step === 1 && (
+          <Step1
+            name={name}
+            domain={domain}
+            tlsMode={tlsMode}
+            submitting={submitting}
+            error={formError}
+            onName={setName}
+            onDomain={setDomain}
+            onTlsMode={setTlsMode}
+            onCancel={onClose}
+            onNext={submitStep1}
+          />
+        )}
+
+        {step === 2 && instructions && (
+          <Step2
+            instructions={instructions}
+            verifying={verifying}
+            onCopy={onCopy}
+            onVerifyNow={async () => {
+              const ok = await checkVerified();
+              if (ok) setStep(3);
+            }}
+            onCancel={() => onSavedResume()}
+          />
+        )}
+
+        {step === 3 && createdConn && instructions && (
+          <Step3
+            domain={createdConn.domain}
+            originHosts={createdConn.origin_hosts}
+            edgeIpv4={instructions.edge_ipv4}
+            onCopy={onCopy}
+            onDone={onClose}
+          />
+        )}
+      </div>
+    </div>
+  );
+}
+
+function StepIndicator({ current }: { current: WizardStep }) {
+  return (
+    <div style={{ display: "flex", gap: 8, marginBottom: 18 }}>
+      {[1, 2, 3].map((n) => (
+        <span
+          key={n}
+          aria-current={n === current ? "step" : undefined}
+          style={{
+            width: 14,
+            height: 14,
+            border: "2px solid var(--ink)",
+            background: n === current ? "var(--ink)" : "transparent",
+            transition: "background var(--duration-fast) var(--ease-out)",
+          }}
+        />
+      ))}
+    </div>
+  );
+}
+
+function Step1({
+  name,
+  domain,
+  tlsMode,
+  submitting,
+  error,
+  onName,
+  onDomain,
+  onTlsMode,
+  onCancel,
+  onNext,
+}: {
+  name: string;
+  domain: string;
+  tlsMode: OriginTlsMode;
+  submitting: boolean;
+  error: string | null;
+  onName: (s: string) => void;
+  onDomain: (s: string) => void;
+  onTlsMode: (m: OriginTlsMode) => void;
+  onCancel: () => void;
+  onNext: () => void;
+}) {
+  const { t } = useSettings();
+  return (
+    <form
+      onSubmit={(e) => {
+        e.preventDefault();
+        if (!submitting) onNext();
+      }}
+    >
+      <Label>{t("wizard.step1.name")}</Label>
+      <input
+        type="text"
+        value={name}
+        onChange={(e) => onName(e.target.value)}
+        placeholder={t("wizard.step1.namePlaceholder")}
+        autoFocus
+        style={fieldStyle}
+      />
+
+      <Label>{t("wizard.step1.domain")}</Label>
+      <input
+        type="text"
+        value={domain}
+        onChange={(e) => onDomain(e.target.value)}
+        placeholder={t("wizard.step1.domainPlaceholder")}
+        autoCapitalize="none"
+        autoCorrect="off"
+        spellCheck={false}
+        style={{ ...fieldStyle, fontFamily: "var(--font-mono)" }}
+      />
+
+      <Label>{t("wizard.step1.tls")}</Label>
+      <div style={{ display: "flex", gap: 16, marginBottom: 6 }}>
+        {(["strict", "lenient"] as const).map((m) => (
+          <label
+            key={m}
+            style={{
+              display: "inline-flex",
+              alignItems: "center",
+              gap: 6,
+              fontSize: 13,
+              cursor: "pointer",
+            }}
+          >
+            <span
+              style={{
+                width: 14,
+                height: 14,
+                border: "2px solid var(--ink)",
+                background: tlsMode === m ? "var(--ink)" : "transparent",
+              }}
+            />
+            <input
+              type="radio"
+              checked={tlsMode === m}
+              onChange={() => onTlsMode(m)}
+              style={{ position: "absolute", opacity: 0, pointerEvents: "none" }}
+            />
+            {t(`wizard.step1.tls.${m}`)}
+          </label>
+        ))}
+      </div>
+      <div style={{ fontSize: 12, color: "var(--ink-soft)", marginBottom: 16 }}>
+        {t("wizard.step1.tls.hint")}
+      </div>
+
+      {error && (
+        <div
+          role="alert"
+          style={{
+            background: "var(--red-soft)",
+            border: "2px solid var(--red-deep)",
+            padding: 10,
+            marginBottom: 16,
+            color: "var(--red-deep)",
+            fontSize: 13,
+          }}
+        >
+          {error}
+        </div>
+      )}
+
+      <div style={{ display: "flex", justifyContent: "flex-end", gap: 12 }}>
+        <button type="button" className="btn-outline" onClick={onCancel}>
+          {t("wizard.cancel")}
+        </button>
+        <button type="submit" className="btn-primary" disabled={submitting} aria-busy={submitting}>
+          {submitting ? "…" : t("wizard.next")}
+        </button>
+      </div>
+    </form>
+  );
+}
+
+function Step2({
+  instructions,
+  verifying,
+  onCopy,
+  onVerifyNow,
+  onCancel,
+}: {
+  instructions: VerifyInstructions;
+  verifying: boolean;
+  onCopy: (value: string) => void;
+  onVerifyNow: () => void;
+  onCancel: () => void;
+}) {
+  const { t } = useSettings();
+  return (
+    <>
+      <h3 style={{ fontSize: 16, marginBottom: 6 }}>{t("wizard.step2.title")}</h3>
+      <p style={{ fontSize: 13, marginBottom: 16 }}>{t("wizard.step2.body")}</p>
+
+      <KeyValueBlock label="Name" value={instructions.txt_record_name} onCopy={onCopy} />
+      <KeyValueBlock label="TXT value" value={instructions.txt_record_value} onCopy={onCopy} />
+
+      <div style={{ fontSize: 12, color: "var(--ink-soft)", margin: "10px 0 18px" }}>
+        {t("wizard.step2.polling")}
+      </div>
+
+      <div style={{ display: "flex", justifyContent: "flex-end", gap: 12 }}>
+        <button type="button" className="btn-outline" onClick={onCancel}>
+          {t("wizard.cancel")}
+        </button>
+        <button
+          type="button"
+          className="btn-primary"
+          onClick={onVerifyNow}
+          disabled={verifying}
+          aria-busy={verifying}
+        >
+          {verifying ? "◐" : <Check size={14} />} {t("wizard.step2.verifyNow")}
+        </button>
+      </div>
+    </>
+  );
+}
+
+function Step3({
+  domain,
+  originHosts,
+  edgeIpv4,
+  onCopy,
+  onDone,
+}: {
+  domain: string;
+  originHosts: string[];
+  edgeIpv4: string;
+  onCopy: (value: string) => void;
+  onDone: () => void;
+}) {
+  const { t } = useSettings();
+  return (
+    <>
+      <h3 style={{ fontSize: 16, marginBottom: 6 }}>{t("wizard.step3.title")}</h3>
+      <p style={{ fontSize: 13, marginBottom: 12 }}>
+        {t("wizard.step3.bodyVerified").replace("{origin}", originHosts.join(", ") || "—")}
+      </p>
+      <p style={{ fontSize: 13, marginBottom: 12 }}>
+        {t("wizard.step3.bodyPoint").replace("{domain}", domain)}
+      </p>
+
+      {edgeIpv4 ? (
+        <KeyValueBlock label="A record" value={edgeIpv4} onCopy={onCopy} />
+      ) : (
+        <div
+          role="alert"
+          style={{
+            background: "var(--red-soft)",
+            border: "2px solid var(--red-deep)",
+            padding: 10,
+            marginBottom: 16,
+            color: "var(--red-deep)",
+            fontSize: 13,
+          }}
+        >
+          {t("wizard.step3.edgeMissing")}
+        </div>
+      )}
+
+      <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 20 }}>
+        <button type="button" className="btn-primary" onClick={onDone}>
+          {t("wizard.step3.done")}
+        </button>
+      </div>
+    </>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Reused atoms
+// ─────────────────────────────────────────────────────────────────────────────
+
+function Label({ children }: React.PropsWithChildren) {
+  return (
+    <label
+      style={{
+        display: "block",
+        fontFamily: "var(--font-cond)",
+        textTransform: "uppercase",
+        letterSpacing: "0.06em",
+        fontSize: 11,
+        color: "var(--ink-soft)",
+        marginTop: 12,
+        marginBottom: 6,
+      }}
+    >
+      {children}
+    </label>
+  );
+}
+
+const fieldStyle: React.CSSProperties = {
+  width: "100%",
+  height: 44,
+  padding: "0 10px",
+  background: "var(--input-bg)",
+  border: "2px solid var(--ink)",
+  color: "var(--ink)",
+  fontSize: 14,
+};
+
+function KeyValueBlock({
+  label,
+  value,
+  onCopy,
+}: {
+  label: string;
+  value: string;
+  onCopy: (value: string) => void;
+}) {
+  // Click-to-copy block; spec §7.4 (mobile tap-to-copy).
+  return (
+    <div style={{ marginBottom: 10 }}>
+      <div
+        style={{
+          fontFamily: "var(--font-cond)",
+          textTransform: "uppercase",
+          letterSpacing: "0.06em",
+          fontSize: 10,
+          color: "var(--ink-soft)",
+          marginBottom: 4,
+        }}
+      >
+        {label}
+      </div>
+      <button
+        type="button"
+        onClick={() => onCopy(value)}
+        title="Click to copy"
+        style={{
+          width: "100%",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+          padding: "10px 12px",
+          background: "var(--cream-3)",
+          border: "2px solid var(--ink)",
+          fontFamily: "var(--font-mono)",
+          fontSize: 13,
+          color: "var(--ink)",
+          textAlign: "left",
+          cursor: "pointer",
+        }}
+      >
+        <span style={{ overflow: "auto", wordBreak: "break-all" }}>{value}</span>
+        <Copy size={14} style={{ flexShrink: 0, marginLeft: 8 }} />
+      </button>
     </div>
   );
 }

@@ -35,77 +35,70 @@ export interface ModuleInfo {
   loaded: boolean;
 }
 
-export type SourceType =
-  | "nginx_config"
-  | "static_generate"
-  | "container"
-  | "docker_compose";
-
 export type HttpVersion = "h1" | "h2" | "h3";
 
 export type CompressionAlgo = "auto" | "gzip" | "brotli" | "zstd" | "none";
 
+export type OriginTlsMode = "strict" | "lenient";
+
+export type ConnectionStatus =
+  | "pending_verification"
+  | "pending_dns"
+  | "provisioning_cert"
+  | "active"
+  | "error";
+
 export interface Connection {
   id: number;
+  user_id: number | null;
   name: string;
-  domains: string[];
-  source_type: SourceType;
-  nginx_config_path: string | null;
-  static_dir: string | null;
-  backend_url: string;
-  compose_yaml: string | null;
-  compose_service: string | null;
-  compose_port: number | null;
+  domain: string;
+  origin_hosts: string[];
+  origin_port: number;
+  origin_tls_mode: OriginTlsMode;
+  verify_token: string;
+  verified_at: string | null;
+  status: ConnectionStatus;
+  status_detail: string | null;
+  acme_retry_count: number;
+  acme_next_retry_at: string | null;
+  next_poll_at: string | null;
+  dns_ttl_seconds: number;
+  last_checked_at: string | null;
   http_versions: string; // CSV of HttpVersion
   compression_algo: CompressionAlgo;
   enabled: boolean;
-  ssl_enabled: boolean;
   ssl_cert_path: string | null;
   ssl_key_path: string | null;
-  preserve_host: boolean;
-  custom_nginx_config: string | null;
   created_at: string;
   updated_at: string;
 }
 
 export interface ConnectionCreate {
   name: string;
-  domains?: string[];
-  source_type?: SourceType;
-  nginx_config_path?: string | null;
-  static_dir?: string | null;
-  backend_url?: string;
-  compose_yaml?: string | null;
-  compose_service?: string | null;
-  compose_port?: number | null;
+  domain: string;
+  origin_tls_mode?: OriginTlsMode;
   http_versions?: string;
   compression_algo?: CompressionAlgo;
-  enabled?: boolean;
-  ssl_enabled?: boolean;
-  ssl_cert_path?: string | null;
-  ssl_key_path?: string | null;
-  preserve_host?: boolean;
-  custom_nginx_config?: string | null;
 }
 
 export interface ConnectionUpdate {
   name?: string;
-  domains?: string[];
-  source_type?: SourceType;
-  nginx_config_path?: string | null;
-  static_dir?: string | null;
-  backend_url?: string;
-  compose_yaml?: string | null;
-  compose_service?: string | null;
-  compose_port?: number | null;
+  enabled?: boolean;
+  origin_tls_mode?: OriginTlsMode;
   http_versions?: string;
   compression_algo?: CompressionAlgo;
-  enabled?: boolean;
-  ssl_enabled?: boolean;
-  ssl_cert_path?: string | null;
-  ssl_key_path?: string | null;
-  preserve_host?: boolean;
-  custom_nginx_config?: string | null;
+}
+
+export interface VerifyInstructions {
+  txt_record_name: string;
+  txt_record_value: string;
+  edge_ipv4: string;
+}
+
+export interface ConnectionCreateResponse {
+  connection: Connection;
+  instructions: VerifyInstructions;
 }
 
 export interface AngieSettings {
@@ -630,137 +623,29 @@ export const api = {
       body: JSON.stringify({ scenario_id }),
     }),
 
-  // Connections API
+  // ── Connections API (domain-only model; spec §4) ─────────────
   getConnections: () => fetchApi<Connection[]>("/api/connections/"),
   getConnection: (id: number) => fetchApi<Connection>(`/api/connections/${id}`),
   createConnection: (conn: ConnectionCreate) =>
-    fetchApi<Connection>("/api/connections/", {
+    fetchApi<ConnectionCreateResponse>("/api/connections/", {
       method: "POST",
       body: JSON.stringify(conn),
     }),
+  // PATCH (not PUT) — only mutable fields land on the wire (name, enabled,
+  // origin_tls_mode, http_versions, compression_algo). Domain is immutable.
   updateConnection: (id: number, conn: ConnectionUpdate) =>
     fetchApi<Connection>(`/api/connections/${id}`, {
-      method: "PUT",
+      method: "PATCH",
       body: JSON.stringify(conn),
     }),
   deleteConnection: (id: number) =>
     fetchApi<void>(`/api/connections/${id}`, { method: "DELETE" }),
+  // Kick the background poller to run NOW (zeros next_poll_at). Used by the
+  // wizard's "Verify now" button and the list's "Retry" button on errored rows.
+  probeConnection: (id: number) =>
+    fetchApi<Connection>(`/api/connections/${id}/probe`, { method: "POST" }),
   reloadConnections: () =>
     fetchApi<ReloadResponse>("/api/connections/reload", { method: "POST" }),
-
-  // Upload a static site file (e.g. index.html) — returns a backend path
-  // that can be used as static_dir when creating/updating a connection.
-  uploadStaticFile: async (file: File): Promise<{ path: string; filename: string }> => {
-    const formData = new FormData();
-    formData.append("file", file);
-    const response = await fetch(`${API_BASE}/api/connections/upload-static`, {
-      method: "POST",
-      body: formData,
-      credentials: "include",
-    });
-    if (!response.ok) {
-      if (response.status === 401) {
-        window.dispatchEvent(new CustomEvent("auth:unauthorized"));
-      }
-      const error = await response.json().catch(() => ({ detail: response.statusText }));
-      throw new Error(error.detail || "Upload failed");
-    }
-    return response.json();
-  },
-
-  // Upload an nginx config **directory** via the browser folder picker.
-  // All files in the selected folder are sent, preserving subdirectory
-  // structure via webkitRelativePath. The backend returns the absolute
-  // path to the main .conf file.
-  uploadNginxConfig: async (files: FileList | File[]): Promise<{ path: string; filename: string }> => {
-    const formData = new FormData();
-    for (let i = 0; i < files.length; i++) {
-      const file = files[i];
-      // webkitRelativePath preserves subdirectory structure (e.g. "subdir/nginx.conf")
-      const relativePath = (file as any).webkitRelativePath || file.name;
-      formData.append("files", file, relativePath);
-    }
-    const response = await fetch(`${API_BASE}/api/connections/upload-nginx-config`, {
-      method: "POST",
-      body: formData,
-      credentials: "include",
-    });
-    if (!response.ok) {
-      if (response.status === 401) {
-        window.dispatchEvent(new CustomEvent("auth:unauthorized"));
-      }
-      const body = await response.json().catch(() => null);
-      let message = "Upload failed";
-      if (body) {
-        if (Array.isArray(body.detail)) {
-          message = body.detail.map((e: any) => e.msg || JSON.stringify(e)).join("; ");
-        } else if (typeof body.detail === "string") {
-          message = body.detail;
-        }
-      }
-      throw new Error(message);
-    }
-    return response.json();
-  },
-
-  // Upload a static-site **directory** (e.g. an Astro/Vite `dist/`) via the
-  // browser folder picker. Files keep their subdirectory structure via
-  // webkitRelativePath.
-  //
-  // When `connectionId` is provided, files land **directly** under that
-  // connection's site dir (no temp staging) and Angie reloads. Otherwise
-  // files are staged in site-templates/uploads/ and the returned path can
-  // be used as static_dir when creating a new connection.
-  uploadStaticDir: async (
-    files: FileList | File[],
-    connectionId?: number,
-  ): Promise<{ path: string; filename?: string; files?: number }> => {
-    const formData = new FormData();
-    for (let i = 0; i < files.length; i++) {
-      const file = files[i];
-      const relativePath = (file as any).webkitRelativePath || file.name;
-      formData.append("files", file, relativePath);
-    }
-    const url =
-      connectionId !== undefined
-        ? `${API_BASE}/api/connections/${connectionId}/upload-static-dir`
-        : `${API_BASE}/api/connections/upload-static-dir`;
-    const response = await fetch(url, {
-      method: "POST",
-      body: formData,
-      credentials: "include",
-    });
-    if (!response.ok) {
-      if (response.status === 401) {
-        window.dispatchEvent(new CustomEvent("auth:unauthorized"));
-      }
-      const body = await response.json().catch(() => null);
-      let message = "Upload failed";
-      if (body) {
-        if (Array.isArray(body.detail)) {
-          message = body.detail.map((e: any) => e.msg || JSON.stringify(e)).join("; ");
-        } else if (typeof body.detail === "string") {
-          message = body.detail;
-        }
-      }
-      throw new Error(message);
-    }
-    return response.json();
-  },
-
-  // Parse an uploaded nginx config and return extracted fields
-  // (domains, backend_url, index, root) for form auto-fill.
-  parseNginxConfig: async (nginxConfigPath: string): Promise<{
-    domains: string[];
-    backend_url: string;
-    index: string;
-    root: string;
-  }> => {
-    return fetchApi("/api/connections/parse-nginx-config", {
-      method: "POST",
-      body: JSON.stringify({ nginx_config_path: nginxConfigPath }),
-    });
-  },
 
   // SSL Certificates API
   getCertificateStatus: (connectionId: number) =>
