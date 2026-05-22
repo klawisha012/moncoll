@@ -330,7 +330,19 @@ function Td({ children, style }: React.PropsWithChildren<{ style?: React.CSSProp
 
 function StatusBadge({ status, detail }: { status: ConnectionStatus; detail: string | null }) {
   const { t } = useSettings();
-  const tone = BADGE_TONE[status];
+  // Active + self-signed cert is functionally protected (encryption + WAF
+  // rules) but the cert isn't from a trusted CA. We surface this as an
+  // amber-toned "Self-signed" badge rather than green so the operator
+  // doesn't mistake it for a real LE cert. Detection is via status_detail
+  // — set by acme.fallback_self_signed in the poller.
+  const isSelfSigned =
+    status === "active" && (detail ?? "").toLowerCase().includes("self-signed");
+  const tone = isSelfSigned
+    ? { bg: "rgba(178, 122, 0, 0.16)", fg: "var(--amber)", icon: "■" }
+    : BADGE_TONE[status];
+  const label = isSelfSigned
+    ? "Protected (self-signed)"
+    : t(`connections.status.${status}`);
   return (
     <span
       title={detail ?? ""}
@@ -349,7 +361,7 @@ function StatusBadge({ status, detail }: { status: ConnectionStatus; detail: str
       }}
     >
       <span style={{ fontSize: 13, lineHeight: 1 }}>{tone.icon}</span>
-      {t(`connections.status.${status}`)}
+      {label}
     </span>
   );
 }

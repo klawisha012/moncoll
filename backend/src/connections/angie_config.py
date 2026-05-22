@@ -147,6 +147,13 @@ def render(conn: dict) -> str:
     cert_path = conn.get("ssl_cert_path")
     key_path = conn.get("ssl_key_path")
     has_cert = bool(cert_path and key_path) and status == "active"
+    # HSTS pins the domain to HTTPS for a year. Emitting it alongside a
+    # self-signed cert is a foot-gun: the browser caches HSTS, then refuses
+    # to bypass the cert warning on subsequent visits even though there's
+    # nothing wrong with the site. Only safe to send when the cert chains
+    # to a trusted root — i.e. when ACME succeeded.
+    is_self_signed = "self-signed" in (conn.get("status_detail") or "").lower()
+    emit_hsts = has_cert and not is_self_signed
 
     lines: list[str] = []
     lines.append(f"## conn_{conn_id}: {conn.get('name', '')} | {domain} | status={status}")
@@ -212,9 +219,14 @@ def render(conn: dict) -> str:
         lines.append(f"    server_name {domain};")
         lines.append(f"    ssl_certificate     {cert_path};")
         lines.append(f"    ssl_certificate_key {key_path};")
-        lines.append(
-            '    add_header Strict-Transport-Security "max-age=31536000; includeSubDomains" always;'
-        )
+        if emit_hsts:
+            lines.append(
+                '    add_header Strict-Transport-Security "max-age=31536000; includeSubDomains" always;'
+            )
+        else:
+            lines.append(
+                "    # HSTS suppressed: cert is self-signed; emitting it would lock browsers out."
+            )
         lines.append("")
         lines.append("    access_log /var/log/angie/geoip.log with_geoip_json;")
         lines.append("    access_log /var/log/angie/access.log combined;")
