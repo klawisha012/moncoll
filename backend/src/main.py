@@ -1,3 +1,4 @@
+import asyncio
 import logging
 import os
 from contextlib import asynccontextmanager
@@ -11,6 +12,7 @@ from .auth import auth_router
 from .auth import service as auth_service
 from .auth.dependencies import require_admin, require_password_changed
 from .certificates import certificates_router
+from .connections import poller as connections_poller
 from .connections.router import connections_router
 from .crowdsec.router import router as crowdsec_router
 from .dashboard import clickhouse_init
@@ -46,7 +48,21 @@ async def lifespan(app: FastAPI):
     # init.sql can't do this — the connections table doesn't exist yet at
     # ClickHouse boot. See dashboard/clickhouse_init.py.
     clickhouse_init.ensure_views()
-    yield
+
+    # ── Connections poller (spec §5 poller.py): single asyncio task that
+    #    walks pending rows, verifies TXT ownership, detects DNS-flip onto
+    #    the WAF edge, and triggers ACME. Started under lifespan so it
+    #    shares the API server's event loop and dies cleanly on shutdown.
+    poller_stop = asyncio.Event()
+    poller_task = asyncio.create_task(connections_poller.run_forever(poller_stop))
+    try:
+        yield
+    finally:
+        poller_stop.set()
+        try:
+            await asyncio.wait_for(poller_task, timeout=5.0)
+        except (TimeoutError, asyncio.TimeoutError):
+            poller_task.cancel()
 
 
 def create_app() -> FastAPI:

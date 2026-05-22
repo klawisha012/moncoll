@@ -1,6 +1,6 @@
 from datetime import UTC, datetime
 
-from sqlalchemy import JSON, Boolean, DateTime, Integer, String, Text
+from sqlalchemy import JSON, Boolean, DateTime, Enum, ForeignKey, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from .base import Base
@@ -27,35 +27,67 @@ class User(Base):
 
 
 class Connection(Base):
+    """Domain-only reverse-proxy connection.
+
+    Each row is one (domain, owner) pair. The platform reverse-proxies
+    https://domain → https://origin_hosts[*]:origin_port. State machine:
+    pending_verification → pending_dns → provisioning_cert → active. See
+    docs/superpowers/specs/2026-05-22-connections-domain-only-design.md.
+    """
+
     __tablename__ = "connections"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    user_id: Mapped[int | None] = mapped_column(
+        Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=True
+    )
     name: Mapped[str] = mapped_column(String(128), nullable=False)
-    domains: Mapped[list[str]] = mapped_column(JSON, nullable=False, default=list)
-    # One of: "nginx_config" (deploy from existing nginx config with includes),
-    # "static_generate" (generate config from an index.html + domains),
-    # "container" (reverse-proxy to a container/service host:port),
-    # "docker_compose" (bring up a user-supplied compose file and proxy to one of its services).
-    source_type: Mapped[str] = mapped_column(String(32), nullable=False, default="static_generate")
-    nginx_config_path: Mapped[str | None] = mapped_column(String(512), nullable=True)
-    backend_url: Mapped[str] = mapped_column(String(512), nullable=False, default="")
-    static_dir: Mapped[str | None] = mapped_column(String(512), nullable=True)
-    compose_yaml: Mapped[str | None] = mapped_column(Text, nullable=True)
-    compose_service: Mapped[str | None] = mapped_column(String(128), nullable=True)
-    compose_port: Mapped[int | None] = mapped_column(Integer, nullable=True)
-    # Comma-separated subset of {"h1","h2","h3"} — per-connection HTTP versions
-    # this server block listens for. Default keeps backwards-compat with the
-    # pre-2026-05 behavior (plain HTTP/1.1 on 80 + HTTP/2 over TLS).
+    # Single domain per row, lowercase + IDNA-normalised, UNIQUE across the table.
+    domain: Mapped[str] = mapped_column(String(253), nullable=False, unique=True)
+    # List of resolved A/AAAA values at create time (multi-A → upstream pool).
+    origin_hosts: Mapped[list[str]] = mapped_column(JSON, nullable=False, default=list)
+    origin_port: Mapped[int] = mapped_column(Integer, nullable=False, default=443)
+    # 'strict' = verify origin TLS cert against system CA bundle;
+    # 'lenient' = HTTPS to origin but no cert verification (matches Cloudflare 'Full').
+    origin_tls_mode: Mapped[str] = mapped_column(
+        Enum("strict", "lenient", name="origin_tls_mode"),
+        nullable=False,
+        default="strict",
+    )
+    # Random token shown to user as TXT _waf-verify.<domain> value during onboarding.
+    verify_token: Mapped[str] = mapped_column(String(64), nullable=False, default="")
+    verified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    # State machine; see spec §3.
+    status: Mapped[str] = mapped_column(
+        Enum(
+            "pending_verification",
+            "pending_dns",
+            "provisioning_cert",
+            "active",
+            "error",
+            name="connection_status",
+        ),
+        nullable=False,
+        default="pending_verification",
+    )
+    status_detail: Mapped[str | None] = mapped_column(Text, nullable=True)
+    acme_retry_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    acme_next_retry_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    # Next time the background poller should evaluate this row. Set to
+    # max(60s, dns_ttl_seconds) after each tick so we honour DNS TTL while
+    # never busy-looping.
+    next_poll_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    dns_ttl_seconds: Mapped[int] = mapped_column(Integer, nullable=False, default=60)
+    last_checked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    # Edge presentation knobs (kept from pre-rewrite schema; not origin-related).
     http_versions: Mapped[str] = mapped_column(String(32), nullable=False, default="h1,h2")
-    # One of: "auto" (let Angie pick from Accept-Encoding), "gzip", "brotli",
-    # "zstd", "none". Per-connection override of the global negotiation.
     compression_algo: Mapped[str] = mapped_column(String(16), nullable=False, default="auto")
     enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
-    ssl_enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    # ACME-managed cert paths; populated once status transitions to 'active'.
     ssl_cert_path: Mapped[str | None] = mapped_column(String(512), nullable=True)
     ssl_key_path: Mapped[str | None] = mapped_column(String(512), nullable=True)
-    preserve_host: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
-    custom_nginx_config: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, default=_utcnow
     )

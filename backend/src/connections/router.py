@@ -1,161 +1,94 @@
-from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
+"""FastAPI endpoints for domain-only connections.
+
+Mounted at /api/connections, guarded at app-level by require_admin. Per spec
+§4 (decision 1B), every row carries a `user_id` FK inherited from the
+authenticated admin who created it.
+
+Endpoints (spec §4):
+
+  POST   /            → create row (pending_verification) + TXT instructions
+  GET    /            → list connections
+  GET    /{id}        → fetch one
+  PATCH  /{id}        → mutate name / enabled / TLS-mode / http_versions / compression
+  DELETE /{id}        → drop row + Angie config + ACME cert
+  POST   /{id}/probe  → kick poller now (manual Verify / Retry)
+  POST   /reload      → regenerate every Angie config (operator)
+"""
+
+from __future__ import annotations
+
+from fastapi import APIRouter, Depends, HTTPException
+from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from ..auth.dependencies import get_current_user
 from ..db.session import get_session
-from . import service as connection_service
-from .schemas import Connection, ConnectionCreate, ConnectionUpdate
+from . import service
+from .schemas import Connection, ConnectionCreate, ConnectionUpdate, VerifyInstructions
 
 connections_router = APIRouter(prefix="/api/connections", tags=["connections"])
 
 
+class CreateResponse(BaseModel):
+    """POST / response: row + verify-step instructions in one payload."""
+
+    connection: Connection
+    instructions: VerifyInstructions
+
+
 @connections_router.get("/", response_model=list[Connection])
 async def list_connections(session: AsyncSession = Depends(get_session)):
-    """List all site connections."""
-    return await connection_service.list_connections(session)
+    return await service.list_connections(session)
 
 
 @connections_router.get("/{connection_id}", response_model=Connection)
 async def get_connection(connection_id: int, session: AsyncSession = Depends(get_session)):
-    """Get a specific connection by ID."""
-    conn = await connection_service.get_connection(session, connection_id)
-    if not conn:
+    conn = await service.get_connection(session, connection_id)
+    if conn is None:
         raise HTTPException(status_code=404, detail="Connection not found")
     return conn
 
 
-@connections_router.post("/", response_model=Connection, status_code=201)
+@connections_router.post("/", response_model=CreateResponse, status_code=201)
 async def create_connection(
-    connection: ConnectionCreate,
+    body: ConnectionCreate,
     session: AsyncSession = Depends(get_session),
+    current_user=Depends(get_current_user),
 ):
-    """Create a new site connection."""
-    return await connection_service.create_connection(session, connection)
+    user_id = getattr(current_user, "id", None)
+    conn, instructions = await service.create_connection(session, body, user_id=user_id)
+    return CreateResponse(connection=conn, instructions=instructions)
 
 
-@connections_router.put("/{connection_id}", response_model=Connection)
+@connections_router.patch("/{connection_id}", response_model=Connection)
 async def update_connection(
     connection_id: int,
-    connection: ConnectionUpdate,
+    body: ConnectionUpdate,
     session: AsyncSession = Depends(get_session),
 ):
-    """Update an existing connection."""
-    conn = await connection_service.update_connection(session, connection_id, connection)
-    if not conn:
+    conn = await service.update_connection(session, connection_id, body)
+    if conn is None:
         raise HTTPException(status_code=404, detail="Connection not found")
     return conn
 
 
 @connections_router.delete("/{connection_id}", status_code=204)
-async def delete_connection(
-    connection_id: int,
-    session: AsyncSession = Depends(get_session),
-):
-    """Delete a connection."""
-    success = await connection_service.delete_connection(session, connection_id)
-    if not success:
+async def delete_connection(connection_id: int, session: AsyncSession = Depends(get_session)):
+    ok = await service.delete_connection(session, connection_id)
+    if not ok:
         raise HTTPException(status_code=404, detail="Connection not found")
-    return None
 
 
-@connections_router.post("/upload-static")
-async def upload_static_file(
-    file: UploadFile = File(...),
+@connections_router.post("/{connection_id}/probe", response_model=Connection)
+async def probe_connection(
+    connection_id: int, session: AsyncSession = Depends(get_session)
 ):
-    """Upload a static site file (e.g. index.html) via the browser file picker.
-
-    Returns a backend-accessible path that can be used as ``static_dir``
-    when creating or updating a connection.
-    """
-    content = await file.read()
-    result = connection_service.save_uploaded_static(
-        content,
-        file.filename or "index.html",
-    )
-    return result
-
-
-@connections_router.post("/{connection_id}/upload-static-dir")
-async def upload_static_dir_to_connection(
-    connection_id: int,
-    files: list[UploadFile] = File(...),
-    session: AsyncSession = Depends(get_session),
-):
-    """Upload a static-site directory **directly into** the connection's
-    site dir (``/etc/angie/http.d/conn_<id>/site/``).
-
-    Skips the intermediate ``site-templates/uploads/`` round-trip — the
-    files land where Angie serves them and the running Angie process is
-    reloaded immediately.
-    """
-    conn = await connection_service.get_connection(session, connection_id)
-    if not conn:
+    conn = await service.probe_connection(session, connection_id)
+    if conn is None:
         raise HTTPException(status_code=404, detail="Connection not found")
-    if not files:
-        raise HTTPException(status_code=400, detail="No files uploaded")
-    file_tuples = [(f.filename or "index.html", await f.read()) for f in files]
-    try:
-        result = connection_service.write_static_dir_to_conn(connection_id, file_tuples)
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
-    return result
-
-
-@connections_router.post("/upload-static-dir")
-async def upload_static_dir(
-    files: list[UploadFile] = File(...),
-):
-    """Upload a static-site **directory** (e.g. an Astro/Vite ``dist/``)
-    via the browser folder picker.
-
-    All files in the selected folder are stored, preserving subdirectory
-    structure. Returns ``{path, filename}`` where ``path`` is suitable
-    for ``static_dir`` (resolved under ``/app/site-templates/``).
-    """
-    if not files:
-        raise HTTPException(status_code=400, detail="No files uploaded")
-    file_tuples = [(f.filename or "index.html", await f.read()) for f in files]
-    try:
-        result = connection_service.save_uploaded_static_dir(file_tuples)
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
-    return result
-
-
-@connections_router.post("/upload-nginx-config")
-async def upload_nginx_config(
-    files: list[UploadFile] = File(...),
-):
-    """Upload an nginx config **directory** via the browser folder picker.
-
-    All files in the selected folder are stored, preserving subdirectory
-    structure.  Returns the absolute backend-container path to the main
-    ``.conf`` file so it can be used as ``nginx_config_path`` when
-    creating or updating a connection.
-    """
-    if not files:
-        raise HTTPException(status_code=400, detail="No files uploaded")
-    file_tuples = [(f.filename or "nginx.conf", await f.read()) for f in files]
-    result = connection_service.save_uploaded_nginx_config(file_tuples)
-    return result
-
-
-@connections_router.post("/parse-nginx-config")
-async def parse_nginx_config(body: dict):
-    """Parse an uploaded nginx config and return extracted fields.
-
-    Accepts ``{"nginx_config_path": "/path/to/nginx.conf"}`` and returns
-    ``{domains, backend_url, index, root}`` for form auto-fill.
-    """
-    path = (body or {}).get("nginx_config_path", "")
-    if not path:
-        raise HTTPException(status_code=400, detail="nginx_config_path is required")
-    return connection_service.parse_nginx_config_preview(path)
+    return conn
 
 
 @connections_router.post("/reload")
 async def reload_connections(session: AsyncSession = Depends(get_session)):
-    """Regenerate Nginx config files for all connections."""
-    result = await connection_service.reload_connections_config(session)
-    if not result["success"]:
-        raise HTTPException(status_code=500, detail=result["message"])
-    return {"success": True, "message": result["message"]}
+    return await service.reload_connections_config(session)
