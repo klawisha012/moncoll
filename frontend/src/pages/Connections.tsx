@@ -255,6 +255,20 @@ function ConnectionsTable({
                 </code>
               </Td>
               <Td style={{ textAlign: "right", whiteSpace: "nowrap" }}>
+                {/* pending_dns: user has flipped DNS — they want immediate
+                    feedback, not a 60s wait. Re-check button triggers the
+                    same synchronous probe the wizard's "Verify now" uses. */}
+                {c.status === "pending_dns" && (
+                  <button
+                    type="button"
+                    className="btn-outline btn-sm"
+                    onClick={() => onProbe(c)}
+                    style={{ marginRight: 8 }}
+                    title="Re-check DNS now"
+                  >
+                    <RefreshCw size={14} /> Re-check
+                  </button>
+                )}
                 {(c.status === "pending_verification" || c.status === "pending_dns") && (
                   <button
                     type="button"
@@ -477,6 +491,34 @@ function Wizard({
       window.clearInterval(id);
     };
   }, [step, createdConn, checkVerified]);
+
+  // Step 3: same pattern for DNS-flip detection. Probe re-resolves the
+  // domain and flips status to provisioning_cert when A == WAF edge.
+  useEffect(() => {
+    if (step !== 3 || !createdConn) return;
+    let cancelled = false;
+    const tick = async () => {
+      if (cancelled) return;
+      try {
+        const fresh = await api.probeConnection(createdConn.id);
+        if (cancelled) return;
+        setCreatedConn(fresh);
+        // Once we're past pending_dns, the WAF owns the flow — close the
+        // wizard so the user sees the row transition through provisioning
+        // → active on the list page.
+        if (fresh.status !== "pending_dns" && fresh.status !== "pending_verification") {
+          onSavedResume();
+        }
+      } catch {
+        // ignore — next tick retries
+      }
+    };
+    const id = window.setInterval(tick, TXT_POLL_MS);
+    return () => {
+      cancelled = true;
+      window.clearInterval(id);
+    };
+  }, [step, createdConn, onSavedResume]);
 
   const onCopy = useCallback(
     async (value: string) => {
