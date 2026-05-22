@@ -515,6 +515,16 @@ export default function Connections() {
                 <div className="form-group">
                   <label>{t("connections.field.nginxFolder")}</label>
                   <div style={{ display: "flex", gap: "8px", alignItems: "center", flexWrap: "wrap" }}>
+                    <input
+                      type="text"
+                      data-testid="conn-nginx-config-path"
+                      value={formData.nginx_config_path || ""}
+                      onChange={(e) =>
+                        updateFormField("nginx_config_path", e.target.value || null)
+                      }
+                      placeholder="/app/site-templates/.../nginx.conf"
+                      style={{ flex: 1, minWidth: "240px" }}
+                    />
                     <button
                       type="button"
                       className="btn btn-primary"
@@ -523,11 +533,6 @@ export default function Connections() {
                     >
                       {t("connections.btn.selectConfigFolder")}
                     </button>
-                    {formData.nginx_config_path && (
-                      <code className="codeblock" style={{ fontSize: "12px" }}>
-                        {formData.nginx_config_path}
-                      </code>
-                    )}
                     <input
                       type="file"
                       ref={setNginxConfigRef}
