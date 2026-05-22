@@ -75,3 +75,31 @@ def trigger(conn_id: int, domain: str) -> AcmeResult:
             message=raw.get("message") or "",
         )
     return AcmeResult(success=False, message=str(raw.get("message") or "ACME failed"))
+
+
+def fallback_self_signed(conn_id: int, domain: str) -> AcmeResult:
+    """Generate a self-signed cert as last resort.
+
+    Used by the poller after MAX_RETRIES of ACME have all failed, mirroring
+    the legacy 4-mode service.py behaviour (which fell back to self-signed
+    when ACME couldn't be reached). The row goes to status='active' but
+    with a status_detail flagging the cert as self-signed so the operator
+    knows to investigate the LE failure.
+
+    Real-world trigger: LE validators can't reach the WAF's port 80 (NAT,
+    ISP filtering, regional blocks). The system still gets to a working
+    'active' state for users; the operator gets a clear breadcrumb.
+    """
+    try:
+        raw = cert_service.generate_self_signed_certificate(conn_id, [domain])
+    except Exception as exc:
+        logger.exception("Conn %d: self-signed fallback crashed", conn_id)
+        return AcmeResult(success=False, message=f"{type(exc).__name__}: {exc}")
+    if raw.get("success"):
+        return AcmeResult(
+            success=True,
+            cert_path=raw.get("certificate_path"),
+            key_path=raw.get("key_path"),
+            message="Self-signed cert (ACME unreachable from this network).",
+        )
+    return AcmeResult(success=False, message=str(raw.get("message") or "self-signed failed"))

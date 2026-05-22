@@ -154,17 +154,43 @@ async def test_tick_provisioning_failure_schedules_retry():
 
 
 @pytest.mark.asyncio
-async def test_tick_provisioning_exhausts_retries():
+async def test_tick_provisioning_exhausts_retries_falls_back_to_self_signed():
+    """When ACME has burned through MAX_RETRIES we generate a self-signed
+    cert so the proxy still works — mirrors legacy behaviour. The row
+    becomes active, not error, with a status_detail flagging the fallback."""
     row = _fake_row(
         status="provisioning_cert",
         acme_retry_count=poller.acme.MAX_RETRIES - 1,
     )
-    fake = poller.acme.AcmeResult(success=False, message="failed again")
-    with patch.object(poller.acme, "trigger", return_value=fake):
+    acme_fail = poller.acme.AcmeResult(success=False, message="failed again")
+    self_signed_ok = poller.acme.AcmeResult(
+        success=True,
+        cert_path="/tls/ss.crt",
+        key_path="/tls/ss.key",
+        message="Self-signed cert (ACME unreachable from this network).",
+    )
+    with patch.object(poller.acme, "trigger", return_value=acme_fail), \
+         patch.object(poller.acme, "fallback_self_signed", return_value=self_signed_ok):
+        await poller._tick_provisioning(row)
+    assert row.status == "active"
+    assert row.ssl_cert_path == "/tls/ss.crt"
+    assert row.ssl_key_path == "/tls/ss.key"
+    assert "Self-signed" in (row.status_detail or "")
+
+
+@pytest.mark.asyncio
+async def test_tick_provisioning_self_signed_also_fails_goes_error():
+    row = _fake_row(
+        status="provisioning_cert",
+        acme_retry_count=poller.acme.MAX_RETRIES - 1,
+    )
+    acme_fail = poller.acme.AcmeResult(success=False, message="ACME nope")
+    ss_fail = poller.acme.AcmeResult(success=False, message="openssl missing")
+    with patch.object(poller.acme, "trigger", return_value=acme_fail), \
+         patch.object(poller.acme, "fallback_self_signed", return_value=ss_fail):
         await poller._tick_provisioning(row)
     assert row.status == "error"
-    assert row.acme_retry_count == poller.acme.MAX_RETRIES
-    assert row.acme_next_retry_at is None
+    assert "both failed" in (row.status_detail or "")
 
 
 @pytest.mark.asyncio
