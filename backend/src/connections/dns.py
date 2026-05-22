@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 import re
 from ipaddress import ip_address
 
@@ -20,6 +21,41 @@ import dns.exception
 import dns.rdatatype
 
 logger = logging.getLogger(__name__)
+
+# ── Public resolvers ────────────────────────────────────────────────────────
+# We intentionally bypass the container's local resolver (/etc/resolv.conf →
+# 127.0.0.11 inside Docker) because Docker's embedded DNS caches aggressively
+# and can serve stale negative responses long after a customer publishes their
+# TXT/A record. Verified live: TXT record present at 8.8.8.8 but the Docker
+# resolver returned an older value for 5+ minutes after the user updated DNS.
+#
+# Override via WAF_DNS_RESOLVERS env var (comma-separated). Default is
+# Google + Cloudflare for redundancy.
+# Cloudflare first — Google's 8.8.8.8 and Quad9's 9.9.9.9 are blocked from
+# parts of the Russian internet (RKN). Cloudflare 1.1.1.1 has stayed
+# reachable. We keep the others as fallbacks so the variable still works
+# from regions where Cloudflare is the one being blocked.
+_DEFAULT_PUBLIC_RESOLVERS = ("1.1.1.1", "1.0.0.1", "8.8.8.8", "8.8.4.4")
+
+
+def _public_resolvers() -> list[str]:
+    raw = (os.environ.get("WAF_DNS_RESOLVERS") or "").strip()
+    if not raw:
+        return list(_DEFAULT_PUBLIC_RESOLVERS)
+    out = [r.strip() for r in raw.split(",") if r.strip()]
+    return out or list(_DEFAULT_PUBLIC_RESOLVERS)
+
+
+def _make_resolver(timeout: float) -> dns.asyncresolver.Resolver:
+    """Build a fresh resolver pinned to public nameservers."""
+    r = dns.asyncresolver.Resolver(configure=False)
+    r.nameservers = _public_resolvers()
+    r.timeout = timeout
+    r.lifetime = timeout
+    # cache=None — never reuse answers; we want every lookup to see real
+    # current DNS state. Worth the ~50ms extra latency for a wizard probe.
+    r.cache = None
+    return r
 
 # RFC 5891 max length for a single label is 63; full FQDN is 253.
 _MAX_DOMAIN_LEN = 253
@@ -97,9 +133,7 @@ async def resolve_a(domain: str, *, timeout: float = 5.0) -> tuple[list[str], in
     defence) or if the lookup fails outright. Returns the dns_ttl_seconds
     of the resolved record so the poller can honour it.
     """
-    resolver = dns.asyncresolver.Resolver()
-    resolver.timeout = timeout
-    resolver.lifetime = timeout
+    resolver = _make_resolver(timeout)
     try:
         answer = await resolver.resolve(domain, rdtype=dns.rdatatype.A)
     except dns.exception.DNSException as exc:
@@ -117,9 +151,7 @@ async def resolve_a(domain: str, *, timeout: float = 5.0) -> tuple[list[str], in
 
 async def resolve_txt(domain: str, *, timeout: float = 5.0) -> list[str]:
     """Return all TXT record values for *domain* (joined for multi-string records)."""
-    resolver = dns.asyncresolver.Resolver()
-    resolver.timeout = timeout
-    resolver.lifetime = timeout
+    resolver = _make_resolver(timeout)
     try:
         answer = await resolver.resolve(domain, rdtype=dns.rdatatype.TXT)
     except dns.exception.DNSException as exc:
