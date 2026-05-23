@@ -38,6 +38,11 @@ services:
       - ./configs/angie/modsecurity/:/etc/angie/modsecurity/
       - ./configs/angie/geoip2/:/etc/angie/geoip2/
       - ./configs/angie/bouncers/:/etc/crowdsec/bouncers/
+      # Per-tenant connection configs written by the backend (Phase 13).
+      # Mounted read-only so the glob include /etc/angie/tenants/*/compose/...
+      # in angie.conf picks up active tenant configs. Suspended tenants have
+      # their compose/ dir renamed to compose.suspended/ so they're excluded.
+      - waf-tenants:/etc/angie/tenants:ro
     depends_on:
       - vector
       - crowdsec
@@ -169,14 +174,14 @@ services:
       - ./configs/angie/angie.conf:/app/etc/angie/angie.conf
       - ./configs/angie/modsecurity/:/app/etc/angie/modsecurity/
       - ./configs/angie/http.d/:/var/lib/angie/http.d/
+      # Per-tenant config trees (Phase 13). Backend writes connection configs
+      # to /var/lib/waf/tenants/<id>/compose/conn_*/<id>.conf; the same
+      # named volume is mounted read-only in the Angie container at
+      # /etc/angie/tenants/ so the include glob picks them up.
+      - waf-tenants:/var/lib/waf/tenants
       # Persist user uploads (single index.html, static-site dirs, nginx config
       # dirs) across container recreations — without this they live in the
       # writable layer and disappear on `docker compose up` rebuilds.
-      # Persist docker_compose connection project dirs across container
-      # recreation. Without this the backend writes /var/lib/waf/compose
-      # to the ephemeral writable layer, which disappears on rebuild and
-      # leaves orphaned running compose stacks the backend can no longer
-      # bring up/down (toggle returns 500: PermissionError on mkdir).
       - /var/run/docker.sock:/var/run/docker.sock
       - letsencrypt:/etc/letsencrypt
       - backend-data:/var/lib/angie/data
@@ -325,3 +330,8 @@ volumes:
   backend-data:
   postgres-data:
   redis-data:
+  # Shared between backend (read/write) and Angie (read-only).
+  # Backend writes per-tenant Angie config trees to /var/lib/waf/tenants/.
+  # Angie mounts the same volume at /etc/angie/tenants/ and the include
+  # glob in angie.conf picks up active tenant configs.
+  waf-tenants:

@@ -209,7 +209,7 @@ async def create_connection(
         angie_config.write_config(_to_dict(row))
         _reload_angie()
     except Exception:
-        logger.exception("Conn %d: failed to write/reload Angie config on create", row.id)
+        logger.exception("Conn %d: failed to write/reload Angie config on create (tenant %d)", row.id, tenant.id)
 
     instructions = VerifyInstructions(
         txt_record_name=f"_waf-verify.{domain}",
@@ -240,7 +240,7 @@ async def update_connection(
         if row.enabled:
             angie_config.write_config(_to_dict(row))
         else:
-            angie_config.delete_config(conn_id)
+            angie_config.delete_config(row.tenant_id, conn_id)
         _reload_angie()
     except Exception:
         logger.exception("Conn %d: failed to apply Angie config on update", conn_id)
@@ -257,9 +257,10 @@ async def delete_connection(session: AsyncSession, tenant: Tenant, conn_id: int)
     row = result.scalar_one_or_none()
     if row is None:
         return False
+    tenant_id = row.tenant_id
     await session.delete(row)
     await session.commit()
-    angie_config.delete_config(conn_id)
+    angie_config.delete_config(tenant_id, conn_id)
     _reload_angie()
     return True
 
@@ -357,6 +358,6 @@ async def reload_connections_config(session: AsyncSession) -> dict:
         try:
             angie_config.write_config(_to_dict(row))
         except Exception:
-            logger.exception("Conn %d: failed to write Angie config during reload", row.id)
+            logger.exception("Conn %d (tenant %d): failed to write Angie config during reload", row.id, row.tenant_id)
     _reload_angie()
     return {"success": True, "message": f"Regenerated {len(rows)} connection configs"}
