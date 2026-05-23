@@ -19,7 +19,7 @@ from prometheus_fastapi_instrumentator import Instrumentator
 from .admin.router import router as admin_router
 from .angie import router as angie_router
 from .auth import auth_router
-from .auth.dependencies import require_admin, require_password_changed
+from .auth.dependencies import require_admin, require_verified
 from .certificates import certificates_router
 from .connections import poller as connections_poller
 from .connections.router import connections_router
@@ -95,7 +95,7 @@ def create_app() -> FastAPI:
 
     # Dashboard — viewer-level gate; individual routes enforce tenant scoping
     # via require_verified (Phase 5.2.c).
-    viewer = [Depends(require_password_changed)]
+    viewer = [Depends(require_verified)]
     app.include_router(dashboard_router, dependencies=viewer)
     # Realtime token endpoint — both roles need it to subscribe to live updates.
     app.include_router(realtime_router, dependencies=viewer)

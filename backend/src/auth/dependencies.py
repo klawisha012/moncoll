@@ -109,15 +109,3 @@ async def current_tenant(
             detail="tenant not found",
         )
     return tenant
-
-
-# ---------------------------------------------------------------------------
-# Backwards-compat shims — removed in Phase 8 when router.py is rewritten.
-# ---------------------------------------------------------------------------
-
-# Legacy router.py imports COOKIE_NAME.
-COOKIE_NAME = SESSION_COOKIE
-
-# Legacy main.py and realtime/router.py import require_password_changed.
-# The new model has no must_change_password concept; map to require_verified.
-require_password_changed = require_verified

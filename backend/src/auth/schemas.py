@@ -67,14 +67,3 @@ class TotpConfirmRequest(BaseModel):
 
 class LoginResponse(BaseModel):
     user: UserPublic
-
-
-# ---------------------------------------------------------------------------
-# Transition shims for legacy router.py — removed in Phase 8 when router
-# rewrite lands. router.py references these names only at parse time;
-# substituting SignupRequest is safe because the legacy endpoints are
-# unreachable (no admin user, schema mismatch with new DB).
-# ---------------------------------------------------------------------------
-ChangePasswordRequest = SignupRequest  # noqa: N816
-UserCreate = SignupRequest  # noqa: N816
-UserUpdate = SignupRequest  # noqa: N816

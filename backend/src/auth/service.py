@@ -95,35 +95,3 @@ async def touch_login(session: AsyncSession, user: User) -> None:
     user.last_login_at = datetime.now(UTC)
     await session.commit()
 
-
-# ---------------------------------------------------------------------------
-# Transition shims — removed in Phase 8 when router.py rewrite lands.
-#
-# Legacy router.py calls these functions. They are NEVER actually invoked
-# at runtime (no admin user exists, schema mismatch, endpoints unreachable),
-# but the module must import cleanly. Raising RuntimeError on CALL, not on
-# IMPORT, is the minimum-change approach (option (a) from phase instructions).
-# ---------------------------------------------------------------------------
-
-async def seed_default_admin(session: AsyncSession) -> None:  # noqa: ARG001
-    raise RuntimeError("seed_default_admin: Phase 8 router rewrite pending")
-
-
-async def list_users(session: AsyncSession) -> list:  # noqa: ARG001
-    raise RuntimeError("list_users: Phase 8 router rewrite pending")
-
-
-async def create_user(session: AsyncSession, payload) -> User:  # noqa: ARG001
-    raise RuntimeError("create_user: Phase 8 router rewrite pending")
-
-
-async def update_user(session: AsyncSession, user_id: int, payload) -> User | None:  # noqa: ARG001
-    raise RuntimeError("update_user: Phase 8 router rewrite pending")
-
-
-async def change_password(session: AsyncSession, user_id: int, new_password: str) -> bool:  # noqa: ARG001
-    raise RuntimeError("change_password: Phase 8 router rewrite pending")
-
-
-async def delete_user(session: AsyncSession, user_id: int) -> bool:  # noqa: ARG001
-    raise RuntimeError("delete_user: Phase 8 router rewrite pending")
