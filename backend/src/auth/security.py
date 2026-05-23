@@ -1,17 +1,23 @@
+"""Transient bridge module — JWT stubs until Phase 2 PASETO rewrite lands."""
+
 import logging
 import os
 import secrets
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
+from passlib.context import CryptContext
+
+logger = logging.getLogger(__name__)
+
 # python-jose removed; replaced by pyseto in Phase 2.
 # Stubs keep the module importable until the full PASETO rewrite lands.
 class _NotImplementedJWT:
     def encode(self, *a, **kw):  # noqa: D102
-        raise NotImplementedError("JWT via jose removed; use PASETO (Phase 2)")
+        raise RuntimeError("session token signing not provisioned — Phase 2 PASETO pending")
 
     def decode(self, *a, **kw):  # noqa: D102
-        raise NotImplementedError("JWT via jose removed; use PASETO (Phase 2)")
+        return None
 
 
 class JWTError(Exception):  # noqa: N818
@@ -19,10 +25,6 @@ class JWTError(Exception):  # noqa: N818
 
 
 jwt = _NotImplementedJWT()
-
-from passlib.context import CryptContext
-
-logger = logging.getLogger(__name__)
 
 JWT_ALGORITHM = "HS256"
 JWT_TTL_SECONDS = 8 * 60 * 60  # 8 hours

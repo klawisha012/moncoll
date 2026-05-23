@@ -16,7 +16,7 @@ class Settings(BaseSettings):
     smtp_port: int = 587
     smtp_username: str | None = None
     smtp_password: str | None = None
-    smtp_from_email: str = "noreply@waf.local"
+    smtp_from_email: str = "noreply@localhost"
     smtp_from_name: str = "WAF"
     smtp_starttls: bool = True
 
