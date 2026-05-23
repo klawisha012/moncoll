@@ -9,6 +9,22 @@ cd ./waf
 docker compose up -d --build
 ```
 
+## Provisioning a new instance
+
+1. `cp .env.example .env` and edit — or run `./scripts/generate-env.sh` to generate fresh secrets
+2. Edit `WAF_PUBLIC_BASE_URL` in `.env` to your real HTTPS domain
+3. `docker compose up -d --build`
+4. `docker compose exec backend alembic upgrade head`
+5. Create the first admin: `./scripts/create-admin.sh --email you@yourdomain.com`
+6. Browse to the panel, log in — you will be required to enrol TOTP before accessing admin pages
+
+### Optional integrations
+
+- **Cloudflare Turnstile** (anti-bot on signup/login): set `WAF_TURNSTILE_SITE_KEY` + `WAF_TURNSTILE_SECRET_KEY`. Without these, captcha is skipped (suitable for dev / private instances).
+- **SMTP** (email verification, password reset): set `WAF_SMTP_HOST`, `WAF_SMTP_PORT`, `WAF_SMTP_USERNAME`, `WAF_SMTP_PASSWORD`, `WAF_SMTP_FROM_EMAIL`. Without SMTP, verification and reset emails are logged to backend stdout — useful in dev mode, not suitable for production.
+- **Google OAuth**: set `WAF_OAUTH_GOOGLE_CLIENT_ID`, `WAF_OAUTH_GOOGLE_CLIENT_SECRET`, `WAF_OAUTH_GOOGLE_REDIRECT_URI`. Redirect URI format: `${WAF_PUBLIC_BASE_URL}/api/auth/oauth/google/callback`.
+- **GitHub OAuth**: set `WAF_OAUTH_GITHUB_CLIENT_ID`, `WAF_OAUTH_GITHUB_CLIENT_SECRET`, `WAF_OAUTH_GITHUB_REDIRECT_URI`. Redirect URI format: `${WAF_PUBLIC_BASE_URL}/api/auth/oauth/github/callback`.
+
 ## Deploy
 
 ```bash
