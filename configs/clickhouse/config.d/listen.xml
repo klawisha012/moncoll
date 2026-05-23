@@ -1,6 +1,6 @@
 <!--
   Override the stock config.xml which binds only to 127.0.0.1/::1.
-  Other containers on the docker network (backend, grafana) connect via
+  Other containers on the docker network (backend, vector) connect via
   the `clickhouse` hostname and need ClickHouse to listen on the
   container's external interface. Ports remain published to 127.0.0.1
   on the host (see docker-compose.yml ports section), so this does not

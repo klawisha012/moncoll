@@ -119,7 +119,7 @@ async def events(
         raise HTTPException(status_code=500, detail=str(e)) from e
 
 
-# ── Extended analytics: mirror of Grafana panels ─────────────────
+# ── Extended analytics panels ────────────────────────────────────
 
 
 @router.get("/waf-events-timeline")

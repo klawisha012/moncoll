@@ -150,15 +150,3 @@ CREATE TABLE IF NOT EXISTS logs.crowdsec_manual_blocks
 PARTITION BY toYYYYMM(timestamp)
 ORDER BY (timestamp, ip, action)
 TTL timestamp + INTERVAL 12 MONTH;
-
-
--- =====================================================================
--- NOTE: logs.connection_domains VIEW is intentionally NOT created here.
--- It depends on the PostgreSQL `connections` table, which Alembic creates
--- AFTER ClickHouse init runs. Creating it here aborted init.sql with
--- `UNKNOWN_TABLE`, causing ClickHouse to exit on first boot.
---
--- The backend recreates this VIEW on startup once Alembic has confirmed
--- the PG schema is in place. See clickhouse_init.ensure_views() in
--- backend/src/dashboard/clickhouse_init.py.
--- =====================================================================

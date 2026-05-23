@@ -2,20 +2,16 @@
 # Generates .env with random secrets. Re-running OVERWRITES .env — back up
 # first if you've already rotated passwords by hand.
 #
-# Why this script exists: docker-compose.yml requires GRAFANA_ADMIN_PASSWORD,
-# GRAFANA_SECRET_KEY, and POSTGRES_PASSWORD via the `:?...` syntax. Without
-# them the stack refuses to boot — intentional, so we never ship default
-# admin/admin or weak fallbacks. See .gstack/security-reports/.
+# Why this script exists: docker-compose.yml requires POSTGRES_PASSWORD
+# via the `:?...` syntax. Without it the stack refuses to boot —
+# intentional, so we never ship weak fallbacks.
+# See .gstack/security-reports/.
 
 set -euo pipefail
 
 CLICKHOUSE_USER="user_$(openssl rand -hex 4)"
 CLICKHOUSE_PASSWORD=$(openssl rand -base64 24 | tr -dc 'a-zA-Z0-9' | head -c 32)
 POSTGRES_PASSWORD=$(openssl rand -base64 24 | tr -dc 'a-zA-Z0-9' | head -c 32)
-GRAFANA_ADMIN_PASSWORD=$(openssl rand -base64 24 | tr -dc 'a-zA-Z0-9' | head -c 24)
-# secret_key encrypts cookies + stored datasource creds. Must be stable
-# across restarts (rotating it re-encrypts everything in grafana.db).
-GRAFANA_SECRET_KEY=$(openssl rand -base64 32 | tr -dc 'a-zA-Z0-9' | head -c 32)
 # JWT signing key for backend session cookies. Stored in .env so it survives
 # backend restarts — otherwise security.py falls back to an ephemeral secret
 # and every restart invalidates all active sessions, forcing re-login.
@@ -71,13 +67,6 @@ POSTGRES_USER=waf
 POSTGRES_PASSWORD=$POSTGRES_PASSWORD
 POSTGRES_DB=waf
 
-# Grafana - required by docker-compose.yml grafana service.
-GRAFANA_ADMIN_PASSWORD=$GRAFANA_ADMIN_PASSWORD
-GRAFANA_SECRET_KEY=$GRAFANA_SECRET_KEY
-# Allowed origin for Grafana Live WebSocket. Override if you serve the
-# panel under a different hostname.
-GRAFANA_LIVE_ALLOWED_ORIGINS=http://localhost:3000
-
 # Docker GID - backend container joins this host group to use docker.sock
 # without running as root.
 DOCKER_GID=$DOCKER_GID
@@ -103,11 +92,7 @@ chmod 600 .env
 # matches the freshly-rolled $CLICKHOUSE_USER. This file replaces the one
 # that clickhouse/clickhouse-server's entrypoint would normally auto-write
 # (we set CLICKHOUSE_SKIP_USER_SETUP=1 in docker-compose.yml so entrypoint
-# leaves ours alone). It adds an explicit `<grants>GRANT NAMED COLLECTION
-# ON postgres_waf</grants>` block so the user can use the postgres_waf
-# named collection defined in config.d/named_collections.xml — without
-# that grant, logs.connection_domains fails with ACCESS_DENIED and the
-# Grafana `Domain` template variable goes blank.
+# leaves ours alone).
 mkdir -p configs/clickhouse/users.d
 cat > configs/clickhouse/users.d/default-user.xml << EOF
 <!--
@@ -127,11 +112,7 @@ cat > configs/clickhouse/users.d/default-user.xml << EOF
       <password><![CDATA[$CLICKHOUSE_PASSWORD]]></password>
       <quota>default</quota>
       <grants>
-        <!-- GRANT ALL restores the implicit-superuser baseline the user
-             had before we declared <grants> — declaring grants narrows
-             the user to exactly what's listed otherwise. -->
         <query>GRANT ALL ON *.*</query>
-        <query>GRANT NAMED COLLECTION ON postgres_waf</query>
       </grants>
     </$CLICKHOUSE_USER>
   </users>
@@ -140,8 +121,7 @@ EOF
 
 echo "Generated .env file (mode 0600)"
 echo "  CLICKHOUSE_USER=$CLICKHOUSE_USER"
-echo "  GRAFANA_ADMIN_PASSWORD=$GRAFANA_ADMIN_PASSWORD"
-echo "  (POSTGRES_PASSWORD, GRAFANA_SECRET_KEY, CLICKHOUSE_PASSWORD, CROWDSEC_BOUNCER_KEY - see .env)"
+echo "  (POSTGRES_PASSWORD, CLICKHOUSE_PASSWORD, CROWDSEC_BOUNCER_KEY - see .env)"
 echo "  DOCKER_GID=$DOCKER_GID"
 echo "  Wrote configs/clickhouse/users.d/default-user.xml for $CLICKHOUSE_USER"
 

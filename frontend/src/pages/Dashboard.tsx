@@ -54,7 +54,6 @@ import {
 } from "../components/charts/chart-utils";
 import { injectionLabel, ruleFileToFamily } from "../utils/ruleNames";
 
-type Tab = "grafana" | "native";
 type TimeUnit = "minutes" | "hours" | "days";
 
 type PanelKey =
@@ -923,97 +922,6 @@ function EventsTable({ data, loading }: { data: SecurityEvent[] | null; loading:
 }
 
 
-function GrafanaTab({
-  connections,
-  connectionId,
-  onConnectionChange,
-}: {
-  connections: Connection[];
-  connectionId: number | null;
-  onConnectionChange: (id: number | null) => void;
-}) {
-  const { t } = useSettings();
-  const selected = useMemo(() => connections.find((c) => c.id === connectionId) ?? null, [connections, connectionId]);
-  const varConnection = useMemo(() => {
-    if (!selected || !selected.domain) return null;
-    // Kept as a single-element array for backwards compatibility with the
-    // downstream Grafana URL builder that expects a list.
-    return [selected.domain];
-  }, [selected]);
-
-  const src = useMemo(() => {
-    const params = new URLSearchParams({ orgId: "1", refresh: "10s", theme: "dark", kiosk: "tv" });
-    if (varConnection) for (const domain of varConnection) params.append("var-connection", domain);
-    return `/grafana/d/waf-nginx-dashboard/waf-and-nginx-security-dashboard-2?${params.toString()}`;
-  }, [varConnection]);
-
-  // Drive navigation through ref so the iframe element stays mounted.
-  const iframeRef = useRef<HTMLIFrameElement>(null);
-  useEffect(() => {
-    const el = iframeRef.current;
-    if (!el) return;
-    const fullUrl = new URL(src, window.location.href).toString();
-    if (el.src === fullUrl) return;
-    el.src = src;
-  }, [src]);
-
-  return (
-    <div>
-      <div
-        style={{
-          display: "flex",
-          alignItems: "center",
-          gap: "10px",
-          marginBottom: "12px",
-          padding: "10px 16px",
-          background: "var(--card-bg, #1a1a2e)",
-          borderRadius: "var(--radius-md, 8px)",
-          border: "1px solid var(--border-color, #2a2a2a)",
-        }}
-      >
-        <span style={{ fontSize: "13px", color: "var(--text-secondary, #888)", fontWeight: 500 }}>{t("dashboard.ui.domain")}</span>
-        <select
-          data-testid="grafana-connection-picker"
-          value={connectionId ?? ""}
-          onChange={(e) => {
-            const v = e.target.value;
-            onConnectionChange(v === "" ? null : parseInt(v, 10));
-          }}
-          style={{
-            padding: "6px 10px",
-            fontSize: "13px",
-            border: "1px solid var(--border-color, #2a2a2a)",
-            borderRadius: "var(--radius-sm, 6px)",
-            background: "var(--input-bg, #0d0d1a)",
-            color: "var(--text-primary, #e0e0e0)",
-            outline: "none",
-            cursor: "pointer",
-            minWidth: "220px",
-          }}
-        >
-          <option value="">{t("dashboard.ui.allDomainsGlobal")}</option>
-          {connections.filter((c) => c.enabled).map((c) => (
-            <option key={c.id} value={c.id}>
-              {c.name}
-              {c.domain ? ` (${c.domain})` : ""}
-            </option>
-          ))}
-        </select>
-      </div>
-
-      <div className="card" style={{ padding: "8px", overflow: "hidden", height: "calc(100vh - 280px)", minHeight: "640px" }}>
-        <iframe
-          ref={iframeRef}
-          src={src}
-          style={{ border: "none", width: "100%", height: "100%", borderRadius: "var(--radius-md)" }}
-          title={t("dashboard.ui.grafanaDashboardTitle")}
-          sandbox="allow-scripts allow-same-origin allow-forms allow-popups"
-        />
-      </div>
-    </div>
-  );
-}
-
 function NativePanels({
   hours,
   connectionId,
@@ -1281,7 +1189,6 @@ function NativePanels({
 
 export default function Dashboard() {
   const { t } = useSettings();
-  const [activeTab, setActiveTab] = useState<Tab>("grafana");
 
   const [timeValue, setTimeValue] = useState<number>(24);
   const [timeUnit, setTimeUnit] = useState<TimeUnit>("hours");
@@ -1346,54 +1253,11 @@ export default function Dashboard() {
       <div className="page-header">
         <div>
           <h1>{t("dashboard.title")}</h1>
-          <p>
-            {activeTab === "grafana"
-              ? t("dashboard.subtitle")
-              : t("dashboard.subtitle.native")}
-          </p>
+          <p>{t("dashboard.subtitle.native")}</p>
         </div>
       </div>
 
-      <div style={{ display: "flex", gap: 0, marginBottom: "20px", borderBottom: "2px solid var(--border-color, #2a2a2a)" }}>
-        <button
-          onClick={() => setActiveTab("grafana")}
-          style={{
-            padding: "10px 24px",
-            fontSize: "14px",
-            fontWeight: 500,
-            border: "none",
-            background: "transparent",
-            color: activeTab === "grafana" ? "var(--accent, #6366f1)" : "var(--text-secondary, #888)",
-            cursor: "pointer",
-            borderBottom: activeTab === "grafana" ? "2px solid var(--accent, #6366f1)" : "2px solid transparent",
-            marginBottom: "-2px",
-            transition: "color 0.2s, border-color 0.2s",
-          }}
-        >
-          {t("dashboard.tab.grafana")}
-        </button>
-        <button
-          onClick={() => setActiveTab("native")}
-          style={{
-            padding: "10px 24px",
-            fontSize: "14px",
-            fontWeight: 500,
-            border: "none",
-            background: "transparent",
-            color: activeTab === "native" ? "var(--accent, #6366f1)" : "var(--text-secondary, #888)",
-            cursor: "pointer",
-            borderBottom: activeTab === "native" ? "2px solid var(--accent, #6366f1)" : "2px solid transparent",
-            marginBottom: "-2px",
-            transition: "color 0.2s, border-color 0.2s",
-          }}
-        >
-          {t("dashboard.tab.native")}
-        </button>
-      </div>
-
-      {activeTab === "native" && (
-        <>
-          <div
+      <div
             style={{
               display: "flex",
               alignItems: "center",
@@ -1524,13 +1388,7 @@ export default function Dashboard() {
             </div>
           </div>
 
-          <NativePanels hours={selectedHours} connectionId={connectionId} visiblePanels={visiblePanels} />
-        </>
-      )}
-
-      {activeTab === "grafana" && (
-        <GrafanaTab connections={connections} connectionId={connectionId} onConnectionChange={setConnectionId} />
-      )}
+      <NativePanels hours={selectedHours} connectionId={connectionId} visiblePanels={visiblePanels} />
     </div>
   );
 }

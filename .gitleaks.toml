@@ -30,19 +30,7 @@ paths = [
 description = "Dev cookies.txt from local curl runs"
 paths = ['''^cookies\.txt$''']
 
-# ── 3. Grafana / ClickHouse dev config ─────────────────────────────────
-# These read their real credentials from env vars in compose
-# (CLICKHOUSE_USER / CLICKHOUSE_PASSWORD). The default values still in
-# the files are placeholders kept for dev container bring-up only.
-[[allowlists]]
-description = "Grafana/ClickHouse dev configs — real creds come from env"
-paths = [
-    '''^configs/grafana/grafana\.ini$''',
-    '''^configs/grafana/provisioning/datasources/.*\.ya?ml$''',
-    '''^etc/grafana/grafana\.ini$''',
-]
-
-# ── 4. WAF generated reports & test fixtures ───────────────────────────
+# ── 3. WAF generated reports & test fixtures ───────────────────────────
 # Make sure CI never trips on its own report artefact or test fixtures
 # that intentionally contain dummy secrets.
 [[allowlists]]
@@ -52,7 +40,7 @@ paths = [
     '''^tests/.*/fixtures/.*$''',
 ]
 
-# ── 5. Historical CrowdSec bouncer API key (rotated) ───────────────────
+# ── 4. Historical CrowdSec bouncer API key (rotated) ───────────────────
 # Commit 88dfb72 ("docs: add presentation screens", 2026-05-21) accidentally
 # replaced the placeholder in crowdsec-nginx-bouncer.conf with a real
 # CrowdSec bouncer key. The key was rotated on 2026-05-22 and the file

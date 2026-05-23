@@ -526,7 +526,7 @@ def get_security_events(
     return result
 
 
-# ── Extended analytics: panels mirrored from the Grafana dashboard ──
+# ── Extended analytics panels ───────────────────────────────────────
 
 
 _SEVERITY_NAMES = {

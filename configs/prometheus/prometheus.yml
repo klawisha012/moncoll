@@ -15,10 +15,6 @@ scrape_configs:
     static_configs:
       - targets: ["cadvisor:8080"]
 
-  - job_name: "grafana"
-    static_configs:
-      - targets: ["grafana:3000"]
-
   - job_name: "backend"
     static_configs:
       - targets: ["backend:8000"]

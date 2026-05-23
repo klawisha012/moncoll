@@ -2,12 +2,9 @@
 # SECRETS
 # Создать перед деплоем:
 #   printf 'my_secure_password' | docker secret create clickhouse_password -
-#   printf 'admin' | docker secret create grafana_admin_password -
 # ==============================================================================
 secrets:
   clickhouse_password:
-    external: true
-  grafana_admin_password:
     external: true
 
 # ==============================================================================
@@ -41,8 +38,6 @@ networks:
 
 volumes:
   clickhouse_data:
-    driver: local
-  grafana_data:
     driver: local
   angie_logs:
     driver: local
@@ -200,54 +195,3 @@ services:
           memory: 1G
       labels:
         - "com.waf.service=clickhouse"
-
-  # ----------------------------------------------------------------------------
-  # Grafana
-  # ----------------------------------------------------------------------------
-  grafana:
-    image: grafana/grafana:11.4.0
-    ports:
-      - target: 3000
-        published: 3000
-        protocol: tcp
-        mode: ingress
-    volumes:
-      - grafana_data:/var/lib/grafana
-      - type: bind
-        source: ./configs/grafana/provisioning
-        target: /etc/grafana/provisioning
-        read_only: true
-    secrets:
-      - grafana_admin_password
-    networks:
-      - waf_net
-    environment:
-      - GF_SECURITY_ADMIN_PASSWORD__FILE=/run/secrets/grafana_admin_password
-      - GF_USERS_ALLOW_SIGN_UP=false
-      - GF_INSTALL_PLUGINS=grafana-clickhouse-datasource
-      - GF_AUTH_ANONYMOUS_ENABLED=false
-    env_file:
-      - ./envs/grafana.env
-    deploy:
-      replicas: 1
-      placement:
-        constraints:
-          - node.labels.grafana == true
-      restart_policy:
-        condition: on-failure
-        delay: 5s
-        max_attempts: 3
-      update_config:
-        parallelism: 1
-        delay: 10s
-        failure_action: rollback
-        order: start-first
-      resources:
-        limits:
-          cpus: '1'
-          memory: 512M
-        reservations:
-          cpus: '0.1'
-          memory: 128M
-      labels:
-        - "com.waf.service=grafana"

@@ -28,7 +28,6 @@ fi
 mkdir -p envs
 grep '^ANGIE_'      .env > envs/angie.env
 { grep '^VECTOR_' .env; grep '^CLICKHOUSE_' .env; } > envs/vector.env
-grep '^CLICKHOUSE_' .env > envs/grafana.env
 info "env-файлы созданы из .env"
 
 # --- 3. Создание Docker Secrets (если не существуют) ---
@@ -46,12 +45,10 @@ create_secret() {
     fi
 }
 create_secret "clickhouse_password" "пароль ClickHouse"
-create_secret "grafana_admin_password" "пароль Grafana admin"
 
-# --- 4. Навешиваем labels на текущую ноду (для ClickHouse и Grafana) ---
+# --- 4. Навешиваем labels на текущую ноду (для ClickHouse) ---
 info "Устанавливаю node labels для stateful-сервисов..."
 docker node update --label-add clickhouse=true "${NODE_ID}" 2>/dev/null || true
-docker node update --label-add grafana=true "${NODE_ID}" 2>/dev/null || true
 
 # --- 5. Создание Docker Configs ---
 create_or_update_config() {
@@ -131,5 +128,4 @@ echo "  Удалить стек:    docker stack rm ${STACK_NAME}"
 echo ""
 echo "Эндпоинты:"
 echo "  WAF/Angie:  http://<node-ip>:80"
-echo "  Grafana:    http://<node-ip>:3000"
 echo "  ClickHouse: http://<node-ip>:8123"

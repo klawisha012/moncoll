@@ -29,9 +29,9 @@ const en: TranslationDict = {
 
   // Dashboard
   "dashboard.title": "Dashboard",
-  "dashboard.subtitle": "Real-time WAF monitoring and analytics powered by Grafana",
+  "dashboard.subtitle": "Real-time WAF monitoring and analytics",
   "dashboard.requests": "Total Requests",
-  "dashboard.requests.desc": "Live data via Grafana",
+  "dashboard.requests.desc": "Live data",
   "dashboard.blocked": "Blocked Threats",
   "dashboard.blocked.desc": "Monitored by WAF",
   "dashboard.activeRules": "Active Rules",
@@ -397,19 +397,15 @@ const en: TranslationDict = {
 
   // Dashboard — extended (panels, metrics, charts, UI chrome)
   "dashboard.subtitle.native": "Native WAF metrics, threat intelligence and traffic analytics",
-  "dashboard.tab.grafana": "Grafana Panels",
-  "dashboard.tab.native": "Native Panels",
   "dashboard.ui.timeRange": "Time Range:",
   "dashboard.ui.domain": "Domain:",
   "dashboard.ui.allDomains": "All domains",
-  "dashboard.ui.allDomainsGlobal": "All domains (global dashboard)",
   "dashboard.ui.min": "min",
   "dashboard.ui.hr": "hr",
   "dashboard.ui.day": "day",
   "dashboard.ui.minutes": "Minutes",
   "dashboard.ui.hours": "Hours",
   "dashboard.ui.days": "Days",
-  "dashboard.ui.grafanaDashboardTitle": "Grafana Dashboard",
   "dashboard.ui.panelVisibility": "Panel Visibility",
   "dashboard.ui.sectionMetrics": "Metrics",
   "dashboard.ui.sectionPanels": "Panels",
@@ -654,9 +650,9 @@ const ru: TranslationDict = {
 
   // Dashboard
   "dashboard.title": "Дашборд",
-  "dashboard.subtitle": "Мониторинг WAF в реальном времени на базе Grafana",
+  "dashboard.subtitle": "Мониторинг WAF в реальном времени",
   "dashboard.requests": "Всего запросов",
-  "dashboard.requests.desc": "Данные Grafana",
+  "dashboard.requests.desc": "Данные в реальном времени",
   "dashboard.blocked": "Заблокировано угроз",
   "dashboard.blocked.desc": "Под защитой WAF",
   "dashboard.activeRules": "Активных правил",
@@ -1022,19 +1018,15 @@ const ru: TranslationDict = {
 
   // Dashboard — extended (panels, metrics, charts, UI chrome)
   "dashboard.subtitle.native": "Нативные метрики WAF, threat intelligence и аналитика трафика",
-  "dashboard.tab.grafana": "Панели Grafana",
-  "dashboard.tab.native": "Нативные панели",
   "dashboard.ui.timeRange": "Период:",
   "dashboard.ui.domain": "Домен:",
   "dashboard.ui.allDomains": "Все домены",
-  "dashboard.ui.allDomainsGlobal": "Все домены (общий дашборд)",
   "dashboard.ui.min": "мин",
   "dashboard.ui.hr": "ч",
   "dashboard.ui.day": "дн",
   "dashboard.ui.minutes": "Минуты",
   "dashboard.ui.hours": "Часы",
   "dashboard.ui.days": "Дни",
-  "dashboard.ui.grafanaDashboardTitle": "Дашборд Grafana",
   "dashboard.ui.panelVisibility": "Видимость панелей",
   "dashboard.ui.sectionMetrics": "Метрики",
   "dashboard.ui.sectionPanels": "Панели",

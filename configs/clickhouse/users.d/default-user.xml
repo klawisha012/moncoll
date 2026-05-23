@@ -5,11 +5,7 @@
 
   This replaces the file that clickhouse/clickhouse-server's entrypoint
   would normally auto-write — we set CLICKHOUSE_SKIP_USER_SETUP=1 in
-  docker-compose.yml so the entrypoint leaves ours alone. The extra
-  <grants> block (vs the entrypoint's stock template) lets the user use
-  the postgres_waf named collection defined in config.d/named_collections.xml;
-  without it logs.connection_domains fails with ACCESS_DENIED and the
-  Grafana `Domain` template variable goes blank.
+  docker-compose.yml so the entrypoint leaves ours alone.
 -->
 <clickhouse>
   <users>
@@ -23,15 +19,7 @@
       <password><![CDATA[PLACEHOLDER_CLICKHOUSE_PASSWRD]]></password>
       <quota>default</quota>
       <grants>
-        <!--
-          GRANT ALL restores the implicit-superuser permissions the user
-          had before we declared <grants> at all (declaring grants limits
-          the user to exactly what's listed, otherwise). The NAMED
-          COLLECTION grant is the actual goal — it lets logs.connection_domains
-          query postgres_waf.
-        -->
         <query>GRANT ALL ON *.*</query>
-        <query>GRANT NAMED COLLECTION ON postgres_waf</query>
       </grants>
     </user_21b9446c>
   </users>

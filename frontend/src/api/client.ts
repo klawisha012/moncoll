@@ -241,7 +241,7 @@ export interface UnresolvedIp {
   hits: number;
 }
 
-// ── Extended analytics types (mirror Grafana panel set) ───────────
+// ── Extended analytics types ───────────────────────────────────────
 
 export interface TimelinePoint {
   timestamp: string;
