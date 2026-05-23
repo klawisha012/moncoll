@@ -1,8 +1,9 @@
 from fastapi import APIRouter
 
-from .password import router as _password_router
+from . import password, totp
 
 auth_router = APIRouter(prefix="/api/auth")
-auth_router.include_router(_password_router)
+auth_router.include_router(password.router)
+auth_router.include_router(totp.router)
 
 __all__ = ["auth_router"]

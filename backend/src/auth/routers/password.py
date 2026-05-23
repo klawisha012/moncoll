@@ -3,6 +3,7 @@
 import logging
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
+from fastapi.responses import JSONResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ...config import get_settings
@@ -24,12 +25,7 @@ from ..schemas import (
 )
 from ..security import SESSION_TTL_SECONDS, create_session_token, sign_short_lived
 
-try:
-    from ..totp import verify_code, verify_recovery
-
-    _totp_available = True
-except ImportError:
-    _totp_available = False
+from ..totp import verify_code, verify_recovery
 
 logger = logging.getLogger(__name__)
 
@@ -139,22 +135,30 @@ async def login(
     needs_totp = user.platform_role == "admin" or (
         user.platform_role == "client" and user.totp_enabled_at is not None
     )
-    if needs_totp and _totp_available:
+    if needs_totp:
         if user.totp_secret is None:
-            # Admin first-login — need TOTP enrolment
+            # Admin first-login — need TOTP enrolment.
+            # Must return a JSONResponse (not raise HTTPException) so that the
+            # Set-Cookie header is preserved in the error response; FastAPI's
+            # exception handler discards the response object.
             enrol_cookie = sign_short_lived(
                 {"user_id": user.id}, ttl_seconds=600, purpose="totp_enrol"
             )
-            response.set_cookie(
+            s = get_settings()
+            json_resp = JSONResponse(
+                status_code=403,
+                content={"detail": "totp_enrol_required"},
+            )
+            json_resp.set_cookie(
                 TOTP_ENROL_COOKIE,
                 enrol_cookie,
                 max_age=600,
                 httponly=True,
-                secure=get_settings().cookie_secure,
+                secure=s.cookie_secure,
                 samesite="lax",
                 path="/",
             )
-            raise HTTPException(status_code=403, detail="totp_enrol_required")
+            return json_resp
         if not payload.totp_code:
             raise HTTPException(status_code=401, detail="totp_required")
         if not (
