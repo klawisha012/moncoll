@@ -35,9 +35,6 @@ logger = logging.getLogger(__name__)
 # Base directory where tenant config trees live (backend's host-side view).
 TENANTS_BASE = Path("/var/lib/waf/tenants")
 
-# Angie container's view of the same mount (used for include paths in .conf files).
-ANGIE_TENANTS_BASE = Path("/etc/angie/tenants")
-
 ACME_TRUSTED_CA = "/etc/ssl/certs/ca-certificates.crt"
 
 _VALID_HTTP_VERSIONS = ("h1", "h2", "h3")
@@ -172,9 +169,11 @@ def render(conn: dict) -> str:
     emit_hsts = has_cert and not is_self_signed
 
     # Angie-side paths (what the Angie container sees via the shared mount).
-    angie_conn_dir = ANGIE_TENANTS_BASE / str(tenant_id) / "compose" / f"conn_{conn_id}"
-    blocked_ips_include = f"    include {angie_conn_dir}/blocked_ips.conf;"
-    acme_root = str(angie_conn_dir / "site")
+    # These paths are written into .conf files destined for a Linux container —
+    # always use POSIX-style forward slashes regardless of the build host OS.
+    angie_conn_dir_posix = f"/etc/angie/tenants/{tenant_id}/compose/conn_{conn_id}"
+    blocked_ips_include = f"    include {angie_conn_dir_posix}/blocked_ips.conf;"
+    acme_root = f"{angie_conn_dir_posix}/site"
     proxy_block = _emit_proxy_block(conn_id, domain, tls_mode)
 
     lines: list[str] = []
