@@ -16,6 +16,7 @@ from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from prometheus_fastapi_instrumentator import Instrumentator
 
+from .admin.router import router as admin_router
 from .angie import router as angie_router
 from .auth import auth_router
 from .auth.dependencies import require_admin, require_password_changed
@@ -88,6 +89,9 @@ def create_app() -> FastAPI:
     # Auth router is public (login/logout/me/change-password). User-management
     # endpoints inside it are individually guarded by require_admin.
     app.include_router(auth_router)
+
+    # Admin router — all routes require admin + TOTP via require_admin dep.
+    app.include_router(admin_router)
 
     # Dashboard — viewer-level gate; individual routes enforce tenant scoping
     # via require_verified (Phase 5.2.c).
