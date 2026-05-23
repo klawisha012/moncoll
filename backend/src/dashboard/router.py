@@ -263,7 +263,9 @@ async def status_codes(
     hours: float = _HOURS, connection_id: int | None = _CONNECTION_ID, user: User = _U
 ):
     return await _run(
-        functools.partial(get_status_codes_timeline, hours, connection_id)
+        functools.partial(
+            get_status_codes_timeline, hours, connection_id, user.tenant_id
+        )
     )
 
 
@@ -272,7 +274,7 @@ async def top_user_agents(
     hours: float = _HOURS, connection_id: int | None = _CONNECTION_ID, user: User = _U
 ):
     return await _run(
-        functools.partial(get_top_user_agents, hours, connection_id, 15)
+        functools.partial(get_top_user_agents, hours, connection_id, 15, user.tenant_id)
     )
 
 
@@ -280,28 +282,40 @@ async def top_user_agents(
 async def traffic_volume(
     hours: float = _HOURS, connection_id: int | None = _CONNECTION_ID, user: User = _U
 ):
-    return await _run(functools.partial(get_traffic_volume, hours, connection_id))
+    return await _run(
+        functools.partial(get_traffic_volume, hours, connection_id, user.tenant_id)
+    )
 
 
 @router.get("/requests-per-second")
 async def requests_per_second(
     hours: float = _HOURS, connection_id: int | None = _CONNECTION_ID, user: User = _U
 ):
-    return await _run(functools.partial(get_requests_per_second, hours, connection_id))
+    return await _run(
+        functools.partial(get_requests_per_second, hours, connection_id, user.tenant_id)
+    )
 
 
 @router.get("/requests-by-country")
 async def requests_by_country(
     hours: float = _HOURS, connection_id: int | None = _CONNECTION_ID, user: User = _U
 ):
-    return await _run(functools.partial(get_requests_by_country, hours, connection_id, 15))
+    return await _run(
+        functools.partial(
+            get_requests_by_country, hours, connection_id, 15, user.tenant_id
+        )
+    )
 
 
 @router.get("/top-client-ips")
 async def top_client_ips(
     hours: float = _HOURS, connection_id: int | None = _CONNECTION_ID, user: User = _U
 ):
-    return await _run(functools.partial(get_top_client_ips, hours, connection_id, 15))
+    return await _run(
+        functools.partial(
+            get_top_client_ips, hours, connection_id, 15, user.tenant_id
+        )
+    )
 
 
 @router.get("/test-traffic/{marker}")

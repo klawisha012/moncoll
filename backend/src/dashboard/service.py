@@ -114,50 +114,79 @@ def _clamp_minutes(hours: float) -> int:
 def _domains_for_connection(
     connection_id: int | None,
     tenant_id: int | None = None,
-) -> list[str]:
-    """Look up enabled domains for a connection.
+) -> list[str] | None:
+    """Resolve the host-filter domain list for a dashboard query.
+
+    Return-value contract (consumed by ``_host_filter_nginx`` / ``_host_filter_waf``):
+
+    ===========================  ===========================  ===============
+    ``connection_id``            ``tenant_id``                Returns
+    ===========================  ===========================  ===============
+    ``None``                     ``None`` (admin)             ``None`` — no filter, see all platform traffic
+    ``None``                     int   (client)               all enabled domains belonging to the tenant; ``[]`` if the tenant has no connections
+    int                          ``None`` (admin)             that connection's domain; ``[]`` if not found
+    int                          int   (client)               that connection's domain *iff* the tenant owns it; ``[]`` otherwise
+    ===========================  ===========================  ===============
+
+    The distinction between ``None`` (no filter) and ``[]`` (filter that
+    matches nothing) is critical: previously this function returned ``[]`` for
+    every empty case and the filter helpers short-circuited to ``""``, which
+    silently leaked the entire platform's traffic to every client.  Now ``[]``
+    forces the SQL filter to ``host IN ('__none__')`` so a client with zero
+    domains sees an empty dashboard — never default-server / other-tenant data.
 
     Imported lazily to avoid a circular import between dashboard <-> db.
-    Returns an empty list if the connection cannot be loaded.
-
-    Tenant scoping (Phase 5.2.c): when ``tenant_id`` is supplied the Postgres
-    query adds ``WHERE tenant_id = <tenant_id>`` so a client cannot filter
-    dashboard data by a connection belonging to a different tenant.
-
-    TODO (Phase 13): ClickHouse ``waf_audit_log`` / ``nginx_access_log`` do not
-    have a ``tenant_id`` column yet — adding it requires extending migration
-    0006 and is tracked as a separate spec.  For now, scoping is enforced only
-    at the Postgres connection-lookup level (domain list is empty when the
-    connection does not belong to the tenant, so ClickHouse returns no rows).
     """
-    if connection_id is None:
-        return []
     try:
         from sqlalchemy import create_engine, select
 
         from ..db.models import Connection as ConnectionModel
     except Exception:
-        return []
+        return [] if tenant_id is not None or connection_id is not None else None
+
+    # Admin viewing all domains: no filter at all.
+    if connection_id is None and tenant_id is None:
+        return None
+
+    db_url = os.getenv("DATABASE_URL", "")
+    if not db_url:
+        return [] if tenant_id is not None or connection_id is not None else None
+    sync_url = db_url.replace("+asyncpg", "").replace("+aiosqlite", "")
 
     try:
-        db_url = os.getenv("DATABASE_URL", "")
-        if not db_url:
-            return []
-        sync_url = db_url.replace("+asyncpg", "").replace("+aiosqlite", "")
         engine = create_engine(sync_url, future=True)
         with engine.connect() as conn:
-            stmt = select(ConnectionModel).where(ConnectionModel.id == connection_id)
-            if tenant_id is not None:
-                stmt = stmt.where(ConnectionModel.tenant_id == tenant_id)
-            row = conn.execute(stmt).first()
-        engine.dispose()
-        if not row:
-            return []
-        domains = row[0].domains if hasattr(row[0], "domains") else []
-        return [str(d) for d in (domains or [])]
+            if connection_id is not None:
+                stmt = select(ConnectionModel.domain).where(
+                    ConnectionModel.id == connection_id,
+                    ConnectionModel.enabled.is_(True),
+                )
+                if tenant_id is not None:
+                    stmt = stmt.where(ConnectionModel.tenant_id == tenant_id)
+                row = conn.execute(stmt).first()
+                if not row or not row[0]:
+                    return []
+                return [str(row[0])]
+            # connection_id is None, tenant_id is set: aggregate all tenant domains.
+            stmt = select(ConnectionModel.domain).where(
+                ConnectionModel.tenant_id == tenant_id,
+                ConnectionModel.enabled.is_(True),
+            )
+            rows = conn.execute(stmt).all()
+            return [str(r[0]) for r in rows if r[0]]
     except Exception:
-        logger.exception("Failed to load connection %s for dashboard filter", connection_id)
-        return []
+        logger.exception(
+            "Failed to resolve dashboard domains (connection_id=%s, tenant_id=%s)",
+            connection_id,
+            tenant_id,
+        )
+        # Fail closed for clients, fail open for admins.
+        return [] if tenant_id is not None else None
+    finally:
+        try:
+            engine.dispose()
+        except Exception:
+            pass
 
 
 def _quote_domains(domains: Iterable[str]) -> str:
@@ -174,14 +203,23 @@ def _quote_domains(domains: Iterable[str]) -> str:
     return "(" + ", ".join(f"'{d}'" for d in cleaned) + ")"
 
 
-def _host_filter_nginx(domains: list[str]) -> str:
-    if not domains:
+def _host_filter_nginx(domains: list[str] | None) -> str:
+    """Build the nginx_access_log host filter.
+
+    ``None`` → no filter (admin viewing whole platform).
+    ``[]``   → ``AND host IN ('__none__')`` (sentinel that matches nothing —
+               used when a client has zero connections or queried a connection
+               they don't own; previously this leaked the entire platform).
+    ``[d…]`` → ``AND host IN ('d1', 'd2')``.
+    """
+    if domains is None:
         return ""
     return f" AND host IN {_quote_domains(domains)}"
 
 
-def _host_filter_waf(domains: list[str]) -> str:
-    if not domains:
+def _host_filter_waf(domains: list[str] | None) -> str:
+    """Same contract as ``_host_filter_nginx`` for the WAF audit log."""
+    if domains is None:
         return ""
     return f" AND request_headers['Host'] IN {_quote_domains(domains)}"
 
@@ -789,7 +827,9 @@ def get_top_rule_files(
 
 
 def get_status_codes_timeline(
-    hours: float = 24, connection_id: int | None = None
+    hours: float = 24,
+    connection_id: int | None = None,
+    tenant_id: int | None = None,
 ) -> list[dict[str, Any]]:
     """HTTP status-code distribution per minute (nginx access log)."""
     try:
@@ -797,6 +837,7 @@ def get_status_codes_timeline(
     except Exception:
         return []
     minutes = _clamp_minutes(hours)
+    nginx_filter = _host_filter_nginx(_domains_for_connection(connection_id, tenant_id))
     rows = (
         _safe_execute(
             client,
@@ -806,7 +847,7 @@ def get_status_codes_timeline(
             "countIf(status >= 400 AND status < 500) AS c4xx, "
             "countIf(status >= 500) AS c5xx "
             "FROM logs.nginx_access_log "
-            f"WHERE time_local >= now() - INTERVAL {minutes} MINUTE "
+            f"WHERE time_local >= now() - INTERVAL {minutes} MINUTE{nginx_filter} "
             "GROUP BY t ORDER BY t",
             default=[],
         )
@@ -825,7 +866,10 @@ def get_status_codes_timeline(
 
 
 def get_top_user_agents(
-    hours: float = 24, connection_id: int | None = None, limit: int = 15
+    hours: float = 24,
+    connection_id: int | None = None,
+    limit: int = 15,
+    tenant_id: int | None = None,
 ) -> list[dict[str, Any]]:
     """Top user-agents (nginx access log)."""
     try:
@@ -833,12 +877,13 @@ def get_top_user_agents(
     except Exception:
         return []
     minutes = _clamp_minutes(hours)
+    nginx_filter = _host_filter_nginx(_domains_for_connection(connection_id, tenant_id))
     rows = (
         _safe_execute(
             client,
             "SELECT http_user_agent AS ua, count() AS hits "
             "FROM logs.nginx_access_log "
-            f"WHERE time_local >= now() - INTERVAL {minutes} MINUTE "
+            f"WHERE time_local >= now() - INTERVAL {minutes} MINUTE{nginx_filter} "
             f"GROUP BY ua ORDER BY hits DESC LIMIT {int(limit)}",
             default=[],
         )
@@ -847,19 +892,24 @@ def get_top_user_agents(
     return [{"user_agent": str(ua or "-"), "hits": int(hits)} for ua, hits in rows]
 
 
-def get_traffic_volume(hours: float = 24, connection_id: int | None = None) -> list[dict[str, Any]]:
+def get_traffic_volume(
+    hours: float = 24,
+    connection_id: int | None = None,
+    tenant_id: int | None = None,
+) -> list[dict[str, Any]]:
     """Bytes sent per minute (nginx access log)."""
     try:
         client = _get_client()
     except Exception:
         return []
     minutes = _clamp_minutes(hours)
+    nginx_filter = _host_filter_nginx(_domains_for_connection(connection_id, tenant_id))
     rows = (
         _safe_execute(
             client,
             "SELECT toStartOfMinute(time_local) AS t, sum(body_bytes_sent) AS bytes "
             "FROM logs.nginx_access_log "
-            f"WHERE time_local >= now() - INTERVAL {minutes} MINUTE "
+            f"WHERE time_local >= now() - INTERVAL {minutes} MINUTE{nginx_filter} "
             "GROUP BY t ORDER BY t",
             default=[],
         )
@@ -869,7 +919,9 @@ def get_traffic_volume(hours: float = 24, connection_id: int | None = None) -> l
 
 
 def get_requests_per_second(
-    hours: float = 24, connection_id: int | None = None
+    hours: float = 24,
+    connection_id: int | None = None,
+    tenant_id: int | None = None,
 ) -> list[dict[str, Any]]:
     """Requests per second derived from per-minute counts."""
     try:
@@ -877,12 +929,13 @@ def get_requests_per_second(
     except Exception:
         return []
     minutes = _clamp_minutes(hours)
+    nginx_filter = _host_filter_nginx(_domains_for_connection(connection_id, tenant_id))
     rows = (
         _safe_execute(
             client,
             "SELECT toStartOfMinute(time_local) AS t, count() / 60.0 AS rps "
             "FROM logs.nginx_access_log "
-            f"WHERE time_local >= now() - INTERVAL {minutes} MINUTE "
+            f"WHERE time_local >= now() - INTERVAL {minutes} MINUTE{nginx_filter} "
             "GROUP BY t ORDER BY t",
             default=[],
         )
@@ -892,7 +945,10 @@ def get_requests_per_second(
 
 
 def get_requests_by_country(
-    hours: float = 24, connection_id: int | None = None, limit: int = 15
+    hours: float = 24,
+    connection_id: int | None = None,
+    limit: int = 15,
+    tenant_id: int | None = None,
 ) -> list[dict[str, Any]]:
     """Top countries by request count (nginx access log)."""
     try:
@@ -900,12 +956,13 @@ def get_requests_by_country(
     except Exception:
         return []
     minutes = _clamp_minutes(hours)
+    nginx_filter = _host_filter_nginx(_domains_for_connection(connection_id, tenant_id))
     rows = (
         _safe_execute(
             client,
             "SELECT if(geoip_country_code = '' OR geoip_country_code IS NULL, 'Unknown', geoip_country_code) "
             "AS country, count() AS hits FROM logs.nginx_access_log "
-            f"WHERE time_local >= now() - INTERVAL {minutes} MINUTE "
+            f"WHERE time_local >= now() - INTERVAL {minutes} MINUTE{nginx_filter} "
             f"GROUP BY country ORDER BY hits DESC LIMIT {int(limit)}",
             default=[],
         )
@@ -977,7 +1034,10 @@ def get_test_traffic_by_marker(marker: str) -> dict[str, Any]:
 
 
 def get_top_client_ips(
-    hours: float = 24, connection_id: int | None = None, limit: int = 15
+    hours: float = 24,
+    connection_id: int | None = None,
+    limit: int = 15,
+    tenant_id: int | None = None,
 ) -> list[dict[str, Any]]:
     """Top client IPs from nginx access log."""
     try:
@@ -985,12 +1045,13 @@ def get_top_client_ips(
     except Exception:
         return []
     minutes = _clamp_minutes(hours)
+    nginx_filter = _host_filter_nginx(_domains_for_connection(connection_id, tenant_id))
     rows = (
         _safe_execute(
             client,
             "SELECT toString(remote_addr) AS ip, count() AS hits "
             "FROM logs.nginx_access_log "
-            f"WHERE time_local >= now() - INTERVAL {minutes} MINUTE "
+            f"WHERE time_local >= now() - INTERVAL {minutes} MINUTE{nginx_filter} "
             f"GROUP BY ip ORDER BY hits DESC LIMIT {int(limit)}",
             default=[],
         )

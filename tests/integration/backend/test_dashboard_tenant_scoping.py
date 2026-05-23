@@ -125,6 +125,79 @@ async def test_two_tenant_cross_connection_isolation(db_session):
     assert dash_svc._domains_for_connection(c_a.id, tenant_id=b.id) == []
 
 
+@pytest.mark.asyncio
+async def test_client_without_connection_gets_tenant_wide_filter(db_session):
+    """Client viewing "All domains" (connection_id=None) must see ONLY their tenant's
+    domains — not default.conf traffic, not other tenants. This is the user-reported
+    bug: a client with one or more connections selected "All" and saw the whole
+    platform's stats."""
+    pytest.importorskip("psycopg2", reason="psycopg2 not installed")
+
+    sync_url = os.environ.get(
+        "TEST_DATABASE_URL", "postgresql+asyncpg://waf:waf@localhost:5432/waf_test"
+    ).replace("+asyncpg", "")
+    os.environ["DATABASE_URL"] = sync_url
+
+    from backend.src.dashboard import service as dash_svc
+
+    t = await tenants.create_tenant(db_session, name="all-domains-t", display_name="T")
+    other = await tenants.create_tenant(db_session, name="other-t", display_name="O")
+    await insert_connection_raw(
+        db_session, tenant_id=t.id, domain="one.example.com", name="one"
+    )
+    await insert_connection_raw(
+        db_session, tenant_id=t.id, domain="two.example.com", name="two"
+    )
+    await insert_connection_raw(
+        db_session, tenant_id=other.id, domain="other.example.com", name="other"
+    )
+    await db_session.commit()
+
+    domains = dash_svc._domains_for_connection(connection_id=None, tenant_id=t.id)
+    assert set(domains) == {"one.example.com", "two.example.com"}, domains
+    # The other tenant must not appear.
+    assert "other.example.com" not in domains
+
+
+@pytest.mark.asyncio
+async def test_client_with_zero_connections_gets_empty_filter(db_session):
+    """Client whose tenant has no connections must get `[]` — which the host-filter
+    helpers translate to a sentinel that matches nothing. Previously they got an
+    unfiltered query and saw default.conf + everyone else's traffic."""
+    pytest.importorskip("psycopg2", reason="psycopg2 not installed")
+
+    sync_url = os.environ.get(
+        "TEST_DATABASE_URL", "postgresql+asyncpg://waf:waf@localhost:5432/waf_test"
+    ).replace("+asyncpg", "")
+    os.environ["DATABASE_URL"] = sync_url
+
+    from backend.src.dashboard import service as dash_svc
+
+    t = await tenants.create_tenant(db_session, name="zero-conn-t", display_name="Z")
+    await db_session.commit()
+
+    domains = dash_svc._domains_for_connection(connection_id=None, tenant_id=t.id)
+    assert domains == [], domains
+    # And the filter helper must produce a never-match clause, not an empty string.
+    assert dash_svc._host_filter_nginx(domains) == (
+        f" AND host IN ('{dash_svc._NO_DOMAINS_SENTINEL}')"
+    )
+
+
+@pytest.mark.asyncio
+async def test_admin_without_connection_gets_no_filter(db_session):
+    """Admin viewing all domains must see the whole platform — _domains_for_connection
+    returns None, which the host filter translates to an empty string (no clause)."""
+    pytest.importorskip("psycopg2", reason="psycopg2 not installed")
+
+    from backend.src.dashboard import service as dash_svc
+
+    result = dash_svc._domains_for_connection(connection_id=None, tenant_id=None)
+    assert result is None
+    assert dash_svc._host_filter_nginx(result) == ""
+    assert dash_svc._host_filter_waf(result) == ""
+
+
 # ── Router-level: unauthenticated → 401 ──────────────────────────────────────
 
 
