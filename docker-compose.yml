@@ -104,6 +104,32 @@ services:
     env_file:
       - .env
 
+  # Real-time fan-out for dashboard updates. Backend publishes aggregated
+  # geoip/events deltas via HTTP API; Centrifugo holds persistent WS/SSE
+  # connections to browser clients. Uses redis engine for HA-readiness
+  # (same Redis instance as Vector→backend pub/sub).
+  centrifugo:
+    image: centrifugo/centrifugo:v6
+    command: centrifugo --config=/centrifugo/config.json
+    ports:
+      - "127.0.0.1:8001:8000"
+    volumes:
+      - ./configs/centrifugo/config.json:/centrifugo/config.json:ro
+    environment:
+      # Env-var override: Centrifugo maps each config key path to
+      # CENTRIFUGO_<UPPER_KEY_PATH> by joining with `_`. JSON has the
+      # structural config; secrets live only in .env.
+      CENTRIFUGO_CLIENT_TOKEN_HMAC_SECRET_KEY: ${CENTRIFUGO_TOKEN_HMAC_SECRET:?CENTRIFUGO_TOKEN_HMAC_SECRET missing - run scripts/generate-env.sh}
+      CENTRIFUGO_HTTP_API_KEY: ${CENTRIFUGO_API_KEY:?CENTRIFUGO_API_KEY missing - run scripts/generate-env.sh}
+    depends_on:
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+    ulimits:
+      nofile:
+        soft: 65536
+        hard: 65536
+
   # Cache layer for backend hot reads (CrowdSec decisions, ClickHouse aggregates,
   # GeoIP lookups, frontend session). Ephemeral — no AOF, LRU eviction.
   redis:
@@ -141,6 +167,7 @@ services:
       - ./backend/alembic/:/app/alembic/
       - ./backend/alembic.ini:/app/alembic.ini
       - ./configs/angie/angie.conf:/app/etc/angie/angie.conf
+      - ./configs/angie/modsecurity/:/app/etc/angie/modsecurity/
       - ./configs/angie/http.d/:/var/lib/angie/http.d/
       # Persist user uploads (single index.html, static-site dirs, nginx config
       # dirs) across container recreations — without this they live in the
@@ -160,9 +187,17 @@ services:
       # poller compares against it to detect DNS-flip. Override per
       # environment via .env.
       WAF_EDGE_IPV4: ${WAF_EDGE_IPV4:-}
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
+      CENTRIFUGO_API_URL: ${CENTRIFUGO_API_URL:-http://centrifugo:8000/api}
+      CENTRIFUGO_API_KEY: ${CENTRIFUGO_API_KEY:?CENTRIFUGO_API_KEY missing - run scripts/generate-env.sh}
+      CENTRIFUGO_TOKEN_HMAC_SECRET: ${CENTRIFUGO_TOKEN_HMAC_SECRET:?CENTRIFUGO_TOKEN_HMAC_SECRET missing - run scripts/generate-env.sh}
     depends_on:
       postgres:
         condition: service_healthy
+      redis:
+        condition: service_healthy
+      centrifugo:
+        condition: service_started
     restart: unless-stopped
     env_file:
       - .env

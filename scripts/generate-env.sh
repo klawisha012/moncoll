@@ -3,8 +3,8 @@
 # first if you've already rotated passwords by hand.
 #
 # Why this script exists: docker-compose.yml requires POSTGRES_PASSWORD
-# via the `:?...` syntax. Without it the stack refuses to boot —
-# intentional, so we never ship weak fallbacks.
+# and CENTRIFUGO secrets via the `:?...` syntax. Without them the stack
+# refuses to boot — intentional, so we never ship weak fallbacks.
 # See .gstack/security-reports/.
 
 set -euo pipefail
@@ -22,6 +22,11 @@ WAF_JWT_SECRET=$(openssl rand -base64 48 | tr -dc 'a-zA-Z0-9' | head -c 64)
 # `cscli bouncers add --key`. The Angie bouncer config is rendered from
 # crowdsec-nginx-bouncer.conf.template at the end of this script.
 CROWDSEC_BOUNCER_KEY=$(openssl rand -base64 32 | tr -dc 'a-zA-Z0-9' | head -c 48)
+# Centrifugo secrets: token_hmac_secret signs short-lived client JWTs
+# (backend → centrifuge-js); api_key authenticates server-side HTTP
+# publish calls (backend → Centrifugo /api/publish).
+CENTRIFUGO_TOKEN_HMAC_SECRET=$(openssl rand -base64 48 | tr -dc 'a-zA-Z0-9' | head -c 64)
+CENTRIFUGO_API_KEY=$(openssl rand -base64 32 | tr -dc 'a-zA-Z0-9' | head -c 48)
 # Host docker group GID — backend container joins this group at runtime
 # to access /var/run/docker.sock without running as root. Falls back to
 # 999 (most Linux distros) when getent isn't available (eg. macOS hosts).
@@ -82,6 +87,20 @@ ACME_EMAIL=zwarder.main@gmail.com
 # (cscli bouncers add --key) and by the Angie bouncer config
 # rendered below from crowdsec-nginx-bouncer.conf.template.
 CROWDSEC_BOUNCER_KEY=$CROWDSEC_BOUNCER_KEY
+
+# Centrifugo — real-time fan-out for dashboard live updates.
+# token_hmac_secret: backend signs short-lived JWTs that centrifuge-js
+#   sends on connect; Centrifugo verifies signature with the same secret.
+# api_key: protects Centrifugo's server HTTP API. Backend sends
+#   `Authorization: apikey <KEY>` when publishing aggregated deltas.
+CENTRIFUGO_TOKEN_HMAC_SECRET=$CENTRIFUGO_TOKEN_HMAC_SECRET
+CENTRIFUGO_API_KEY=$CENTRIFUGO_API_KEY
+CENTRIFUGO_API_URL=http://centrifugo:8000/api
+
+# Redis URL used by backend's realtime consumer (Vector pushes raw geoip
+# events to channel `attacks:raw`, consumer aggregates 500ms batches and
+# publishes deltas to Centrifugo). Same Redis as Centrifugo engine.
+REDIS_URL=redis://redis:6379/0
 
 EOF
 

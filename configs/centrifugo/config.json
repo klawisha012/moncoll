@@ -1,0 +1,34 @@
+{
+  "log": {
+    "level": "info"
+  },
+
+  "http_server": {
+    "address": "0.0.0.0",
+    "port": 8000
+  },
+
+  "client": {
+    "allowed_origins": [
+      "http://localhost:3000",
+      "http://127.0.0.1:3000"
+    ]
+  },
+
+  "engine": {
+    "type": "memory"
+  },
+
+  "channel": {
+    "namespaces": [
+      {
+        "name": "dashboard",
+        "presence": false,
+        "history_size": 0,
+        "history_ttl": "0s",
+        "force_recovery": false,
+        "join_leave": false
+      }
+    ]
+  }
+}

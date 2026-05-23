@@ -269,6 +269,22 @@ sinks:
       max_bytes: 10485760 # 10MB
       timeout_secs: 0.1
 
+  # Sink for live GeoIP events to Redis pub/sub. Backend's realtime consumer
+  # SUBSCRIBE'ит на этот канал, агрегирует точки карты в батч-дельты и
+  # публикует в Centrifugo. История остаётся в ClickHouse (sink выше) —
+  # это исключительно push-канал для real-time dashboard.
+  geoip_realtime_sink:
+    type: redis
+    inputs:
+      - parse_geoip_access
+    url: "redis://redis:6379/0"
+    key: "attacks:raw"
+    data_type: channel
+    encoding:
+      codec: json
+    healthcheck:
+      enabled: false
+
   # Sink for CrowdSec alerts to ClickHouse
   crowdsec_alerts_sink:
     type: clickhouse

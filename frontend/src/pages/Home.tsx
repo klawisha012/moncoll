@@ -11,6 +11,7 @@ import { EmptyState } from "../components/charts/chart-utils";
 import GeoipGlobe from "../components/GeoipGlobe";
 import Geoip2DMap from "../components/Geoip2DMap";
 import { injectionLabel } from "../utils/ruleNames";
+import { subscribe, type GeoipMapDelta } from "../realtime/client";
 
 interface EnrichedGeoPoint extends GeoipMapPoint {
   topIp?: string;
@@ -157,12 +158,54 @@ export default function Home() {
       }
     };
     fetchAll();
-    const id = setInterval(fetchAll, 30_000);
+    // Fallback poll: re-fetch snapshot every 60s so the time-windowed view
+    // (`hours=24`) stays accurate even after live deltas accumulate. Live
+    // updates from Centrifugo arrive every ~500ms (see subscribe below).
+    const id = setInterval(fetchAll, 60_000);
     return () => {
       cancelledRef.current = true;
       clearInterval(id);
     };
   }, [hours, connectionId]);
+
+  // ── Real-time map deltas via Centrifugo ──
+  // Backend aggregates raw geoip events into 500ms-batched deltas and
+  // publishes to `dashboard:map`. We merge them into existing state so the
+  // map lights up new attacks immediately without waiting for the next
+  // fallback poll.
+  useEffect(() => {
+    const unsub = subscribe<GeoipMapDelta>("dashboard:map", (delta) => {
+      if (cancelledRef.current) return;
+      setData((prev) => {
+        // Index existing points by bucket key (cc|lat|lon|city) for O(1) merge
+        const idx = new Map<string, number>();
+        const next = [...(prev ?? [])];
+        next.forEach((p, i) => {
+          const k = `${(p.country_code || "").toUpperCase()}|${p.latitude.toFixed(2)}|${p.longitude.toFixed(2)}|${p.city_name || ""}`;
+          idx.set(k, i);
+        });
+        for (const pt of delta.points) {
+          const k = `${pt.cc}|${pt.lat.toFixed(2)}|${pt.lon.toFixed(2)}|${pt.city || ""}`;
+          const i = idx.get(k);
+          if (i !== undefined) {
+            next[i] = { ...next[i], hits: next[i].hits + pt.delta };
+          } else {
+            const fresh = {
+              longitude: pt.lon,
+              latitude: pt.lat,
+              country_code: pt.cc,
+              city_name: pt.city,
+              hits: pt.delta,
+            };
+            idx.set(k, next.length);
+            next.push(fresh);
+          }
+        }
+        return next;
+      });
+    });
+    return unsub;
+  }, []);
 
   const unresolvedList = unresolved ?? [];
   const unresolvedTotal = unresolvedList.reduce((a, d) => a + d.hits, 0);

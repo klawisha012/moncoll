@@ -787,4 +787,12 @@ export const api = {
     deleteUser: (id: number) =>
       fetchApi<void>(`/api/auth/users/${id}`, { method: "DELETE" }),
   },
+
+  // ── Real-time (Centrifugo) ──
+  // Short-lived HMAC JWT for centrifuge-js connect. centrifuge-js calls
+  // this on initial connect and on token refresh (via getToken callback).
+  getRealtimeToken: () =>
+    fetchApi<{ token: string; ttl_seconds: number }>("/api/realtime/token", {
+      method: "POST",
+    }),
 };
