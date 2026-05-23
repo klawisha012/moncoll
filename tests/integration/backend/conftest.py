@@ -15,6 +15,27 @@ from backend.src.db.models import (  # noqa: F401 — ensures models are in meta
 )
 
 
+@pytest_asyncio.fixture(autouse=True)
+async def _seed_admin(db_session):
+    """Seed one admin user so /login passes the 'system not provisioned' guard.
+
+    Phase 12 added ``if count_admins == 0: raise 503`` to the login endpoint.
+    Without an admin row every test that calls /login (or /password/*) would
+    get 503 instead of the response it is actually testing.
+
+    autouse=True means this runs for every test in tests/integration/backend/
+    without requiring an explicit parameter.  Tests that do not touch /login
+    are unaffected — the extra DB row is invisible to them.
+    """
+    from backend.src.auth import service as auth_service
+
+    await auth_service.create_admin(
+        db_session,
+        email="seed-admin@test.local",
+        password="seedpass1",
+    )
+
+
 @pytest.fixture(scope="session")
 def event_loop():
     loop = asyncio.new_event_loop()
