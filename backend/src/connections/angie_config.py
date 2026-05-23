@@ -189,9 +189,9 @@ def render(conn: dict) -> str:
         lines.append("    }")
     else:
         # Pre-active: HTTP-only proxy so traffic flows immediately after DNS flip.
-        lines.append("    modsecurity on;")
-        lines.append("    modsecurity_rules_file /etc/angie/modsecurity/rules.conf;")
-        lines.append("")
+        # ModSecurity is enabled globally at http {} scope (see angie.conf),
+        # rules are inherited — do not re-declare at server scope or rules
+        # load twice and workers silently drop responses.
         lines.append("    location /socket.io/ {")
         lines.append("        modsecurity off;")
         lines.extend(proxy_block)
@@ -232,8 +232,8 @@ def render(conn: dict) -> str:
         lines.append("    access_log /var/log/angie/access.log combined;")
         lines.append(blocked_ips_include)
         lines.append("")
-        lines.append("    modsecurity on;")
-        lines.append("    modsecurity_rules_file /etc/angie/modsecurity/rules.conf;")
+        # ModSecurity inherited from http {} scope (see angie.conf).
+        # Per-location overrides below still apply.
         comp = _emit_compression_overrides(compression)
         if comp:
             lines.append("")
