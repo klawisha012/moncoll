@@ -1,11 +1,8 @@
-import { useCallback, useState, type FormEvent } from "react";
+import { useCallback, useEffect, useState, type FormEvent } from "react";
 import { Link } from "react-router-dom";
 import { useSettings } from "../context/SettingsContext";
-import { api } from "../api/client";
+import { api, type ProvidersResponse } from "../api/client";
 import TurnstileWidget from "../components/TurnstileWidget";
-
-const TURNSTILE_SITE_KEY = (import.meta as unknown as { env: Record<string, string> }).env
-  ?.VITE_TURNSTILE_SITE_KEY ?? "";
 
 export default function ForgotPassword() {
   const { t } = useSettings();
@@ -14,6 +11,12 @@ export default function ForgotPassword() {
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [sent, setSent] = useState(false);
+  const [devResetUrl, setDevResetUrl] = useState<string | null>(null);
+  const [providers, setProviders] = useState<ProvidersResponse | null>(null);
+
+  useEffect(() => {
+    api.auth.getProviders().then(setProviders).catch(() => null);
+  }, []);
 
   const handleToken = useCallback((token: string) => setCaptchaToken(token), []);
 
@@ -22,7 +25,8 @@ export default function ForgotPassword() {
     setError(null);
     setSubmitting(true);
     try {
-      await api.auth.forgotPassword(email);
+      const resp = await api.auth.forgotPassword(email, captchaToken);
+      if (resp.dev_reset_url) setDevResetUrl(resp.dev_reset_url);
       setSent(true);
     } catch (err) {
       setError(err instanceof Error ? err.message : t("general.error"));
@@ -31,7 +35,8 @@ export default function ForgotPassword() {
     }
   };
 
-  const canSubmit = email && (!TURNSTILE_SITE_KEY || captchaToken);
+  const captchaReady = !providers || !!captchaToken;
+  const canSubmit = email && captchaReady;
 
   return (
     <div className="cv-root">
@@ -58,6 +63,12 @@ export default function ForgotPassword() {
               <span className="cv-kicker">{t("auth.forgot.kicker")}</span>
             </div>
             <p className="cv-body">{t("auth.forgot.sentDesc")}</p>
+            {devResetUrl && (
+              <div className="cv-dev-banner">
+                <span className="cv-dev-tag">{t("auth.dev.smtpOff")}</span>
+                <a href={devResetUrl} className="cv-dev-link">{devResetUrl}</a>
+              </div>
+            )}
             <Link to="/login" className="cv-submit" style={{ textDecoration: "none", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
               <span>{t("auth.forgot.backToLogin")}</span>
               <span className="cv-ar">→</span>
@@ -80,9 +91,12 @@ export default function ForgotPassword() {
               </div>
             </div>
 
-            {TURNSTILE_SITE_KEY && (
+            {providers?.captcha_site_key && (
               <div className="cv-captcha">
-                <TurnstileWidget siteKey={TURNSTILE_SITE_KEY} onToken={handleToken} />
+                <TurnstileWidget siteKey={providers.captcha_site_key} onToken={handleToken} />
+                {providers.captcha_dev_mode && (
+                  <span className="cv-captcha-dev-tag">{t("auth.captcha.devMode")}</span>
+                )}
               </div>
             )}
 
@@ -178,7 +192,26 @@ const styles = `
   flex: 1; border: 0; background: transparent; outline: 0; padding: 14px 16px;
   font-family: 'Inter Tight', sans-serif; font-weight: 500; font-size: 16px; color: var(--ink); min-width: 0;
 }
-.cv-captcha { display: flex; justify-content: flex-start; }
+.cv-captcha { display: flex; align-items: center; gap: 12px; justify-content: flex-start; }
+.cv-captcha-dev-tag {
+  font-family: 'Oswald', sans-serif; font-weight: 700;
+  font-size: 10px; letter-spacing: 0.22em; text-transform: uppercase;
+  color: var(--red); border: 2px solid var(--red); padding: 2px 6px;
+}
+.cv-dev-banner {
+  border: 3px dashed var(--red); padding: 14px 16px;
+  display: flex; flex-direction: column; gap: 6px;
+  background: rgba(214, 54, 42, 0.04);
+}
+.cv-dev-tag {
+  font-family: 'Oswald', sans-serif; font-weight: 700;
+  font-size: 11px; letter-spacing: 0.22em; text-transform: uppercase; color: var(--red);
+}
+.cv-dev-link {
+  font-family: 'JetBrains Mono', monospace; font-size: 12px;
+  color: var(--ink); word-break: break-all; text-decoration: underline;
+}
+.cv-dev-link:hover { color: var(--red); }
 .cv-body { font-family: 'Inter Tight', sans-serif; font-size: 15px; color: var(--ink); line-height: 1.6; margin: 0; }
 .cv-error {
   border: 3px solid var(--red); background: rgba(214, 54, 42, 0.08); padding: 12px 16px;

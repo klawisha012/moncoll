@@ -501,11 +501,25 @@ export type SaasLoginResponse =
 
 export interface SignupResponse {
   message: string;
+  // Present only when WAF_SMTP_HOST is unset (dev mode). Lets the UI show the
+  // verify link directly so the user isn't blocked on email delivery.
+  dev_verify_url?: string;
+}
+
+export interface ForgotPasswordResponse {
+  message: string;
+  dev_reset_url?: string;
 }
 
 export interface ProvidersResponse {
   google: boolean;
   github: boolean;
+  // Always a usable Turnstile site key. Falls back to Cloudflare's "always pass"
+  // test key (1x00000000000000000000AA) when WAF_TURNSTILE_SITE_KEY is unset,
+  // so the captcha widget stays visible in dev/staging.
+  captcha_site_key: string;
+  captcha_dev_mode: boolean;
+  smtp_dev_mode: boolean;
 }
 
 export interface TotpSetupResponse {
@@ -863,10 +877,10 @@ export const api = {
         body: JSON.stringify({ token }),
       }),
 
-    forgotPassword: (email: string) =>
-      fetchApi<{ message: string }>("/api/auth/password/forgot", {
+    forgotPassword: (email: string, captchaToken: string) =>
+      fetchApi<ForgotPasswordResponse>("/api/auth/password/forgot", {
         method: "POST",
-        body: JSON.stringify({ email }),
+        body: JSON.stringify({ email, captcha_token: captchaToken }),
       }),
 
     resetPassword: (token: string, newPassword: string) =>

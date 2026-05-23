@@ -45,13 +45,27 @@ def _set_session_cookie(response: Response, token: str) -> None:
     )
 
 
+# Cloudflare Turnstile test site key — always passes verification. Used when
+# WAF_TURNSTILE_SITE_KEY is not configured, so the captcha widget remains
+# visible in dev/staging without requiring a real Cloudflare account.
+# See https://developers.cloudflare.com/turnstile/troubleshooting/testing/
+_TURNSTILE_DEV_SITE_KEY = "1x00000000000000000000AA"
+
+
 @router.get("/providers")
 async def providers():
     s = get_settings()
     return {
         "google": s.oauth_google_enabled,
         "github": s.oauth_github_enabled,
-        "captcha_site_key": s.turnstile_site_key,
+        # Fall back to the dev/test key so the widget renders. The companion
+        # _SECRET_KEY is intentionally left unset — captcha.verify() short-
+        # circuits to True when the secret is absent (see captcha.py), which
+        # matches the test key's "always pass" behaviour. To enforce captcha
+        # in production set both WAF_TURNSTILE_SITE_KEY and _SECRET_KEY.
+        "captcha_site_key": s.turnstile_site_key or _TURNSTILE_DEV_SITE_KEY,
+        "captcha_dev_mode": not s.turnstile_site_key,
+        "smtp_dev_mode": not s.smtp_host,
     }
 
 
@@ -88,13 +102,20 @@ async def signup(
         raise HTTPException(status_code=409, detail="email already in use") from None
 
     token = await verification.issue(session, user, purpose="verify_email")
-    verify_url = f"{get_settings().public_base_url}/verify-email?token={token}"
+    s = get_settings()
+    verify_url = f"{s.public_base_url}/verify-email?token={token}"
     await mailer.send_verify_email(
         to_email=user.email,
         display_name=user.display_name,
         verify_url=verify_url,
     )
-    return {"message": "check your email"}
+    body: dict = {"message": "check your email"}
+    # Dev mode: SMTP not configured → email was logged, not sent. Include the
+    # verify URL in the response so the UI can show it directly. This is gated
+    # on smtp_host being absent so production never leaks tokens via the API.
+    if not s.smtp_host:
+        body["dev_verify_url"] = verify_url
+    return body
 
 
 @router.post("/verify-email", response_model=LoginResponse)
@@ -200,15 +221,22 @@ async def forgot(
 ):
     await captcha.verify_or_raise(payload.captcha_token, request)
     user = await auth_service.get_by_email(session, payload.email)
+    s = get_settings()
+    dev_url: str | None = None
     if user and user.email_verified_at:
         token = await verification.issue(session, user, purpose="reset_password")
-        reset_url = f"{get_settings().public_base_url}/reset-password?token={token}"
+        reset_url = f"{s.public_base_url}/reset-password?token={token}"
         await mailer.send_password_reset(
             to_email=user.email,
             display_name=user.display_name,
             reset_url=reset_url,
         )
-    return {"message": "if that email exists, a reset link was sent"}
+        if not s.smtp_host:
+            dev_url = reset_url
+    body: dict = {"message": "if that email exists, a reset link was sent"}
+    if dev_url is not None:
+        body["dev_reset_url"] = dev_url
+    return body
 
 
 @router.post("/password/reset", status_code=204)

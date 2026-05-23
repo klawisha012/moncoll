@@ -5,9 +5,6 @@ import { useSettings } from "../context/SettingsContext";
 import { api, type ProvidersResponse } from "../api/client";
 import TurnstileWidget from "../components/TurnstileWidget";
 
-const TURNSTILE_SITE_KEY = (import.meta as unknown as { env: Record<string, string> }).env
-  ?.VITE_TURNSTILE_SITE_KEY ?? "";
-
 const TENANT_NAME_RE = /^[a-zA-Z0-9][a-zA-Z0-9-]{1,38}[a-zA-Z0-9]$|^[a-zA-Z0-9]{3}$/;
 
 export default function Signup() {
@@ -23,6 +20,7 @@ export default function Signup() {
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [done, setDone] = useState(false);
+  const [devVerifyUrl, setDevVerifyUrl] = useState<string | null>(null);
   const [providers, setProviders] = useState<ProvidersResponse | null>(null);
 
   useEffect(() => {
@@ -32,6 +30,10 @@ export default function Signup() {
   const handleToken = useCallback((token: string) => setCaptchaToken(token), []);
 
   const oauthSignup = (provider: "google" | "github") => {
+    if (!providers?.[provider]) {
+      setError(t("auth.oauth.notConfigured").replace("{provider}", provider));
+      return;
+    }
     oauthStart(provider, "signup", tenantName || undefined);
   };
 
@@ -44,7 +46,8 @@ export default function Signup() {
     setError(null);
     setSubmitting(true);
     try {
-      await signup(email, password, tenantName, captchaToken, displayName || undefined);
+      const resp = await signup(email, password, tenantName, captchaToken, displayName || undefined);
+      if (resp.dev_verify_url) setDevVerifyUrl(resp.dev_verify_url);
       setDone(true);
     } catch (err) {
       setError(err instanceof Error ? err.message : t("general.error"));
@@ -53,7 +56,8 @@ export default function Signup() {
     }
   };
 
-  const canSubmit = email && password && tenantName && (!TURNSTILE_SITE_KEY || captchaToken);
+  const captchaReady = !providers || !!captchaToken;
+  const canSubmit = email && password && tenantName && captchaReady;
 
   if (done) {
     return (
@@ -78,6 +82,12 @@ export default function Signup() {
             <p style={{ fontFamily: "'Inter Tight', sans-serif", fontSize: 15, color: "var(--ink)", lineHeight: 1.6 }}>
               {t("auth.signup.checkEmailDesc").replace("{email}", email)}
             </p>
+            {devVerifyUrl && (
+              <div className="cv-dev-banner">
+                <span className="cv-dev-tag">{t("auth.dev.smtpOff")}</span>
+                <a href={devVerifyUrl} className="cv-dev-link">{devVerifyUrl}</a>
+              </div>
+            )}
             <Link to="/login" className="cv-submit" style={{ textDecoration: "none", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
               <span>{t("auth.signup.haveAccount")}</span>
               <span className="cv-ar">→</span>
@@ -117,26 +127,30 @@ export default function Signup() {
             <Link to="/login" className="cv-switch-link">{t("auth.signup.haveAccount")}</Link>
           </div>
 
-          {/* OAuth buttons */}
-          {(providers?.google || providers?.github) && (
-            <div className="cv-oauth-row">
-              {providers.google && (
-                <button type="button" className="cv-oauth-btn" onClick={() => oauthSignup("google")}>
-                  <span className="cv-oauth-icon">G</span>
-                  Google
-                </button>
-              )}
-              {providers.github && (
-                <button type="button" className="cv-oauth-btn" onClick={() => oauthSignup("github")}>
-                  <span className="cv-oauth-icon">⌥</span>
-                  GitHub
-                </button>
-              )}
-            </div>
-          )}
-          {providers && (providers.google || providers.github) && (
-            <div className="cv-divider"><span>{t("auth.login.orEmail")}</span></div>
-          )}
+          {/* OAuth buttons — always visible. Disabled with hint when not configured. */}
+          <div className="cv-oauth-row">
+            <button
+              type="button"
+              className={`cv-oauth-btn ${providers?.google ? "" : "cv-oauth-btn-off"}`}
+              onClick={() => oauthSignup("google")}
+              title={providers?.google ? "Google" : t("auth.oauth.notConfigured").replace("{provider}", "Google")}
+            >
+              <span className="cv-oauth-icon">G</span>
+              Google
+              {providers && !providers.google && <span className="cv-oauth-off-tag">{t("auth.oauth.offTag")}</span>}
+            </button>
+            <button
+              type="button"
+              className={`cv-oauth-btn ${providers?.github ? "" : "cv-oauth-btn-off"}`}
+              onClick={() => oauthSignup("github")}
+              title={providers?.github ? "GitHub" : t("auth.oauth.notConfigured").replace("{provider}", "GitHub")}
+            >
+              <span className="cv-oauth-icon">⌥</span>
+              GitHub
+              {providers && !providers.github && <span className="cv-oauth-off-tag">{t("auth.oauth.offTag")}</span>}
+            </button>
+          </div>
+          <div className="cv-divider"><span>{t("auth.login.orEmail")}</span></div>
 
           <div className="cv-field">
             <label htmlFor="cv-email">{t("auth.email")}</label>
@@ -180,9 +194,12 @@ export default function Signup() {
             </div>
           </div>
 
-          {TURNSTILE_SITE_KEY && (
+          {providers?.captcha_site_key && (
             <div className="cv-captcha">
-              <TurnstileWidget siteKey={TURNSTILE_SITE_KEY} onToken={handleToken} />
+              <TurnstileWidget siteKey={providers.captcha_site_key} onToken={handleToken} />
+              {providers.captcha_dev_mode && (
+                <span className="cv-captcha-dev-tag">{t("auth.captcha.devMode")}</span>
+              )}
             </div>
           )}
 
@@ -314,7 +331,44 @@ const styles = `
   cursor: pointer; color: var(--ink);
 }
 .cv-reveal:hover { color: var(--red); }
-.cv-captcha { display: flex; justify-content: flex-start; }
+.cv-captcha { display: flex; align-items: center; gap: 12px; justify-content: flex-start; }
+.cv-captcha-dev-tag {
+  font-family: 'Oswald', sans-serif; font-weight: 700;
+  font-size: 10px; letter-spacing: 0.22em; text-transform: uppercase;
+  color: var(--red);
+  border: 2px solid var(--red);
+  padding: 2px 6px;
+}
+.cv-oauth-btn-off {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+.cv-oauth-btn-off:hover { background: var(--cream); color: var(--ink); }
+.cv-oauth-off-tag {
+  margin-left: auto;
+  font-family: 'Oswald', sans-serif; font-weight: 700;
+  font-size: 9px; letter-spacing: 0.2em; text-transform: uppercase;
+  color: var(--red);
+}
+.cv-dev-banner {
+  border: 3px dashed var(--red);
+  padding: 14px 16px;
+  display: flex; flex-direction: column; gap: 6px;
+  background: rgba(214, 54, 42, 0.04);
+}
+.cv-dev-tag {
+  font-family: 'Oswald', sans-serif; font-weight: 700;
+  font-size: 11px; letter-spacing: 0.22em; text-transform: uppercase;
+  color: var(--red);
+}
+.cv-dev-link {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 12px;
+  color: var(--ink);
+  word-break: break-all;
+  text-decoration: underline;
+}
+.cv-dev-link:hover { color: var(--red); }
 .cv-error {
   border: 3px solid var(--red); background: rgba(214, 54, 42, 0.08);
   padding: 12px 16px;

@@ -234,6 +234,10 @@ const en: TranslationDict = {
   "auth.hidePassword": "Hide password",
   "auth.showPasswordShort": "show",
   "auth.hidePasswordShort": "hide",
+  "auth.oauth.notConfigured": "{provider} OAuth is not configured on this instance",
+  "auth.oauth.offTag": "Off",
+  "auth.captcha.devMode": "Dev test key",
+  "auth.dev.smtpOff": "SMTP not configured — use this link directly",
 
   // Users — role labels
   "auth.users.role.admin": "admin",
@@ -959,6 +963,10 @@ const ru: TranslationDict = {
   "auth.hidePassword": "Скрыть пароль",
   "auth.showPasswordShort": "показ",
   "auth.hidePasswordShort": "скрыть",
+  "auth.oauth.notConfigured": "OAuth-провайдер {provider} не настроен на этой инсталляции",
+  "auth.oauth.offTag": "Выкл",
+  "auth.captcha.devMode": "Dev test key",
+  "auth.dev.smtpOff": "SMTP не настроен — используйте ссылку напрямую",
 
   // Users — role labels
   "auth.users.role.admin": "админ",

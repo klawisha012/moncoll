@@ -6,7 +6,7 @@ import {
   useState,
   type ReactNode,
 } from "react";
-import { api, type User } from "../api/client";
+import { api, type SignupResponse, type User } from "../api/client";
 
 export type { User };
 
@@ -25,7 +25,7 @@ export interface AuthContextValue {
     tenantName: string,
     captchaToken: string,
     displayName?: string,
-  ) => Promise<{ message: string }>;
+  ) => Promise<SignupResponse>;
   oauthStart: (
     provider: "google" | "github",
     intent: "signup" | "login",
@@ -99,9 +99,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const oauthStart = useCallback(
     (provider: "google" | "github", intent: "signup" | "login", tenantName?: string) => {
-      const params = new URLSearchParams({ provider, intent });
+      // Backend route is /api/auth/oauth/{provider}/start?intent=...&tenant_name=...
+      const params = new URLSearchParams({ intent });
       if (tenantName) params.set("tenant_name", tenantName);
-      window.location.href = `/api/auth/oauth/start?${params.toString()}`;
+      window.location.href = `/api/auth/oauth/${provider}/start?${params.toString()}`;
     },
     [],
   );

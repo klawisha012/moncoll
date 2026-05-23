@@ -5,9 +5,6 @@ import { useSettings } from "../context/SettingsContext";
 import { api, type ProvidersResponse } from "../api/client";
 import TurnstileWidget from "../components/TurnstileWidget";
 
-const TURNSTILE_SITE_KEY = (import.meta as unknown as { env: Record<string, string> }).env
-  ?.VITE_TURNSTILE_SITE_KEY ?? "";
-
 export default function Login() {
   const navigate = useNavigate();
   const { login } = useAuth();
@@ -55,10 +52,15 @@ export default function Login() {
   };
 
   const oauthLogin = (provider: "google" | "github") => {
+    if (!providers?.[provider]) {
+      setError(t("auth.oauth.notConfigured").replace("{provider}", provider));
+      return;
+    }
     window.location.href = `/api/auth/oauth/${provider}/start?intent=login`;
   };
 
-  const canSubmit = email && password && (!TURNSTILE_SITE_KEY || captchaToken) && (!totpRequired || totpCode.length === 6);
+  const captchaReady = !providers || !!captchaToken;
+  const canSubmit = email && password && captchaReady && (!totpRequired || totpCode.length === 6);
 
   return (
     <div className="cv-root">
@@ -89,26 +91,30 @@ export default function Login() {
             <Link to="/signup" className="cv-switch-link">{t("auth.login.noAccount")}</Link>
           </div>
 
-          {/* OAuth buttons */}
-          {(providers?.google || providers?.github) && (
-            <div className="cv-oauth-row">
-              {providers.google && (
-                <button type="button" className="cv-oauth-btn" onClick={() => oauthLogin("google")}>
-                  <span className="cv-oauth-icon">G</span>
-                  Google
-                </button>
-              )}
-              {providers.github && (
-                <button type="button" className="cv-oauth-btn" onClick={() => oauthLogin("github")}>
-                  <span className="cv-oauth-icon">⌥</span>
-                  GitHub
-                </button>
-              )}
-            </div>
-          )}
-          {providers && (providers.google || providers.github) && (
-            <div className="cv-divider"><span>{t("auth.login.orEmail")}</span></div>
-          )}
+          {/* OAuth buttons — always visible; disabled with hint when provider env not configured. */}
+          <div className="cv-oauth-row">
+            <button
+              type="button"
+              className={`cv-oauth-btn ${providers?.google ? "" : "cv-oauth-btn-off"}`}
+              onClick={() => oauthLogin("google")}
+              title={providers?.google ? "Google" : t("auth.oauth.notConfigured").replace("{provider}", "Google")}
+            >
+              <span className="cv-oauth-icon">G</span>
+              Google
+              {providers && !providers.google && <span className="cv-oauth-off-tag">{t("auth.oauth.offTag")}</span>}
+            </button>
+            <button
+              type="button"
+              className={`cv-oauth-btn ${providers?.github ? "" : "cv-oauth-btn-off"}`}
+              onClick={() => oauthLogin("github")}
+              title={providers?.github ? "GitHub" : t("auth.oauth.notConfigured").replace("{provider}", "GitHub")}
+            >
+              <span className="cv-oauth-icon">⌥</span>
+              GitHub
+              {providers && !providers.github && <span className="cv-oauth-off-tag">{t("auth.oauth.offTag")}</span>}
+            </button>
+          </div>
+          <div className="cv-divider"><span>{t("auth.login.orEmail")}</span></div>
 
           <div className="cv-field">
             <label htmlFor="cv-email">{t("auth.email")}</label>
@@ -172,10 +178,13 @@ export default function Login() {
             </div>
           )}
 
-          {/* Turnstile captcha */}
-          {TURNSTILE_SITE_KEY && (
+          {/* Turnstile captcha — site key (and dev fallback) supplied by /api/auth/providers */}
+          {providers?.captcha_site_key && (
             <div className="cv-captcha">
-              <TurnstileWidget siteKey={TURNSTILE_SITE_KEY} onToken={handleToken} />
+              <TurnstileWidget siteKey={providers.captcha_site_key} onToken={handleToken} />
+              {providers.captcha_dev_mode && (
+                <span className="cv-captcha-dev-tag">{t("auth.captcha.devMode")}</span>
+              )}
             </div>
           )}
 
@@ -400,7 +409,25 @@ const styles = `
 }
 .cv-reveal:hover { color: var(--red); }
 
-.cv-captcha { display: flex; justify-content: flex-start; }
+.cv-captcha { display: flex; align-items: center; gap: 12px; justify-content: flex-start; }
+.cv-captcha-dev-tag {
+  font-family: 'Oswald', sans-serif; font-weight: 700;
+  font-size: 10px; letter-spacing: 0.22em; text-transform: uppercase;
+  color: var(--red);
+  border: 2px solid var(--red);
+  padding: 2px 6px;
+}
+.cv-oauth-btn-off {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+.cv-oauth-btn-off:hover { background: var(--cream); color: var(--ink); }
+.cv-oauth-off-tag {
+  margin-left: auto;
+  font-family: 'Oswald', sans-serif; font-weight: 700;
+  font-size: 9px; letter-spacing: 0.2em; text-transform: uppercase;
+  color: var(--red);
+}
 
 .cv-error {
   border: 3px solid var(--red);
