@@ -11,14 +11,30 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
+from src.auth.dependencies import require_verified
 from src.dashboard import service as ds
 from src.dashboard.router import router as dashboard_router
+
+
+class _FakeAdmin:
+    """Minimal User-like object satisfying require_verified (tenant_id=None → admin)."""
+
+    id = 1
+    tenant_id = None
+    platform_role = "admin"
+    email_verified_at = "2025-01-01"  # non-None → passes verified check
+
+
+def _fake_admin() -> _FakeAdmin:
+    return _FakeAdmin()
 
 
 @pytest.fixture
 def app() -> FastAPI:
     test_app = FastAPI()
     test_app.include_router(dashboard_router)
+    # Override auth so the tests reach ClickHouse logic without a real DB/session.
+    test_app.dependency_overrides[require_verified] = _fake_admin
     return test_app
 
 
