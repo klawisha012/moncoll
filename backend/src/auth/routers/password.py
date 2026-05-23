@@ -104,17 +104,32 @@ async def signup(
     token = await verification.issue(session, user, purpose="verify_email")
     s = get_settings()
     verify_url = f"{s.public_base_url}/verify-email?token={token}"
-    await mailer.send_verify_email(
-        to_email=user.email,
-        display_name=user.display_name,
-        verify_url=verify_url,
-    )
+    # Email is best-effort: a network failure to the SMTP server (provider
+    # outage, ISP blocking outbound 587, broken DNS) MUST NOT 500 the
+    # signup itself — the user is already created and the verify token is
+    # in the DB. Log the failure, then return the dev_verify_url so the UI
+    # can either show the link directly (dev mode) or surface an instructions
+    # banner (prod mode with smtp_send_failed=true).
+    smtp_send_failed = False
+    try:
+        await mailer.send_verify_email(
+            to_email=user.email,
+            display_name=user.display_name,
+            verify_url=verify_url,
+        )
+    except Exception as exc:  # noqa: BLE001 — aiosmtplib raises a dozen
+        logger.warning("verify-email send failed: %s", exc)
+        smtp_send_failed = True
+
     body: dict = {"message": "check your email"}
-    # Dev mode: SMTP not configured → email was logged, not sent. Include the
-    # verify URL in the response so the UI can show it directly. This is gated
-    # on smtp_host being absent so production never leaks tokens via the API.
-    if not s.smtp_host:
+    # Surface the verify URL when:
+    #   - SMTP wasn't configured (dev mode), OR
+    #   - SMTP was configured but the send blew up — without this the user
+    #     would be stuck unable to complete signup.
+    if not s.smtp_host or smtp_send_failed:
         body["dev_verify_url"] = verify_url
+        if smtp_send_failed:
+            body["smtp_send_failed"] = True
     return body
 
 
@@ -223,19 +238,26 @@ async def forgot(
     user = await auth_service.get_by_email(session, payload.email)
     s = get_settings()
     dev_url: str | None = None
+    smtp_send_failed = False
     if user and user.email_verified_at:
         token = await verification.issue(session, user, purpose="reset_password")
         reset_url = f"{s.public_base_url}/reset-password?token={token}"
-        await mailer.send_password_reset(
-            to_email=user.email,
-            display_name=user.display_name,
-            reset_url=reset_url,
-        )
-        if not s.smtp_host:
+        try:
+            await mailer.send_password_reset(
+                to_email=user.email,
+                display_name=user.display_name,
+                reset_url=reset_url,
+            )
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("reset-password send failed: %s", exc)
+            smtp_send_failed = True
+        if not s.smtp_host or smtp_send_failed:
             dev_url = reset_url
     body: dict = {"message": "if that email exists, a reset link was sent"}
     if dev_url is not None:
         body["dev_reset_url"] = dev_url
+    if smtp_send_failed:
+        body["smtp_send_failed"] = True
     return body
 
 
