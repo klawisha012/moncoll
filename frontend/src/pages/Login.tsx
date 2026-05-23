@@ -1,42 +1,64 @@
-import { useState, type FormEvent } from "react";
-import { useNavigate } from "react-router-dom";
+import { useCallback, useEffect, useState, type FormEvent } from "react";
+import { Link, useNavigate } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 import { useSettings } from "../context/SettingsContext";
+import { api, type ProvidersResponse } from "../api/client";
+import TurnstileWidget from "../components/TurnstileWidget";
+
+const TURNSTILE_SITE_KEY = (import.meta as unknown as { env: Record<string, string> }).env
+  ?.VITE_TURNSTILE_SITE_KEY ?? "";
 
 export default function Login() {
   const navigate = useNavigate();
   const { login } = useAuth();
   const { t } = useSettings();
-  const [username, setUsername] = useState("");
+
+  const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
+  const [captchaToken, setCaptchaToken] = useState("");
+  const [totpCode, setTotpCode] = useState("");
+  const [totpRequired, setTotpRequired] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [providers, setProviders] = useState<ProvidersResponse | null>(null);
+
+  useEffect(() => {
+    api.auth.getProviders().then(setProviders).catch(() => null);
+  }, []);
+
+  const handleToken = useCallback((token: string) => setCaptchaToken(token), []);
 
   const submit = async (e: FormEvent) => {
     e.preventDefault();
     setError(null);
     setSubmitting(true);
     try {
-      // captchaToken is "" here — Phase 15 will wire up TurnstileWidget
-      const result = await login(username, password, "");
-      if ("totp_required" in result || "enrol_required" in result) {
-        // Phase 15 handles TOTP flow; for now surface a message
-        setError("TOTP required — upgrade to the full login page");
+      const result = await login(email, password, captchaToken, totpRequired ? totpCode : undefined);
+      if ("enrol_required" in result) {
+        navigate("/totp-setup", { replace: true });
         return;
       }
-      try {
-        localStorage.setItem("waf-sidebar-collapsed", "1");
-      } catch {
-        // ignore
+      if ("totp_required" in result) {
+        setTotpRequired(true);
+        setSubmitting(false);
+        return;
       }
-      navigate("/home", { replace: true });
+      // success
+      const role = result.user.platform_role;
+      navigate(role === "admin" ? "/monitoring" : "/home", { replace: true });
     } catch (err) {
       setError(err instanceof Error ? err.message : t("general.error"));
     } finally {
       setSubmitting(false);
     }
   };
+
+  const oauthLogin = (provider: "google" | "github") => {
+    window.location.href = `/api/auth/oauth/${provider}/start?intent=login`;
+  };
+
+  const canSubmit = email && password && (!TURNSTILE_SITE_KEY || captchaToken) && (!totpRequired || totpCode.length === 6);
 
   return (
     <div className="cv-root">
@@ -64,24 +86,42 @@ export default function Login() {
         <form onSubmit={submit} className="cv-form">
           <div className="cv-form-head">
             <span className="cv-kicker">{t("auth.login.kicker")}</span>
-            <span className="cv-creds-hint">
-              <span className="cv-creds-lab">{t("auth.login.defaultsLabel")}</span>
-              admin&nbsp;·&nbsp;admin
-            </span>
+            <Link to="/signup" className="cv-switch-link">{t("auth.login.noAccount")}</Link>
           </div>
 
+          {/* OAuth buttons */}
+          {(providers?.google || providers?.github) && (
+            <div className="cv-oauth-row">
+              {providers.google && (
+                <button type="button" className="cv-oauth-btn" onClick={() => oauthLogin("google")}>
+                  <span className="cv-oauth-icon">G</span>
+                  Google
+                </button>
+              )}
+              {providers.github && (
+                <button type="button" className="cv-oauth-btn" onClick={() => oauthLogin("github")}>
+                  <span className="cv-oauth-icon">⌥</span>
+                  GitHub
+                </button>
+              )}
+            </div>
+          )}
+          {providers && (providers.google || providers.github) && (
+            <div className="cv-divider"><span>{t("auth.login.orEmail")}</span></div>
+          )}
+
           <div className="cv-field">
-            <label htmlFor="cv-username">{t("auth.username")}</label>
+            <label htmlFor="cv-email">{t("auth.email")}</label>
             <div className="cv-inp">
               <span className="cv-tag">@</span>
               <input
-                id="cv-username"
-                type="text"
-                value={username}
-                onChange={(e) => setUsername(e.target.value)}
+                id="cv-email"
+                type="email"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
                 autoFocus
                 required
-                autoComplete="username"
+                autoComplete="email"
               />
             </div>
           </div>
@@ -110,16 +150,49 @@ export default function Login() {
             </div>
           </div>
 
+          {/* TOTP field — shown only after server returns totp_required */}
+          {totpRequired && (
+            <div className="cv-field">
+              <label htmlFor="cv-totp">{t("auth.totp.code")}</label>
+              <div className="cv-inp">
+                <span className="cv-tag">⊕</span>
+                <input
+                  id="cv-totp"
+                  type="text"
+                  inputMode="numeric"
+                  pattern="\d{6}"
+                  maxLength={6}
+                  value={totpCode}
+                  onChange={(e) => setTotpCode(e.target.value.replace(/\D/g, ""))}
+                  autoFocus
+                  autoComplete="one-time-code"
+                  placeholder="000000"
+                />
+              </div>
+            </div>
+          )}
+
+          {/* Turnstile captcha */}
+          {TURNSTILE_SITE_KEY && (
+            <div className="cv-captcha">
+              <TurnstileWidget siteKey={TURNSTILE_SITE_KEY} onToken={handleToken} />
+            </div>
+          )}
+
           {error && <div className="cv-error">{error}</div>}
 
           <button
             type="submit"
             className="cv-submit"
-            disabled={submitting || !username || !password}
+            disabled={submitting || !canSubmit}
           >
             <span>{submitting ? t("general.loading") : t("auth.login.submit")}</span>
             <span className="cv-ar">→</span>
           </button>
+
+          <div className="cv-links-row">
+            <Link to="/forgot-password" className="cv-text-link">{t("auth.login.forgotPassword")}</Link>
+          </div>
         </form>
       </section>
     </div>
@@ -236,19 +309,45 @@ const styles = `
   font-size: 12px; letter-spacing: 0.28em; text-transform: uppercase;
   color: var(--red);
 }
-.cv-creds-hint {
-  font-family: 'JetBrains Mono', monospace;
-  font-size: 12px;
-  color: var(--ink);
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-}
-.cv-creds-lab {
+.cv-switch-link {
   font-family: 'Oswald', sans-serif; font-weight: 700;
-  font-size: 10px; letter-spacing: 0.22em; text-transform: uppercase;
+  font-size: 11px; letter-spacing: 0.18em; text-transform: uppercase;
+  color: var(--ink); text-decoration: none;
+}
+.cv-switch-link:hover { color: var(--red); }
+
+.cv-oauth-row {
+  display: flex;
+  gap: 12px;
+}
+.cv-oauth-btn {
+  flex: 1;
+  border: 3px solid var(--rule);
+  background: var(--cream);
   color: var(--ink);
-  opacity: 0.55;
+  padding: 12px 16px;
+  cursor: pointer;
+  font-family: 'Oswald', sans-serif; font-weight: 700;
+  font-size: 13px; letter-spacing: 0.14em; text-transform: uppercase;
+  display: flex; align-items: center; gap: 10px;
+  transition: background 90ms;
+}
+.cv-oauth-btn:hover { background: var(--ink); color: var(--cream); }
+.cv-oauth-icon {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 14px; font-weight: 700;
+}
+
+.cv-divider {
+  display: flex; align-items: center; gap: 12px;
+}
+.cv-divider::before, .cv-divider::after {
+  content: ''; flex: 1; height: 2px; background: var(--rule);
+}
+.cv-divider span {
+  font-family: 'Oswald', sans-serif; font-weight: 700;
+  font-size: 10px; letter-spacing: 0.24em; text-transform: uppercase;
+  color: var(--ink); opacity: 0.5;
 }
 
 .cv-field { display: flex; flex-direction: column; }
@@ -301,6 +400,8 @@ const styles = `
 }
 .cv-reveal:hover { color: var(--red); }
 
+.cv-captcha { display: flex; justify-content: flex-start; }
+
 .cv-error {
   border: 3px solid var(--red);
   background: rgba(214, 54, 42, 0.08);
@@ -341,6 +442,17 @@ const styles = `
   font-family: 'JetBrains Mono', monospace;
   font-size: 22px;
 }
+
+.cv-links-row {
+  display: flex;
+  justify-content: flex-end;
+}
+.cv-text-link {
+  font-family: 'Oswald', sans-serif; font-weight: 700;
+  font-size: 11px; letter-spacing: 0.18em; text-transform: uppercase;
+  color: var(--ink); text-decoration: none;
+}
+.cv-text-link:hover { color: var(--red); }
 
 @media (max-width: 960px) {
   .cv-root { grid-template-columns: 1fr; height: auto; min-height: 100vh; }

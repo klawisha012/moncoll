@@ -621,6 +621,110 @@ const en: TranslationDict = {
   "config.btn.saveModSec": "Save ModSecurity Settings",
   "config.btn.saveAngie": "Save Angie Settings",
   "config.btn.reloadAngie": "Reload Angie",
+
+  // Nav — SaaS roles
+  "nav.operations": "Operations",
+  "nav.clients": "Clients",
+
+  // Auth — email + SaaS flows
+  "auth.email": "Email",
+  "auth.totp.code": "Authenticator code",
+  "auth.login.noAccount": "Sign up",
+  "auth.login.orEmail": "or continue with email",
+  "auth.login.forgotPassword": "Forgot password?",
+
+  // Signup page
+  "auth.signup.eyebrow": "— New account",
+  "auth.signup.heroLine1": "Create",
+  "auth.signup.heroLine2": "your",
+  "auth.signup.heroLine3": "workspace.",
+  "auth.signup.quote": "“A fortress is only as strong as the hands that guard it. Start yours today.”",
+  "auth.signup.kicker": "№ 03 / registration form",
+  "auth.signup.submit": "Create account",
+  "auth.signup.haveAccount": "Sign in",
+  "auth.signup.tenantName": "Workspace name",
+  "auth.signup.tenantNameHint": "3–40 chars, letters / digits / hyphens",
+  "auth.signup.displayName": "Display name (optional)",
+  "auth.signup.checkEmail": "Check your email",
+  "auth.signup.checkEmailDesc": "We sent a confirmation link to {email}. Open it to activate your account.",
+
+  // VerifyEmail page
+  "auth.verifyEmail.verifying": "Verifying…",
+  "auth.verifyEmail.success": "Email verified!",
+  "auth.verifyEmail.successDesc": "Your email address has been confirmed. You can now sign in.",
+  "auth.verifyEmail.error": "Verification failed",
+  "auth.verifyEmail.toLogin": "Go to sign in",
+
+  // ForgotPassword page
+  "auth.forgot.eyebrow": "— Password reset",
+  "auth.forgot.heroLine1": "Forgot",
+  "auth.forgot.heroLine2": "your",
+  "auth.forgot.heroLine3": "password?",
+  "auth.forgot.quote": "“Every lock has a key. We'll send you yours.”",
+  "auth.forgot.kicker": "№ 04 / password reset",
+  "auth.forgot.submit": "Send reset link",
+  "auth.forgot.sent": "Check your email",
+  "auth.forgot.sentDesc": "If that email is registered, a reset link is on its way.",
+  "auth.forgot.backToLogin": "Back to sign in",
+
+  // ResetPassword page
+  "auth.reset.eyebrow": "— New password",
+  "auth.reset.heroLine1": "Set new",
+  "auth.reset.heroLine2": "pass",
+  "auth.reset.heroLine3": "word.",
+  "auth.reset.quote": "“Rotate your secrets. Stay ahead of the threat.”",
+  "auth.reset.kicker": "№ 05 / password reset",
+  "auth.reset.newPassword": "New password",
+  "auth.reset.submit": "Set password",
+  "auth.reset.success": "Password updated! Redirecting to sign in…",
+
+  // TotpSetup page
+  "auth.totp.eyebrow": "— 2FA setup",
+  "auth.totp.heroLine1": "Secure",
+  "auth.totp.heroLine2": "your",
+  "auth.totp.heroLine3": "account.",
+  "auth.totp.quote": "“Two factors are better than one. Always.”",
+  "auth.totp.kicker": "№ 06 / authenticator setup",
+  "auth.totp.scanQr": "Scan this QR code with your authenticator app",
+  "auth.totp.orEnterSecret": "or enter this secret manually:",
+  "auth.totp.recoveryCodes": "Recovery codes",
+  "auth.totp.recoveryCodesDesc": "Save these codes somewhere safe. Each can be used once if you lose your device.",
+  "auth.totp.enterCode": "Enter the 6-digit code from your app to confirm",
+  "auth.totp.confirm": "Confirm",
+  "auth.totp.confirming": "Confirming…",
+
+  // Clients admin page
+  "clients.title": "Clients",
+  "clients.subtitle": "Manage tenant accounts and their status.",
+  "clients.loading": "Loading clients…",
+  "clients.empty": "No client tenants found.",
+  "clients.col.tenant": "Tenant",
+  "clients.col.owner": "Owner email",
+  "clients.col.users": "Users",
+  "clients.col.connections": "Connections",
+  "clients.col.created": "Created",
+  "clients.col.lastActivity": "Last activity",
+  "clients.col.status": "Status",
+  "clients.col.actions": "Actions",
+  "clients.status.active": "Active",
+  "clients.status.suspended": "Suspended",
+  "clients.action.suspend": "Suspend",
+  "clients.action.unsuspend": "Unsuspend",
+  "clients.action.delete": "Delete",
+  "clients.confirm.delete": "Delete tenant '{name}'? This is irreversible.",
+  "clients.confirm.suspend": "Suspend tenant '{name}'?",
+
+  // ClientDetail admin page
+  "clients.detail.loading": "Loading tenant…",
+  "clients.detail.users": "Users",
+  "clients.detail.connections": "Connections",
+  "clients.detail.meta.email": "Email",
+  "clients.detail.meta.role": "Role",
+  "clients.detail.meta.joined": "Joined",
+  "clients.detail.conn.domain": "Domain",
+  "clients.detail.conn.status": "Status",
+  "clients.detail.conn.created": "Created",
+  "clients.back": "← Back to clients",
 };
 
 const ru: TranslationDict = {
@@ -1242,6 +1346,110 @@ const ru: TranslationDict = {
   "config.btn.saveModSec": "Сохранить настройки ModSecurity",
   "config.btn.saveAngie": "Сохранить настройки Angie",
   "config.btn.reloadAngie": "Перезагрузить Angie",
+
+  // Nav — SaaS roles
+  "nav.operations": "Операции",
+  "nav.clients": "Клиенты",
+
+  // Auth — email + SaaS flows
+  "auth.email": "Email",
+  "auth.totp.code": "Код аутентификатора",
+  "auth.login.noAccount": "Регистрация",
+  "auth.login.orEmail": "или войти по email",
+  "auth.login.forgotPassword": "Забыли пароль?",
+
+  // Signup page
+  "auth.signup.eyebrow": "— Новый аккаунт",
+  "auth.signup.heroLine1": "Создать",
+  "auth.signup.heroLine2": "рабочее",
+  "auth.signup.heroLine3": "пространство.",
+  "auth.signup.quote": "«Крепость сильна руками защитников. Начните своё сегодня.»",
+  "auth.signup.kicker": "№ 03 / форма регистрации",
+  "auth.signup.submit": "Создать аккаунт",
+  "auth.signup.haveAccount": "Войти",
+  "auth.signup.tenantName": "Название рабочего пространства",
+  "auth.signup.tenantNameHint": "3–40 символов: буквы, цифры, дефисы",
+  "auth.signup.displayName": "Отображаемое имя (необязательно)",
+  "auth.signup.checkEmail": "Проверьте почту",
+  "auth.signup.checkEmailDesc": "Мы отправили письмо на {email}. Перейдите по ссылке, чтобы активировать аккаунт.",
+
+  // VerifyEmail page
+  "auth.verifyEmail.verifying": "Проверка…",
+  "auth.verifyEmail.success": "Email подтверждён!",
+  "auth.verifyEmail.successDesc": "Адрес электронной почты подтверждён. Теперь вы можете войти.",
+  "auth.verifyEmail.error": "Ошибка подтверждения",
+  "auth.verifyEmail.toLogin": "Перейти ко входу",
+
+  // ForgotPassword page
+  "auth.forgot.eyebrow": "— Сброс пароля",
+  "auth.forgot.heroLine1": "Забыли",
+  "auth.forgot.heroLine2": "пароль?",
+  "auth.forgot.heroLine3": "",
+  "auth.forgot.quote": "«Каждый замок имеет ключ. Мы пришлём вам его.»",
+  "auth.forgot.kicker": "№ 04 / сброс пароля",
+  "auth.forgot.submit": "Отправить ссылку",
+  "auth.forgot.sent": "Проверьте почту",
+  "auth.forgot.sentDesc": "Если этот email зарегистрирован, ссылка для сброса уже в пути.",
+  "auth.forgot.backToLogin": "Вернуться ко входу",
+
+  // ResetPassword page
+  "auth.reset.eyebrow": "— Новый пароль",
+  "auth.reset.heroLine1": "Новый",
+  "auth.reset.heroLine2": "пароль",
+  "auth.reset.heroLine3": "для входа.",
+  "auth.reset.quote": "«Меняйте секреты регулярно. Будьте на шаг впереди.»",
+  "auth.reset.kicker": "№ 05 / сброс пароля",
+  "auth.reset.newPassword": "Новый пароль",
+  "auth.reset.submit": "Установить пароль",
+  "auth.reset.success": "Пароль обновлён! Переход ко входу…",
+
+  // TotpSetup page
+  "auth.totp.eyebrow": "— Настройка 2FA",
+  "auth.totp.heroLine1": "Защитите",
+  "auth.totp.heroLine2": "свой",
+  "auth.totp.heroLine3": "аккаунт.",
+  "auth.totp.quote": "«Два фактора надёжнее одного. Всегда.»",
+  "auth.totp.kicker": "№ 06 / настройка аутентификатора",
+  "auth.totp.scanQr": "Отсканируйте QR-код в приложении-аутентификаторе",
+  "auth.totp.orEnterSecret": "или введите секрет вручную:",
+  "auth.totp.recoveryCodes": "Коды восстановления",
+  "auth.totp.recoveryCodesDesc": "Сохраните эти коды в безопасном месте. Каждый можно использовать один раз.",
+  "auth.totp.enterCode": "Введите 6-значный код из приложения для подтверждения",
+  "auth.totp.confirm": "Подтвердить",
+  "auth.totp.confirming": "Подтверждение…",
+
+  // Clients admin page
+  "clients.title": "Клиенты",
+  "clients.subtitle": "Управление тенантами и их статусом.",
+  "clients.loading": "Загрузка клиентов…",
+  "clients.empty": "Нет клиентских тенантов.",
+  "clients.col.tenant": "Тенант",
+  "clients.col.owner": "Email владельца",
+  "clients.col.users": "Польз.",
+  "clients.col.connections": "Подкл.",
+  "clients.col.created": "Создан",
+  "clients.col.lastActivity": "Активность",
+  "clients.col.status": "Статус",
+  "clients.col.actions": "Действия",
+  "clients.status.active": "Активен",
+  "clients.status.suspended": "Заблокирован",
+  "clients.action.suspend": "Заблокировать",
+  "clients.action.unsuspend": "Разблокировать",
+  "clients.action.delete": "Удалить",
+  "clients.confirm.delete": "Удалить тенант '{name}'? Это необратимо.",
+  "clients.confirm.suspend": "Заблокировать тенант '{name}'?",
+
+  // ClientDetail admin page
+  "clients.detail.loading": "Загрузка тенанта…",
+  "clients.detail.users": "Пользователи",
+  "clients.detail.connections": "Подключения",
+  "clients.detail.meta.email": "Email",
+  "clients.detail.meta.role": "Роль",
+  "clients.detail.meta.joined": "Дата регистрации",
+  "clients.detail.conn.domain": "Домен",
+  "clients.detail.conn.status": "Статус",
+  "clients.detail.conn.created": "Создано",
+  "clients.back": "← К списку клиентов",
 };
 
 export const translations: Record<Lang, TranslationDict> = { en, ru };
