@@ -2,6 +2,7 @@ import { Routes, Route, Navigate } from "react-router-dom";
 import Layout from "./components/Layout";
 import ProtectedRoute from "./components/ProtectedRoute";
 import RequireRole from "./components/RequireRole";
+import { useAuth } from "./context/AuthContext";
 import Home from "./pages/Home";
 import Dashboard from "./pages/Dashboard";
 import Connections from "./pages/Connections";
@@ -18,6 +19,11 @@ import ChangePassword from "./pages/ChangePassword";
 import Tests from "./pages/Tests";
 import Clients from "./pages/Clients";
 import ClientDetail from "./pages/ClientDetail";
+
+function RoleHomeRedirect() {
+  const { user } = useAuth();
+  return <Navigate to={user?.platform_role === "admin" ? "/monitoring" : "/home"} replace />;
+}
 
 function App() {
   return (
@@ -60,8 +66,8 @@ function App() {
             }
           />
 
-          {/* Client-role routes */}
-          <Route index element={<Home />} />
+          {/* Index: redirect to role-appropriate page */}
+          <Route index element={<RoleHomeRedirect />} />
           <Route
             path="home"
             element={

@@ -511,6 +511,7 @@ export interface ProvidersResponse {
 export interface TotpSetupResponse {
   provisioning_uri: string;
   secret: string;
+  qr_code_data_uri: string;
 }
 
 export interface TotpConfirmResponse {

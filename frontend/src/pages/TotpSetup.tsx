@@ -9,7 +9,7 @@ export default function TotpSetup() {
   const { user, refresh } = useAuth();
   const navigate = useNavigate();
 
-  const [provisioningUri, setProvisioningUri] = useState("");
+  const [qrDataUri, setQrDataUri] = useState("");
   const [secret, setSecret] = useState("");
   const [recoveryCodes, setRecoveryCodes] = useState<string[]>([]);
   const [code, setCode] = useState("");
@@ -18,13 +18,10 @@ export default function TotpSetup() {
   const [submitting, setSubmitting] = useState(false);
   const [confirmed, setConfirmed] = useState(false);
 
-  // QR is just the provisioning_uri rendered via an img from a public QR service
-  // (or we use the secret + a QR lib). We use a data URI from the backend's
-  // /api/auth/totp/setup which returns provisioning_uri + secret.
   useEffect(() => {
     api.auth.totpSetup()
       .then((data) => {
-        setProvisioningUri(data.provisioning_uri);
+        setQrDataUri(data.qr_code_data_uri);
         setSecret(data.secret);
       })
       .catch((err: Error) => setLoadError(err.message));
@@ -50,11 +47,6 @@ export default function TotpSetup() {
     const role = user?.platform_role;
     navigate(role === "admin" ? "/monitoring" : "/home", { replace: true });
   };
-
-  // QR image via Google Charts API (widely used, no auth required for provisioning URIs)
-  const qrSrc = provisioningUri
-    ? `https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(provisioningUri)}`
-    : "";
 
   return (
     <div className="cv-root">
@@ -84,10 +76,10 @@ export default function TotpSetup() {
 
           {!loadError && !confirmed && (
             <>
-              {qrSrc && (
+              {qrDataUri && (
                 <div className="cv-qr-block">
                   <p className="cv-label">{t("auth.totp.scanQr")}</p>
-                  <img src={qrSrc} alt="TOTP QR code" className="cv-qr-img" />
+                  <img src={qrDataUri} alt="TOTP QR code" className="cv-qr-img" />
                   <p className="cv-label" style={{ marginTop: 12 }}>{t("auth.totp.orEnterSecret")}</p>
                   <code className="cv-secret">{secret}</code>
                 </div>
