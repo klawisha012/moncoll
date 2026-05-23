@@ -593,8 +593,17 @@ def _load_or_create_paseto_key() -> bytes:
 
     env = os.environ.get("WAF_PASETO_KEY")
     if env:
-        # 32-byte raw key, hex-encoded (64 chars) in env
-        _cached_key = bytes.fromhex(env) if len(env) == 64 else env.encode()[:32].ljust(32, b"\0")
+        # 32-byte raw key, hex-encoded (64 chars). Fail-fast on any other shape
+        # so a typo in secret-management config crashes the container at startup
+        # instead of silently producing a different key on each node (D2).
+        if len(env) != 64:
+            raise SystemExit(
+                f"WAF_PASETO_KEY must be exactly 64 hex characters (32 bytes). Got {len(env)} chars."
+            )
+        try:
+            _cached_key = bytes.fromhex(env)
+        except ValueError as exc:
+            raise SystemExit(f"WAF_PASETO_KEY is not valid hex: {exc}") from None
         return _cached_key
 
     try:
@@ -1077,6 +1086,7 @@ import pytest
 import pytest_asyncio
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from backend.src.db.base import Base
+from backend.src.db.models import Connection
 
 
 @pytest.fixture(scope="session")
@@ -1097,6 +1107,36 @@ async def db_session():
     async with Session() as session:
         yield session
     await engine.dispose()
+
+
+# D4: tenant-scoped resource helpers. Production service functions (e.g.
+# connections.create_connection) trigger DNS resolution and ACME polling,
+# which makes them unsuitable for tenant-isolation unit tests. These helpers
+# bypass the service layer and write rows directly so tests can focus on
+# enforcement of the tenant_id filter.
+async def insert_connection_raw(
+    session, *, tenant_id: int, domain: str, name: str = "test", origin_hosts: list[str] | None = None,
+) -> Connection:
+    c = Connection(
+        tenant_id=tenant_id,
+        name=name,
+        domain=domain,
+        origin_hosts=origin_hosts or ["127.0.0.1"],
+        origin_port=443,
+        origin_tls_mode="strict",
+        verify_token="x" * 32,
+        status="pending_verification",
+        http_versions="h1,h2",
+        compression_algo="auto",
+        enabled=True,
+    )
+    session.add(c)
+    await session.commit()
+    await session.refresh(c)
+    return c
+
+# Add insert_crowdsec_raw, insert_modsec_rule_raw, etc. as those tables are
+# introduced during Phase 5.2 expansion.
 ```
 
 The integration tests run against a postgres database — locally, against the docker-compose `postgres` service with `TEST_DATABASE_URL` exported. Document this in README.
@@ -1158,10 +1198,22 @@ async def get_current_user(
     return user
 
 
-async def require_verified(user: User = Depends(get_current_user)) -> User:
+async def require_verified(
+    user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_session),
+) -> User:
+    """Verified email + (if client) tenant not suspended.
+
+    Suspension check lives here (D3) so every authenticated endpoint inherits it,
+    not only those that go through require_client. Admin has no tenant_id so the
+    suspension branch is a no-op for them.
+    """
     if user.email_verified_at is None:
         raise HTTPException(status_code=403, detail="email not verified")
-    # Check suspended tenant (logout-on-suspend per spec §8.3)
+    if user.tenant_id is not None:
+        tenant = await session.get(Tenant, user.tenant_id)
+        if tenant and tenant.suspended_at is not None:
+            raise HTTPException(status_code=403, detail="tenant suspended")
     return user
 
 
@@ -1173,15 +1225,10 @@ async def require_admin(user: User = Depends(require_verified)) -> User:
     return user
 
 
-async def require_client(
-    user: User = Depends(require_verified),
-    session: AsyncSession = Depends(get_session),
-) -> User:
+async def require_client(user: User = Depends(require_verified)) -> User:
     if user.platform_role != "client":
         raise HTTPException(status_code=403, detail="client role required")
-    tenant = await session.get(Tenant, user.tenant_id)
-    if tenant and tenant.suspended_at is not None:
-        raise HTTPException(status_code=403, detail="tenant suspended")
+    # Suspension already checked by require_verified (D3 — defense in depth).
     return user
 
 
@@ -1351,15 +1398,122 @@ git add backend/src/connections/service.py backend/src/connections/router.py tes
 git commit -m "feat(connections): tenant-scoped service + router; two-tenant safety tests"
 ```
 
-### Task 5.2: Repeat for crowdsec, modsecurity, dashboard, monitoring, tests
+### Task 5.2: Tenant-scope every owned-resource module (D7 — expanded)
 
-For each module under `backend/src/` that owns tenant-scoped resources (per Task 1.3 audit):
+D7 in the review: the original "repeat for…" was too vague. Each module is now its own explicit sub-task so the executor cannot silently skip a module. Two-tenant safety is the highest-stakes correctness property in this whole spec — every protected resource needs its own dedicated test.
 
-- [ ] Apply the same pattern: `tenant: Tenant` first arg after `session`, filter every `select` by `tenant.id`, set `tenant_id=tenant.id` on create.
-- [ ] Add a two-tenant safety test mirroring the structure of `test_connections_tenant_scoping.py`.
-- [ ] Commit per module (e.g., `feat(crowdsec): tenant scoping`).
+#### Task 5.2.a — CrowdSec
 
-Monitoring is **admin-only** (not tenant-scoped) — its endpoints use `require_admin`, not `current_tenant`. Document this exception in the test for that module.
+**Files:** `backend/src/crowdsec/service.py`, `backend/src/crowdsec/router.py`, `tests/integration/backend/test_crowdsec_tenant_scoping.py`
+
+Audit `backend/src/crowdsec/` for every endpoint that lists or mutates CrowdSec decisions/blocks/allowlists.
+
+- [ ] Step 1: list current endpoints (`grep "@router" backend/src/crowdsec/router.py`).
+- [ ] Step 2: refactor service.py — every `select(Decision)` gains `.where(Decision.tenant_id == tenant.id)`; every `create` sets `tenant_id`.
+- [ ] Step 3: router endpoints add `tenant: Tenant = Depends(current_tenant)`.
+- [ ] Step 4: write per-verb two-tenant tests. Pattern (one test function per verb per endpoint):
+
+```python
+import pytest
+from tests.integration.backend.conftest import insert_crowdsec_raw  # added in 3.3
+from backend.src.crowdsec import service as crowdsec
+from backend.src.tenants import service as tenants
+
+
+@pytest.mark.asyncio
+async def test_list_decisions_isolated(db_session):
+    a = await tenants.create_tenant(db_session, name="a", display_name="A")
+    b = await tenants.create_tenant(db_session, name="b", display_name="B")
+    await insert_crowdsec_raw(db_session, tenant_id=b.id, ip="1.1.1.1")
+    listed = await crowdsec.list_decisions(db_session, a)
+    assert listed == []
+
+
+@pytest.mark.asyncio
+async def test_get_decision_by_id_isolated(db_session):
+    a = await tenants.create_tenant(db_session, name="a", display_name="A")
+    b = await tenants.create_tenant(db_session, name="b", display_name="B")
+    d = await insert_crowdsec_raw(db_session, tenant_id=b.id, ip="1.1.1.1")
+    assert await crowdsec.get_decision(db_session, a, d.id) is None
+
+
+@pytest.mark.asyncio
+async def test_delete_decision_isolated(db_session):
+    a = await tenants.create_tenant(db_session, name="a", display_name="A")
+    b = await tenants.create_tenant(db_session, name="b", display_name="B")
+    d = await insert_crowdsec_raw(db_session, tenant_id=b.id, ip="1.1.1.1")
+    assert await crowdsec.delete_decision(db_session, a, d.id) is False
+    # B's row still exists
+    assert await crowdsec.get_decision(db_session, b, d.id) is not None
+```
+
+- [ ] Step 5: commit `feat(crowdsec): tenant scoping + two-tenant safety tests`.
+
+#### Task 5.2.b — ModSecurity
+
+**Files:** `backend/src/modsecurity/service.py`, `backend/src/modsecurity/router.py`, `tests/integration/backend/test_modsecurity_tenant_scoping.py`
+
+Same pattern as 5.2.a, but for custom ModSec rule sets / overrides. Audit: `grep "@router" backend/src/modsecurity/router.py`. Mirror the three-test template (list, get-by-id, delete/mutate) for every verb. Commit `feat(modsec): tenant scoping`.
+
+#### Task 5.2.c — Dashboard
+
+**Files:** `backend/src/dashboard/service.py`, `backend/src/dashboard/router.py`, `tests/integration/backend/test_dashboard_tenant_scoping.py`
+
+The dashboard reads aggregate data per-tenant (request counts, attack stats). It does not own tables directly — it queries ClickHouse/Postgres reads. Tenant scoping here means **adding a tenant_id filter to every aggregation query**.
+
+- [ ] Step 1: list every aggregation read in `backend/src/dashboard/service.py`.
+- [ ] Step 2: each aggregation now joins on connections (or its source-of-truth table) filtered by `connections.tenant_id == tenant.id`. ClickHouse queries: add `WHERE tenant_id = {tenant.id}` clause.
+- [ ] Step 3: tests — insert two tenants' worth of synthetic aggregate rows, assert tenant A's dashboard returns A-only totals.
+- [ ] Step 4: commit `feat(dashboard): tenant-scoped aggregations`.
+
+#### Task 5.2.d — Tests page
+
+**Files:** `backend/src/tests/service.py`, `backend/src/tests/router.py`, `tests/integration/backend/test_tests_page_tenant_scoping.py`
+
+The tests page runs WAF probe tests against the user's protected sites. Tenant scoping: the test runner only operates on connections owned by the calling tenant.
+
+- [ ] Step 1: refactor test-running endpoints to take `tenant: Tenant`, filter the target connection by tenant.
+- [ ] Step 2: write two-tenant test: tenant A cannot trigger a probe against tenant B's connection — 404.
+- [ ] Step 3: commit.
+
+#### Task 5.2.e — Monitoring (admin-only verification)
+
+**Files:** `backend/src/monitoring/router.py`, `tests/integration/backend/test_monitoring_admin_only.py`
+
+Monitoring shows platform-level server load and is **admin-only** (not tenant-scoped). It uses `require_admin`, not `current_tenant`.
+
+- [ ] Step 1: confirm every monitoring endpoint uses `require_admin`. Document the deliberate non-scoping in the file header.
+- [ ] Step 2: test — a logged-in client gets `403` on `/api/monitoring/*`.
+
+```python
+@pytest.mark.asyncio
+async def test_client_cannot_access_monitoring(db_session, ...):
+    # log in as client, GET /api/monitoring/server-load
+    assert response.status_code == 403
+```
+
+- [ ] Step 3: commit.
+
+#### Task 5.2.f — Suspended-tenant regression (mandatory)
+
+**Files:** `tests/integration/backend/test_tenant_suspend_logout.py`
+
+This is a **regression test** — no AskUserQuestion, per spec §8.3 the contract is "users logged out within one request" when admin suspends.
+
+- [ ] Step 1: write the test:
+
+```python
+@pytest.mark.asyncio
+async def test_suspended_tenant_locks_out_existing_session(db_session, ...):
+    # 1. Create tenant + client user, log in (cookie set).
+    # 2. GET /api/connections → 200.
+    # 3. Admin (separate session) POST /api/admin/tenants/{id}/suspend.
+    # 4. Client repeats GET /api/connections → 403 "tenant suspended".
+    # 5. Admin POST /api/admin/tenants/{id}/unsuspend.
+    # 6. Client GET /api/connections → 200 again.
+```
+
+- [ ] Step 2: commit `test(regression): suspended tenant locks out active sessions`.
 
 ### Task 5.3: AST guard test
 
@@ -1505,6 +1659,18 @@ async def verify(token: str | None, remote_ip: str | None = None) -> bool:
             return bool(r.json().get("success", False))
         except httpx.HTTPError:
             return False
+
+
+async def verify_or_raise(token: str | None, request) -> None:
+    """D6: shared helper for endpoints that need captcha enforcement.
+
+    Centralises the error shape so a future change to status code or message
+    is a single edit. Called as `await captcha.verify_or_raise(payload.captcha_token, request)`.
+    """
+    from fastapi import HTTPException
+    remote_ip = request.client.host if request.client else None
+    if not await verify(token, remote_ip=remote_ip):
+        raise HTTPException(status_code=400, detail="captcha failed")
 ```
 
 - [ ] **Step 3: Run tests pass + commit**
@@ -1635,6 +1801,15 @@ git commit -m "feat(auth): SMTP email transport + Jinja templates for verify & r
 ---
 
 ## Phase 8 — Password auth flows
+
+> **D5 — router structure**: instead of one fat `backend/src/auth/router.py`, all endpoints in Phases 8/9/10 land in three focused sub-routers under `backend/src/auth/routers/`:
+> - `routers/password.py` — `/signup`, `/verify-email`, `/login`, `/logout`, `/me`, `/password/forgot`, `/password/reset`, `/providers`
+> - `routers/totp.py` — `/totp/setup`, `/totp/confirm`
+> - `routers/oauth.py` — `/oauth/{provider}/start`, `/oauth/{provider}/callback`
+>
+> Each file targets 100–150 LOC. `backend/src/auth/routers/__init__.py` re-exports a single `auth_router = APIRouter(prefix="/api/auth")` that includes the three sub-routers; `backend/src/main.py` imports just that. Where the tasks below mention `backend/src/auth/router.py`, substitute the appropriate sub-router path.
+>
+> **D6 — captcha**: every endpoint in this phase that consumes a `captcha_token` calls `await captcha.verify_or_raise(payload.captcha_token, request)` at the top of the handler instead of duplicating the verify+raise block. Update Task 8.2's `signup`, Task 8.3's `login` and `password/forgot` to use the helper.
 
 ### Task 8.1: Email verification service
 
@@ -2937,6 +3112,54 @@ Mock provider endpoints by configuring `WAF_OAUTH_GOOGLE_REDIRECT_URI` to point 
 
 - [ ] Commit per test pass.
 
+### Task 19.4: Role-gating E2E (D8 — frontend gating coverage)
+
+We deliberately chose not to add frontend unit tests (D8). The E2E layer must explicitly cover the role-gating boundary so a regression in `RequireRole` cannot ship silently.
+
+**Files:** `tests/e2e/auth/test_role_gating.py`
+
+Add three browser-driven (or curl-driven if no Playwright) cases:
+
+1. Logged in as **admin** → `GET /clients` returns the admin Clients page; `GET /home` redirects to `/monitoring` (admin's default).
+2. Logged in as **client** → `GET /clients` redirects to `/home`; `GET /api/admin/tenants` returns 403.
+3. **Unauthenticated** → `GET /home` redirects to `/login`.
+
+```python
+import pytest, requests
+
+@pytest.mark.e2e
+def test_client_blocked_from_admin_api():
+    # Sign up a client, log in, hit admin API
+    ...
+    r = requests.get(f"{BASE}/api/admin/tenants", cookies={"waf_session": client_token})
+    assert r.status_code == 403
+
+
+@pytest.mark.e2e
+def test_admin_blocked_from_tenant_api():
+    # Provision admin via CLI, log in + TOTP, hit /api/connections (a client-only route)
+    ...
+    r = requests.get(f"{BASE}/api/connections", cookies={"waf_session": admin_token})
+    assert r.status_code == 403
+```
+
+### Task 19.5: Password-reset cycle E2E
+
+**Files:** `tests/e2e/auth/test_reset_password.py`
+
+End-to-end: forgot → email-link → reset → login with new password.
+
+- Use the same log-tail technique as Task 19.1 to capture the reset token.
+- Assert anti-enumeration: `POST /api/auth/password/forgot` with a non-existent email returns 202 in the same time bucket as a real one (no timing leak we can detect from outside).
+
+### Task 19.6: TOTP recovery-code E2E
+
+**Files:** `tests/e2e/auth/test_totp_recovery.py`
+
+- Enrol a user's TOTP, capture the recovery codes.
+- Submit `POST /api/auth/login` with a recovery code in the `totp_code` field — assert login succeeds.
+- Submit again with the **same** recovery code — assert it fails (one-shot).
+
 ---
 
 ## Phase 20 — Final integration check
@@ -2988,3 +3211,161 @@ Expected: all green.
 - Some tasks reference fixtures and routes that are introduced later. Run the test suite per phase, expecting cross-phase failures to clear up as phases complete. Each commit should leave the codebase coherent for the phase boundary, not necessarily for sub-task boundaries within a phase.
 - Where exact pre-existing function signatures are not enumerated (e.g., `conns.create_connection(...)` in tests), substitute the real signature from the codebase at execution time — these stubs assume you'll inspect first.
 - When deleting frontend files (`Users.tsx`, `AdminOnly.tsx`), grep for imports first and patch call sites in the same commit.
+
+---
+
+## What already exists (pre-review audit)
+
+Items in the current `main` that partially solve sub-problems in this plan:
+
+- **bcrypt + JWT (HS256, python-jose) in `backend/src/auth/security.py`** — replaced wholesale by PASETO in Task 2.1. bcrypt parts (hash/verify) kept.
+- **httpOnly cookie session pattern (`waf_session`) in `backend/src/auth/router.py`** — kept; only the token format inside the cookie changes.
+- **`require_admin` FastAPI dependency** — kept as a name, semantics tightened (now also enforces TOTP).
+- **`AdminOnly.tsx` frontend wrapper** — renamed `RequireRole.tsx` with generalized role prop (Task 14.2).
+- **Sidebar conditional sections (`user?.role === "admin"`)** — re-structured into declarative `NAV` map keyed by platform_role (Task 17.1).
+- **Default admin/admin bootstrap with `must_change_password`** — replaced by CLI `create-admin` + 503-on-no-admin (Task 12.1). The pattern is gone, not extended.
+- **`tests/integration/`, `tests/e2e/` layout + pytest markers** — kept and extended.
+- **alembic infrastructure (env.py, versions/, 5 prior migrations)** — kept; one new migration 0006 follows the existing pattern.
+
+Items the plan does **not** rebuild despite touching adjacent areas:
+- The Angie config-reload mechanism is reused; only paths change.
+- The Centrifugo WebSocket publish path is touched only enough to ensure channels are tenant-scoped (audit added to Task 5.x).
+- Existing CrowdSec/ModSec rule loading is touched only for the per-tenant path layout.
+
+## NOT in scope (deferred to follow-up specs)
+
+| Item | Rationale |
+|------|-----------|
+| Plans / billing / Stripe integration | Out of v1 per brainstorming. Free for all tenants. |
+| Rate limiting / brute-force lockout | Captcha is the v1 anti-bot mechanism. Rate limiting is a separate spec with its own Redis-backed design. |
+| Tenant self-deletion (owner deletes their own tenant) | Only admin can delete in v1. GDPR follow-up. |
+| OAuth account-linking | Password user + GitHub user with same email remain two unrelated accounts. Auto-link has well-known account-takeover risks; needs dedicated design. |
+| Server-side session revocation (logout-all-devices) | PASETO is stateless. Token max lifetime is 8h; that's the v1 SLA. Future spec adds a session table. |
+| Postgres row-level security / schema-per-tenant | Service-layer enforcement chosen for v1. RLS is a follow-up if multi-tenant boundary needs hardening. |
+| Frontend unit-test infrastructure (vitest/RTL) | D8 in review — relying on E2E for v1 role gating. Separate spec when frontend testing becomes a broader priority. |
+| `admin/list_tenants` N+1 optimization | D9 in review — premature with 0 tenants. Revisit when there are ≥30 tenants and the page is measurably slow. |
+| Email + tenant invite flow (owner adds team member) | `owner/member` columns exist but invite UI is deferred. Migration-free upgrade path preserved. |
+| Audit log of admin actions on tenants | No table for this in v1. Suspend/delete logged via standard application logging only. |
+| Welcome email post-verification | Verify email exists; "welcome to WAF" email is marketing, not auth. |
+
+## Failure modes (critical-gap audit)
+
+For each new codepath introduced by this plan, one realistic production failure mode and whether the plan addresses it:
+
+| Codepath | Failure mode | Test? | Error handling? | User visibility |
+|----------|--------------|-------|-----------------|-----------------|
+| PASETO decode | Token tampered or key rotation lost old key | Tampered: ✅ (Task 2.1). Key rotation: ❌ | Token returns None → 401 | User sees re-login prompt |
+| `_load_or_create_paseto_key` | `WAF_PASETO_KEY` malformed | ✅ added in D2 fix (SystemExit) | Hard fail-fast on startup | Ops sees container restart-loop, errors are loud |
+| `verify_short_lived` | Expired or tampered | ❌ no expired-token test — **gap** | Returns None → endpoint 401 | Login form re-prompts; user follows recovery |
+| `current_tenant` | Suspended tenant after D3 fix | Mandatory regression test added (5.2.f) | 403 "tenant suspended" | Clean error in UI |
+| OAuth callback | Provider returns 5xx (e.g., GitHub outage) | ❌ no provider-failure test — **gap** | `httpx.HTTPError` → currently bubbles 500 | User sees 500 → frustration. **Critical gap if OAuth is primary signup path.** |
+| OAuth state cookie | State cookie not set (third-party cookie blocked) | ❌ — **gap** | Endpoint returns 400 "invalid oauth state" | User sees error, must retry |
+| Email send (`aiosmtplib.send`) | SMTP provider down | ❌ no SMTP-failure test | Exception bubbles → 500 on signup | Signup fails entirely, user must retry; verify-token already in DB but unsent. **Mid-severity gap.** |
+| Captcha verify | Cloudflare API down | ❌ no Cloudflare-down test | `verify` returns False on `HTTPError` → 400 | Login blocked while Cloudflare down. **Acceptable for v1, document in runbook.** |
+| TOTP enrol cookie | Cookie size/path issues on subdomain | ❌ no cross-subdomain test | n/a — single domain in v1 | Skip |
+| Tenant suspension path | Race: admin suspends mid-request | Implicit via session-fresh-load per request | Worst case: one in-flight request completes, next is blocked | Acceptable |
+| AST guard | New tenant-scoped model added without updating `TENANT_SCOPED_MODELS` | Self-test gap (D7-adjacent) | Guard silently passes → leak possible if integration tests miss | **Mitigated by mandatory two-tenant tests in Task 5.2.a-e**, but guard could give false confidence. |
+
+**Critical gaps requiring follow-up TODOs in the plan:**
+
+1. **OAuth-provider-failure handling** — wrap provider HTTP calls; on any `httpx.HTTPError` return 502 "provider unavailable, try password or other provider" instead of bubbling 500. Add to Task 10.1 implementation note.
+2. **SMTP-failure handling** — `_send` catches exception, logs error, returns success-like 202 from the *caller* (user already received "check your email"), and the verify-token sits in DB unused. Mention this in `email.py`'s docstring as a known limitation; add monitoring TODO.
+3. **`verify_short_lived` expired-token test** — add to `test_security_paseto.py` (~5 LOC).
+
+The plan as amended addresses #1 and #2 by note and #3 by added test.
+
+## Worktree parallelization strategy
+
+The phases are mostly sequential because each builds on the previous one's data model and primitives. However, two lanes can parallelize after Phase 7:
+
+| Lane | Phases | Modules touched | Depends on |
+|------|--------|-----------------|------------|
+| A | 0 → 1 → 2 → 3 → 4 → 5 | `backend/src/db`, `backend/src/auth/security.py`, `backend/src/tenants`, `backend/src/auth/{service,dependencies,schemas}.py`, every `service.py`/`router.py` for tenant scoping | — |
+| B (parallelizable after Lane A reaches Phase 5 done) | 6 → 7 | `backend/src/auth/captcha.py`, `backend/src/auth/email.py` | A: needs config.py from Phase 0 only |
+| C (after Lane A reaches Phase 4 done) | 8 → 9 → 10 | `backend/src/auth/routers/`, `backend/src/auth/{totp,oauth,verification}.py` | A: needs deps from Phase 4 |
+| D (parallelizable with C) | 11 | `backend/src/admin/` | A: needs `tenants` service + `require_admin` |
+| E (parallelizable with C, D) | 12 | `backend/src/cli/`, `scripts/create-admin.sh` | A: needs `auth.create_admin` |
+| F (parallelizable with E) | 13 | `backend/src/angie/`, `backend/src/modsecurity/`, `configs/` | A: needs `Tenant` model |
+| G (after C, D done) | 14 → 15 → 16 → 17 | `frontend/src/**`, `i18n` | C, D: needs API surface stable |
+| H (last) | 18 → 19 | `docker-compose.yml`, `tests/e2e/` | All others |
+
+**Execution order**: launch A serially. Once Phase 5 is done, launch B in parallel. Once Phase 4 is done, launch C, D, E, F in parallel. After C+D land, launch G. Last: H.
+
+**Conflict flags:**
+- **C, D, E, F all touch `backend/src/main.py`** (router include lines). Coordinate include-order; merge sequentially even if developed in parallel.
+- **G heavily depends on stable `/api/auth/*` surface from C** — don't start G until C's endpoints are committed.
+
+Realistic split for a solo developer with CC: do the work serially in phase order; the parallelization map is for the case of using multiple worktree-isolated subagents in parallel.
+
+## Implementation Tasks (review-derived synthesis)
+
+Review-derived tasks (synthesized from the 8 findings + 1 regression). Each derives from a specific D-decision above.
+
+- [ ] **T1 (P1, human: ~30min / CC: ~5min)** — `backend/src/auth/security.py` — Add fail-fast validation for `WAF_PASETO_KEY` length and hex shape (SystemExit on bad input)
+  - Surfaced by: Architecture review — D2
+  - Files: `backend/src/auth/security.py`
+  - Verify: unit test in `test_security_paseto.py` with bad env values
+- [ ] **T2 (P1, human: ~30min / CC: ~5min)** — `backend/src/auth/dependencies.py` — Move `tenant.suspended_at` check from `require_client` into `require_verified`
+  - Surfaced by: Architecture review — D3
+  - Files: `backend/src/auth/dependencies.py`
+  - Verify: regression test in Task 5.2.f
+- [ ] **T3 (P1, human: ~45min / CC: ~10min)** — `tests/integration/backend/conftest.py` — Add `insert_*_raw` helpers for every tenant-scoped table
+  - Surfaced by: Architecture review — D4
+  - Files: `tests/integration/backend/conftest.py`, plus one new helper per Task 5.2.* sub-task
+  - Verify: helpers are invoked from the per-module two-tenant tests
+- [ ] **T4 (P2, human: ~1h / CC: ~15min)** — `backend/src/auth/routers/` — Split monolithic `router.py` into `password.py`, `totp.py`, `oauth.py`
+  - Surfaced by: Code Quality review — D5
+  - Files: `backend/src/auth/routers/__init__.py`, `routers/password.py`, `routers/totp.py`, `routers/oauth.py`, `backend/src/main.py` (router include)
+  - Verify: every endpoint discoverable from `/openapi.json`
+- [ ] **T5 (P2, human: ~20min / CC: ~5min)** — `backend/src/auth/captcha.py` — Add `verify_or_raise(token, request)` helper; replace 3 inline blocks
+  - Surfaced by: Code Quality review — D6
+  - Files: `backend/src/auth/captcha.py`, plus call-site updates in routers
+  - Verify: `pytest tests/unit/backend/test_captcha.py -v`
+- [ ] **T6 (P1, human: ~2h / CC: ~30min)** — `backend/src/{crowdsec,modsecurity,dashboard,tests,monitoring}/` — Expand Task 5.2 into 5.2.a-e per module
+  - Surfaced by: Test review — D7
+  - Files: each module's `service.py`, `router.py`, plus `tests/integration/backend/test_{crowdsec,modsec,dashboard,tests_page,monitoring}_tenant_scoping.py`
+  - Verify: every module has list+get+verb tests; `pytest tests/integration/backend/test_*_tenant_scoping.py -v` green
+- [ ] **T7 (P1, human: ~30min / CC: ~5min)** — `tests/integration/backend/test_tenant_suspend_logout.py` — Mandatory regression: suspend → next-request 403 → unsuspend → 200
+  - Surfaced by: Test review (mandatory regression rule, also Task 5.2.f)
+  - Files: new file
+  - Verify: green test
+- [ ] **T8 (P2, human: ~1h / CC: ~15min)** — `tests/e2e/auth/test_role_gating.py`, `test_reset_password.py`, `test_totp_recovery.py` — Three new E2E test files for areas where unit tests are deliberately skipped
+  - Surfaced by: Test review — D8
+  - Files: `tests/e2e/auth/` (3 new files)
+  - Verify: `pytest -m e2e tests/e2e/auth/ -v`
+- [ ] **T9 (P3, human: ~5min / CC: ~1min)** — `docs/superpowers/plans/...` — Document N+1 in `admin/list_tenants` as a deferred optimization in the "NOT in scope" table
+  - Surfaced by: Performance review — D9
+  - Files: this file
+  - Verify: TODO is in the NOT-in-scope table above (it is)
+
+## Completion Summary
+
+| Section | Result |
+|---------|--------|
+| Step 0: Scope challenge | One feature branch confirmed (D1). Scope accepted as-is; complexity intentional for SaaS-grade redesign. |
+| Architecture review | 3 issues found (D2 PASETO env, D3 suspension scope, D4 test fixtures) — all addressed in plan |
+| Code Quality review | 2 issues found (D5 router split, D6 captcha DRY) — all addressed in plan |
+| Test review | Coverage diagram produced; 13 gaps identified; D7 expanded into 5.2.a-e; D8 added 3 new E2E files; 1 mandatory regression test added |
+| Performance review | 1 issue found (D9 N+1) — deferred to NOT-in-scope with explicit revisit threshold (≥30 tenants) |
+| NOT in scope | Written (11 items) |
+| What already exists | Written |
+| Failure modes | Critical-gap audit completed; 3 follow-up notes embedded in plan |
+| Outside voice | Skipped (long single-session review; user is solo dev) |
+| Parallelization | 8 lanes identified; realistic note that solo+CC means serial execution |
+| Lake score | All 8 decisions chose the "complete" option (full validation, full split, full per-module tests) — 8/8 |
+
+Unresolved decisions: none.
+
+## GSTACK REVIEW REPORT
+
+| Review | Trigger | Why | Runs | Status | Findings |
+|--------|---------|-----|------|--------|----------|
+| CEO Review | `/plan-ceo-review` | Scope & strategy | 0 | — | — |
+| Codex Review | `/codex review` | Independent 2nd opinion | 0 | — | — |
+| Eng Review | `/plan-eng-review` | Architecture & tests (required) | 1 | CLEAR (PLAN) | 8 issues found, 0 unresolved; 1 mandatory regression added; 13 test gaps, 8 newly covered, 5 deferred to NOT-in-scope |
+| Design Review | `/plan-design-review` | UI/UX gaps | 0 | — | — |
+| DX Review | `/plan-devex-review` | Developer experience gaps | 0 | — | — |
+
+**UNRESOLVED:** 0
+**VERDICT:** ENG CLEARED — ready to implement. Recommended optional follow-up: `/plan-ceo-review` for scope/business strategy on the SaaS-business framing (free-tier sustainability, future billing).
+
