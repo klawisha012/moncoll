@@ -1,9 +1,20 @@
+"""Container monitoring router.
+
+Scope decision (Phase 5.2.e): monitoring exposes Docker stats for all
+containers in the compose project — this is platform-wide infrastructure data.
+Every endpoint requires `require_admin`. A logged-in client user hitting any
+`/api/monitoring/*` route gets 403.
+"""
+
 import asyncio
 import logging
 
 import docker
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
+
+from ..auth.dependencies import require_admin
+from ..db.models import User
 
 logger = logging.getLogger(__name__)
 
@@ -163,7 +174,7 @@ def _calculate_container_stats(container) -> ContainerMetrics:
 
 
 @router.get("/metrics", response_model=MetricsResponse)
-async def get_container_metrics():
+async def get_container_metrics(_: User = Depends(require_admin)):
     try:
         client = get_docker_client()
         compose_project = _get_compose_project(client)
@@ -205,7 +216,7 @@ async def get_container_metrics():
 
 
 @router.get("/containers")
-def list_containers():
+def list_containers(_: User = Depends(require_admin)):
     try:
         client = get_docker_client()
         containers = client.containers.list()
