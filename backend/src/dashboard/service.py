@@ -111,11 +111,24 @@ def _clamp_minutes(hours: float) -> int:
     return max(1, int(hours * 60))
 
 
-def _domains_for_connection(connection_id: int | None) -> list[str]:
+def _domains_for_connection(
+    connection_id: int | None,
+    tenant_id: int | None = None,
+) -> list[str]:
     """Look up enabled domains for a connection.
 
     Imported lazily to avoid a circular import between dashboard <-> db.
     Returns an empty list if the connection cannot be loaded.
+
+    Tenant scoping (Phase 5.2.c): when ``tenant_id`` is supplied the Postgres
+    query adds ``WHERE tenant_id = <tenant_id>`` so a client cannot filter
+    dashboard data by a connection belonging to a different tenant.
+
+    TODO (Phase 13): ClickHouse ``waf_audit_log`` / ``nginx_access_log`` do not
+    have a ``tenant_id`` column yet — adding it requires extending migration
+    0006 and is tracked as a separate spec.  For now, scoping is enforced only
+    at the Postgres connection-lookup level (domain list is empty when the
+    connection does not belong to the tenant, so ClickHouse returns no rows).
     """
     if connection_id is None:
         return []
@@ -133,9 +146,10 @@ def _domains_for_connection(connection_id: int | None) -> list[str]:
         sync_url = db_url.replace("+asyncpg", "").replace("+aiosqlite", "")
         engine = create_engine(sync_url, future=True)
         with engine.connect() as conn:
-            row = conn.execute(
-                select(ConnectionModel).where(ConnectionModel.id == connection_id)
-            ).first()
+            stmt = select(ConnectionModel).where(ConnectionModel.id == connection_id)
+            if tenant_id is not None:
+                stmt = stmt.where(ConnectionModel.tenant_id == tenant_id)
+            row = conn.execute(stmt).first()
         engine.dispose()
         if not row:
             return []
@@ -175,7 +189,11 @@ def _host_filter_waf(domains: list[str]) -> str:
 # ── Public API ──────────────────────────────────────────────────────
 
 
-def get_dashboard_metrics(hours: float = 24, connection_id: int | None = None) -> dict[str, Any]:
+def get_dashboard_metrics(
+    hours: float = 24,
+    connection_id: int | None = None,
+    tenant_id: int | None = None,
+) -> dict[str, Any]:
     """Fetch summary metrics for the dashboard stat cards."""
     try:
         client = _get_client()
@@ -185,7 +203,7 @@ def get_dashboard_metrics(hours: float = 24, connection_id: int | None = None) -
 
     minutes = _clamp_minutes(hours)
     prev_minutes = max(1, minutes * 2)
-    domains = _domains_for_connection(connection_id)
+    domains = _domains_for_connection(connection_id, tenant_id)
     nginx_filter = _host_filter_nginx(domains)
     waf_filter = _host_filter_waf(domains)
 
@@ -271,7 +289,11 @@ def _empty_metrics() -> dict[str, Any]:
     }
 
 
-def get_traffic_data(hours: float = 24, connection_id: int | None = None) -> list[dict[str, Any]]:
+def get_traffic_data(
+    hours: float = 24,
+    connection_id: int | None = None,
+    tenant_id: int | None = None,
+) -> list[dict[str, Any]]:
     """Get traffic data points aggregated by hour."""
     try:
         client = _get_client()
@@ -279,7 +301,7 @@ def get_traffic_data(hours: float = 24, connection_id: int | None = None) -> lis
         return []
 
     minutes = _clamp_minutes(hours)
-    domains = _domains_for_connection(connection_id)
+    domains = _domains_for_connection(connection_id, tenant_id)
     nginx_filter = _host_filter_nginx(domains)
     waf_filter = _host_filter_waf(domains)
 
@@ -315,7 +337,11 @@ def get_traffic_data(hours: float = 24, connection_id: int | None = None) -> lis
     return result
 
 
-def get_threat_origins(hours: float = 24, connection_id: int | None = None) -> list[dict[str, Any]]:
+def get_threat_origins(
+    hours: float = 24,
+    connection_id: int | None = None,
+    tenant_id: int | None = None,
+) -> list[dict[str, Any]]:
     """Get threat origin distribution by country from WAF logs.
 
     Always returns a JSON-serialisable list (possibly empty) — never 500s.
@@ -326,7 +352,7 @@ def get_threat_origins(hours: float = 24, connection_id: int | None = None) -> l
         return []
 
     minutes = _clamp_minutes(hours)
-    domains = _domains_for_connection(connection_id)
+    domains = _domains_for_connection(connection_id, tenant_id)
     waf_filter = _host_filter_waf(domains)
 
     total_blocks = _scalar(
@@ -379,7 +405,11 @@ def get_threat_origins(hours: float = 24, connection_id: int | None = None) -> l
     return result
 
 
-def get_geoip_map_data(hours: float = 24, connection_id: int | None = None) -> list[dict[str, Any]]:
+def get_geoip_map_data(
+    hours: float = 24,
+    connection_id: int | None = None,
+    tenant_id: int | None = None,
+) -> list[dict[str, Any]]:
     """Get GeoIP coordinates with hit counts for world map visualization."""
     try:
         client = _get_client()
@@ -387,7 +417,7 @@ def get_geoip_map_data(hours: float = 24, connection_id: int | None = None) -> l
         return []
 
     minutes = _clamp_minutes(hours)
-    domains = _domains_for_connection(connection_id)
+    domains = _domains_for_connection(connection_id, tenant_id)
     nginx_filter = _host_filter_nginx(domains)
 
     rows = (
@@ -424,6 +454,7 @@ def get_geoip_map_data(hours: float = 24, connection_id: int | None = None) -> l
 def get_geoip_unresolved_ips(
     hours: float = 24,
     connection_id: int | None = None,
+    tenant_id: int | None = None,
 ) -> list[dict[str, Any]]:
     """Return non-private client IPs that failed GeoIP enrichment.
 
@@ -439,7 +470,7 @@ def get_geoip_unresolved_ips(
         return []
 
     minutes = _clamp_minutes(hours)
-    domains = _domains_for_connection(connection_id)
+    domains = _domains_for_connection(connection_id, tenant_id)
     nginx_filter = _host_filter_nginx(domains)
 
     # remote_addr is typed as IPv4 in ClickHouse — cast directly to UInt32
@@ -479,6 +510,7 @@ def get_security_events(
     severity: str = "all",
     hours: float = 24,
     connection_id: int | None = None,
+    tenant_id: int | None = None,
 ) -> list[dict[str, Any]]:
     """Get recent security events from WAF audit logs."""
     try:
@@ -487,7 +519,7 @@ def get_security_events(
         return []
 
     minutes = _clamp_minutes(hours)
-    domains = _domains_for_connection(connection_id)
+    domains = _domains_for_connection(connection_id, tenant_id)
     waf_filter = _host_filter_waf(domains)
 
     severity_filter = ""
@@ -542,7 +574,9 @@ _SEVERITY_NAMES = {
 
 
 def get_waf_events_timeline(
-    hours: float = 24, connection_id: int | None = None
+    hours: float = 24,
+    connection_id: int | None = None,
+    tenant_id: int | None = None,
 ) -> list[dict[str, Any]]:
     """WAF audit events bucketed per minute."""
     try:
@@ -550,7 +584,7 @@ def get_waf_events_timeline(
     except Exception:
         return []
     minutes = _clamp_minutes(hours)
-    waf_filter = _host_filter_waf(_domains_for_connection(connection_id))
+    waf_filter = _host_filter_waf(_domains_for_connection(connection_id, tenant_id))
     rows = (
         _safe_execute(
             client,
@@ -566,7 +600,10 @@ def get_waf_events_timeline(
 
 
 def get_top_rules(
-    hours: float = 24, connection_id: int | None = None, limit: int = 10
+    hours: float = 24,
+    connection_id: int | None = None,
+    limit: int = 10,
+    tenant_id: int | None = None,
 ) -> list[dict[str, Any]]:
     """Top WAF rules by trigger count."""
     try:
@@ -574,7 +611,7 @@ def get_top_rules(
     except Exception:
         return []
     minutes = _clamp_minutes(hours)
-    waf_filter = _host_filter_waf(_domains_for_connection(connection_id))
+    waf_filter = _host_filter_waf(_domains_for_connection(connection_id, tenant_id))
     rows = (
         _safe_execute(
             client,
@@ -590,7 +627,9 @@ def get_top_rules(
 
 
 def get_severity_distribution(
-    hours: float = 24, connection_id: int | None = None
+    hours: float = 24,
+    connection_id: int | None = None,
+    tenant_id: int | None = None,
 ) -> list[dict[str, Any]]:
     """Severity-level counts across WAF messages."""
     try:
@@ -598,7 +637,7 @@ def get_severity_distribution(
     except Exception:
         return []
     minutes = _clamp_minutes(hours)
-    waf_filter = _host_filter_waf(_domains_for_connection(connection_id))
+    waf_filter = _host_filter_waf(_domains_for_connection(connection_id, tenant_id))
     rows = (
         _safe_execute(
             client,
@@ -617,7 +656,10 @@ def get_severity_distribution(
 
 
 def get_top_attacking_ips(
-    hours: float = 24, connection_id: int | None = None, limit: int = 15
+    hours: float = 24,
+    connection_id: int | None = None,
+    limit: int = 15,
+    tenant_id: int | None = None,
 ) -> list[dict[str, Any]]:
     """Top attacking IPs (WAF audit log)."""
     try:
@@ -625,7 +667,7 @@ def get_top_attacking_ips(
     except Exception:
         return []
     minutes = _clamp_minutes(hours)
-    waf_filter = _host_filter_waf(_domains_for_connection(connection_id))
+    waf_filter = _host_filter_waf(_domains_for_connection(connection_id, tenant_id))
     rows = (
         _safe_execute(
             client,
@@ -640,7 +682,9 @@ def get_top_attacking_ips(
 
 
 def get_anomaly_score_timeline(
-    hours: float = 24, connection_id: int | None = None
+    hours: float = 24,
+    connection_id: int | None = None,
+    tenant_id: int | None = None,
 ) -> list[dict[str, Any]]:
     """Max anomaly score per minute."""
     try:
@@ -648,7 +692,7 @@ def get_anomaly_score_timeline(
     except Exception:
         return []
     minutes = _clamp_minutes(hours)
-    waf_filter = _host_filter_waf(_domains_for_connection(connection_id))
+    waf_filter = _host_filter_waf(_domains_for_connection(connection_id, tenant_id))
     rows = (
         _safe_execute(
             client,
@@ -664,7 +708,10 @@ def get_anomaly_score_timeline(
 
 
 def get_top_tags(
-    hours: float = 24, connection_id: int | None = None, limit: int = 10
+    hours: float = 24,
+    connection_id: int | None = None,
+    limit: int = 10,
+    tenant_id: int | None = None,
 ) -> list[dict[str, Any]]:
     """Top WAF tags."""
     try:
@@ -672,7 +719,7 @@ def get_top_tags(
     except Exception:
         return []
     minutes = _clamp_minutes(hours)
-    waf_filter = _host_filter_waf(_domains_for_connection(connection_id))
+    waf_filter = _host_filter_waf(_domains_for_connection(connection_id, tenant_id))
     rows = (
         _safe_execute(
             client,
@@ -688,7 +735,10 @@ def get_top_tags(
 
 
 def get_top_uris(
-    hours: float = 24, connection_id: int | None = None, limit: int = 10
+    hours: float = 24,
+    connection_id: int | None = None,
+    limit: int = 10,
+    tenant_id: int | None = None,
 ) -> list[dict[str, Any]]:
     """Top blocked URIs from WAF audit log."""
     try:
@@ -696,7 +746,7 @@ def get_top_uris(
     except Exception:
         return []
     minutes = _clamp_minutes(hours)
-    waf_filter = _host_filter_waf(_domains_for_connection(connection_id))
+    waf_filter = _host_filter_waf(_domains_for_connection(connection_id, tenant_id))
     rows = (
         _safe_execute(
             client,
@@ -711,7 +761,10 @@ def get_top_uris(
 
 
 def get_top_rule_files(
-    hours: float = 24, connection_id: int | None = None, limit: int = 10
+    hours: float = 24,
+    connection_id: int | None = None,
+    limit: int = 10,
+    tenant_id: int | None = None,
 ) -> list[dict[str, Any]]:
     """Top rule files involved in WAF events."""
     try:
@@ -719,7 +772,7 @@ def get_top_rule_files(
     except Exception:
         return []
     minutes = _clamp_minutes(hours)
-    waf_filter = _host_filter_waf(_domains_for_connection(connection_id))
+    waf_filter = _host_filter_waf(_domains_for_connection(connection_id, tenant_id))
     rows = (
         _safe_execute(
             client,

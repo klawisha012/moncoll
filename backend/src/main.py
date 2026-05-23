@@ -98,15 +98,18 @@ def create_app() -> FastAPI:
     # endpoints inside it are individually guarded by require_admin.
     app.include_router(auth_router)
 
-    # Dashboard & Monitoring — accessible to both admin and viewer roles.
+    # Dashboard — viewer-level gate; individual routes enforce tenant scoping
+    # via require_verified (Phase 5.2.c).
     viewer = [Depends(require_password_changed)]
     app.include_router(dashboard_router, dependencies=viewer)
-    app.include_router(monitoring_router, dependencies=viewer)
     # Realtime token endpoint — both roles need it to subscribe to live updates.
     app.include_router(realtime_router, dependencies=viewer)
 
     # Admin-only routers — viewer role cannot access configuration or security.
     admin = [Depends(require_admin)]
+    # Monitoring: Docker stats are platform-wide; per-route require_admin added
+    # in Phase 5.2.e. App-level admin dep here is a belt-and-suspenders guard.
+    app.include_router(monitoring_router, dependencies=admin)
     app.include_router(modsecurity_router, dependencies=admin)
     app.include_router(angie_router, dependencies=admin)
     app.include_router(connections_router, dependencies=admin)
