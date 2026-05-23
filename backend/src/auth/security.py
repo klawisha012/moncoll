@@ -4,7 +4,22 @@ import secrets
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
-from jose import JWTError, jwt
+# python-jose removed; replaced by pyseto in Phase 2.
+# Stubs keep the module importable until the full PASETO rewrite lands.
+class _NotImplementedJWT:
+    def encode(self, *a, **kw):  # noqa: D102
+        raise NotImplementedError("JWT via jose removed; use PASETO (Phase 2)")
+
+    def decode(self, *a, **kw):  # noqa: D102
+        raise NotImplementedError("JWT via jose removed; use PASETO (Phase 2)")
+
+
+class JWTError(Exception):  # noqa: N818
+    pass
+
+
+jwt = _NotImplementedJWT()
+
 from passlib.context import CryptContext
 
 logger = logging.getLogger(__name__)
