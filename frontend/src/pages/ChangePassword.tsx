@@ -17,7 +17,8 @@ export default function ChangePassword() {
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const forced = !!user?.must_change_password;
+  // must_change_password removed in SaaS schema; forced-change flow handled by backend redirect
+  const forced = false;
 
   const submit = async (e: FormEvent) => {
     e.preventDefault();

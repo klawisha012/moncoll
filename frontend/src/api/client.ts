@@ -481,6 +481,42 @@ export interface UserUpdateRequest {
   password?: string;
 }
 
+// ── SaaS auth types ────────────────────────────────────────
+
+export interface User {
+  id: number;
+  email: string;
+  display_name: string;
+  platform_role: "admin" | "client";
+  tenant_id: number | null;
+  tenant_role: "owner" | "member" | null;
+  email_verified: boolean;
+  totp_enabled: boolean;
+}
+
+export type SaasLoginResponse =
+  | { user: User }
+  | { totp_required: true }
+  | { enrol_required: true };
+
+export interface SignupResponse {
+  message: string;
+}
+
+export interface ProvidersResponse {
+  google: boolean;
+  github: boolean;
+}
+
+export interface TotpSetupResponse {
+  provisioning_uri: string;
+  secret: string;
+}
+
+export interface TotpConfirmResponse {
+  recovery_codes: string[];
+}
+
 export interface CertificateStatus {
   certificate_exists: boolean;
   key_exists: boolean;
@@ -744,25 +780,82 @@ export const api = {
   // ── Auth ────────────────────────────────────────────────
 
   auth: {
-    login: (username: string, password: string) =>
-      fetchApi<LoginResponse>("/api/auth/login", {
+    login: (
+      email: string,
+      password: string,
+      captchaToken: string,
+      totpCode?: string,
+    ) =>
+      fetchApi<SaasLoginResponse>("/api/auth/login", {
         method: "POST",
-        body: JSON.stringify({ username, password }),
+        body: JSON.stringify({
+          email,
+          password,
+          captcha_token: captchaToken,
+          ...(totpCode !== undefined ? { totp_code: totpCode } : {}),
+        }),
+      }),
+
+    signup: (
+      email: string,
+      password: string,
+      tenantName: string,
+      captchaToken: string,
+      displayName?: string,
+    ) =>
+      fetchApi<SignupResponse>("/api/auth/signup", {
+        method: "POST",
+        body: JSON.stringify({
+          email,
+          password,
+          tenant_name: tenantName,
+          captcha_token: captchaToken,
+          ...(displayName !== undefined ? { display_name: displayName } : {}),
+        }),
+      }),
+
+    verifyEmail: (token: string) =>
+      fetchApi<{ message: string }>("/api/auth/verify-email", {
+        method: "POST",
+        body: JSON.stringify({ token }),
+      }),
+
+    forgotPassword: (email: string) =>
+      fetchApi<{ message: string }>("/api/auth/password/forgot", {
+        method: "POST",
+        body: JSON.stringify({ email }),
+      }),
+
+    resetPassword: (token: string, newPassword: string) =>
+      fetchApi<{ message: string }>("/api/auth/password/reset", {
+        method: "POST",
+        body: JSON.stringify({ token, new_password: newPassword }),
+      }),
+
+    getProviders: () => fetchApi<ProvidersResponse>("/api/auth/providers"),
+
+    totpSetup: () =>
+      fetchApi<TotpSetupResponse>("/api/auth/totp/setup", { method: "POST" }),
+
+    totpConfirm: (code: string) =>
+      fetchApi<TotpConfirmResponse>("/api/auth/totp/confirm", {
+        method: "POST",
+        body: JSON.stringify({ code }),
       }),
 
     logout: () =>
       fetchApi<void>("/api/auth/logout", { method: "POST" }),
 
-    me: async (): Promise<UserPublic | null> => {
+    me: async (): Promise<User | null> => {
       try {
-        return await fetchApi<UserPublic>("/api/auth/me");
+        return await fetchApi<User>("/api/auth/me");
       } catch {
         return null;
       }
     },
 
     changePassword: (currentPassword: string, newPassword: string) =>
-      fetchApi<UserPublic>("/api/auth/change-password", {
+      fetchApi<User>("/api/auth/change-password", {
         method: "POST",
         body: JSON.stringify({
           current_password: currentPassword,

@@ -117,7 +117,7 @@ export default function Layout() {
             </NavLink>
           </div>
 
-          {user?.role === "admin" && (
+          {user?.platform_role === "admin" && (
             <>
               <div className="nav-section">
                 <div className="nav-section-title">{t("nav.management")}</div>
@@ -205,7 +205,7 @@ export default function Layout() {
                   letterSpacing: "-0.02em",
                 }}
               >
-                {user.username.slice(0, 1).toUpperCase()}
+                {(user.display_name || user.email).slice(0, 1).toUpperCase()}
               </div>
               <div
                 style={{
@@ -229,7 +229,7 @@ export default function Layout() {
                     whiteSpace: "nowrap",
                   }}
                 >
-                  {user.username}
+                  {user.display_name || user.email}
                 </span>
                 <span
                   style={{
@@ -239,7 +239,7 @@ export default function Layout() {
                     letterSpacing: "0.04em",
                   }}
                 >
-                  {user.role}
+                  {user.platform_role}
                 </span>
               </div>
               <button

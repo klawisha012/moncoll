@@ -18,15 +18,19 @@ export default function Login() {
     setError(null);
     setSubmitting(true);
     try {
-      const user = await login(username, password);
+      // captchaToken is "" here — Phase 15 will wire up TurnstileWidget
+      const result = await login(username, password, "");
+      if ("totp_required" in result || "enrol_required" in result) {
+        // Phase 15 handles TOTP flow; for now surface a message
+        setError("TOTP required — upgrade to the full login page");
+        return;
+      }
       try {
         localStorage.setItem("waf-sidebar-collapsed", "1");
       } catch {
         // ignore
       }
-      navigate(user.must_change_password ? "/change-password" : "/home", {
-        replace: true,
-      });
+      navigate("/home", { replace: true });
     } catch (err) {
       setError(err instanceof Error ? err.message : t("general.error"));
     } finally {
