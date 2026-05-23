@@ -106,63 +106,284 @@ function escapeHtml(s: string): string {
   return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 }
 
+// One-time stylesheet injection — keeps hover/active transitions out of
+// inline-style noise on every marker re-render. id-gate is idempotent
+// across HMR/StrictMode.
+const MARKER_STYLE_ID = "geoip-globe-marker-style";
+function ensureMarkerStyle(): void {
+  if (typeof document === "undefined") return;
+  if (document.getElementById(MARKER_STYLE_ID)) return;
+  const style = document.createElement("style");
+  style.id = MARKER_STYLE_ID;
+  style.textContent = `
+    /* react-globe.gl uses three.js CSS2DRenderer которое навешивает
+       inline transform: translate(-50%,-50%) translate3d(x,y,0) на каждый
+       html-маркер — наш собственный transform на этом же узле молча
+       перетирается. Поэтому ЛЮБОЙ outer-transform тут бесполезен. Делаем
+       wrapper фиксированного размера (14×20 — bbox пина), а пин и
+       карточку позиционируем absolute внутри. Так центр wrapper'а
+       совпадает с lat/lng-точкой (где react-globe.gl его и ставит), а
+       мы вручную смещаем пин так чтобы его кончик попадал в этот центр.
+       Без этого пин «съезжает» при отдалении камеры — фикс-pixel
+       элемент не уменьшается вместе с глобусом. */
+    .geoip-marker {
+      position: absolute;
+      width: 14px;
+      height: 20px;
+      pointer-events: auto;
+      cursor: pointer;
+      font-family: var(--font-sans, system-ui);
+    }
+    .geoip-marker.active {
+      z-index: 10;
+    }
+    .geoip-marker-pin {
+      position: absolute;
+      left: 0;
+      /* bottom: 50% — нижний край SVG (= кончик пина) совпадает с
+         вертикальным центром wrapper'а, который и есть lat/lng. */
+      bottom: 50%;
+      width: 14px;
+      height: 20px;
+      filter: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.55));
+      transition: transform 0.14s ease-out;
+      /* Hover-scale крутится из точки кончика, не из геометрического
+         центра SVG — иначе пин «прыгает» при наведении. */
+      transform-origin: 50% 100%;
+    }
+    /* Hover-увеличение пина — hint что метка кликабельна. */
+    .geoip-marker:hover .geoip-marker-pin,
+    .geoip-marker.active .geoip-marker-pin {
+      transform: scale(1.15);
+    }
+    .geoip-marker-card {
+      position: absolute;
+      left: 50%;
+      /* 50% (центр wrapper'а) + 10px (полная высота пина наверх от
+         кончика) + 6px зазор = bottom-edge карточки. */
+      bottom: calc(50% + 26px);
+      min-width: 200px;
+      max-width: 280px;
+      padding: 9px 11px;
+      background: rgba(11, 15, 30, 0.95);
+      border: 1px solid rgba(255, 255, 255, 0.18);
+      border-radius: 4px;
+      box-shadow: 0 6px 22px rgba(0, 0, 0, 0.55);
+      backdrop-filter: blur(8px);
+      color: #e8ecf4;
+      font-size: 11.5px;
+      line-height: 1.5;
+      opacity: 0;
+      visibility: hidden;
+      transform: translateX(-50%) translateY(4px);
+      transition:
+        opacity 0.14s ease-out,
+        transform 0.14s ease-out,
+        visibility 0s linear 0.14s;
+      pointer-events: none;
+    }
+    /* Card opens on click (.active), not on hover — иначе при плотной
+       кластеризации меток курсор не может попасть на соседний пин,
+       тулапы перекрывают цели. */
+    .geoip-marker.active .geoip-marker-card {
+      opacity: 1;
+      visibility: visible;
+      transform: translateX(-50%) translateY(0);
+      transition:
+        opacity 0.14s ease-out,
+        transform 0.14s ease-out;
+    }
+    .geoip-marker-card-head {
+      display: flex;
+      align-items: baseline;
+      gap: 6px;
+      padding-bottom: 5px;
+      margin-bottom: 5px;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+    }
+    .geoip-marker-cc {
+      font-weight: 700;
+      font-size: 14px;
+      letter-spacing: 0.5px;
+    }
+    .geoip-marker-city {
+      font-size: 11.5px;
+      color: #c5cad6;
+      font-weight: 500;
+    }
+    .geoip-marker-row {
+      display: flex;
+      gap: 6px;
+      align-items: baseline;
+      font-size: 10.5px;
+      margin-top: 2px;
+    }
+    .geoip-marker-label {
+      color: #6c7384;
+      text-transform: uppercase;
+      font-size: 9px;
+      letter-spacing: 0.6px;
+      min-width: 56px;
+    }
+    .geoip-marker-value {
+      color: #e8ecf4;
+      font-family: var(--font-mono, ui-monospace, monospace);
+    }
+    .geoip-marker-attacks {
+      margin-top: 5px;
+      padding-top: 5px;
+      border-top: 1px solid rgba(255, 255, 255, 0.06);
+    }
+    .geoip-marker-attack-item {
+      font-size: 10.5px;
+      padding-left: 9px;
+      position: relative;
+    }
+    .geoip-marker-attack-item:before {
+      content: "›";
+      position: absolute;
+      left: 0;
+      opacity: 0.6;
+    }
+    .geoip-marker-hits {
+      margin-top: 6px;
+      padding-top: 5px;
+      border-top: 1px solid rgba(255, 255, 255, 0.06);
+      font-weight: 600;
+      font-size: 11.5px;
+    }
+  `;
+  document.head.appendChild(style);
+}
+
+function fmtCoord(lat: number, lon: number): string {
+  const latH = lat >= 0 ? "N" : "S";
+  const lonH = lon >= 0 ? "E" : "W";
+  return `${Math.abs(lat).toFixed(2)}°${latH}, ${Math.abs(lon).toFixed(2)}°${lonH}`;
+}
+
+function markerKey(d: GlobeMarker): string {
+  // Stable identifier across data refetches/refresh — совпадает с тем что
+  // backend публикует в дельтах (см. backend/src/realtime/consumer.py).
+  return `${(d.country_code || "").toUpperCase()}|${d.latitude.toFixed(2)}|${d.longitude.toFixed(2)}|${d.city_name || ""}`;
+}
+
+// Глобальное состояние активной метки. Глобальное (а не React-state) потому
+// что DOM-элементы маркеров создаются императивно через htmlElement-колбэк
+// react-globe.gl, и при пересоздании (на data refetch) нам нужно вернуть
+// `active` класс именно тому маркеру, который был открыт — пользователь
+// не должен терять выделение на каждом 500ms-тике live-апдейта.
+let _activeMarkerKey: string | null = null;
+let _documentClickRegistered = false;
+
+function setActiveMarker(key: string | null): void {
+  _activeMarkerKey = key;
+  if (typeof document === "undefined") return;
+  document.querySelectorAll<HTMLElement>(".geoip-marker").forEach((el) => {
+    el.classList.toggle("active", el.dataset.geoipKey === key);
+  });
+}
+
+function ensureDocumentClick(): void {
+  if (_documentClickRegistered || typeof document === "undefined") return;
+  _documentClickRegistered = true;
+  // Клик мимо любого маркера → закрываем активную карточку. Любой клик на
+  // самом маркере останавливает propagation и не доходит сюда.
+  document.addEventListener("click", (e) => {
+    const target = e.target as HTMLElement | null;
+    if (!target || !target.closest(".geoip-marker")) {
+      if (_activeMarkerKey !== null) setActiveMarker(null);
+    }
+  });
+}
+
 function buildMarker(
   d: GlobeMarker,
   color: string,
-  theme: "light" | "dark",
+  _theme: "light" | "dark",
   requestsLabel: string,
 ): HTMLDivElement {
+  ensureMarkerStyle();
+  ensureDocumentClick();
+
+  const key = markerKey(d);
   const el = document.createElement("div");
-  el.style.cssText = `
-    position: absolute;
-    transform: translate(-50%, -100%);
-    pointer-events: auto;
-    cursor: pointer;
-    font-family: var(--font-sans, system-ui);
-    color: ${theme === "light" ? "#1a1d2e" : "#e8ecf4"};
-  `;
-  const place = escapeHtml(d.city_name || d.country_code || "—");
-  const cc = escapeHtml(d.country_code || "");
+  el.className = "geoip-marker";
+  el.dataset.geoipKey = key;
+  el.tabIndex = 0;
+  // Восстановить открытое состояние после react-globe.gl recreate (например
+  // при live-апдейте data из Centrifugo).
+  if (_activeMarkerKey === key) el.classList.add("active");
+
+  el.addEventListener("click", (e) => {
+    e.stopPropagation();
+    if (_activeMarkerKey === key) {
+      // toggle off — второй клик по тому же пину закрывает карточку
+      setActiveMarker(null);
+    } else {
+      setActiveMarker(key);
+    }
+  });
+  // Keyboard-equivalent: Enter/Space на focused пине открывает карточку
+  el.addEventListener("keydown", (e) => {
+    if (e.key === "Enter" || e.key === " ") {
+      e.preventDefault();
+      e.stopPropagation();
+      setActiveMarker(_activeMarkerKey === key ? null : key);
+    }
+    if (e.key === "Escape" && _activeMarkerKey === key) {
+      setActiveMarker(null);
+    }
+  });
+
+  const cc = escapeHtml(d.country_code || "—");
+  const city = d.city_name ? escapeHtml(d.city_name) : "";
+  const coords = fmtCoord(d.latitude, d.longitude);
   const ip = d.topIp ? escapeHtml(d.topIp) : "";
-  const attacks =
-    d.topAttacks && d.topAttacks.length > 0 ? d.topAttacks.map(escapeHtml).join(", ") : "";
+  const attackRows =
+    d.topAttacks && d.topAttacks.length > 0
+      ? d.topAttacks
+          .map((a) => `<div class="geoip-marker-attack-item" style="color:${color};">${escapeHtml(a)}</div>`)
+          .join("")
+      : "";
 
-  const cardBg = "rgba(11,15,30,0.92)";
-  const cardBorder = "rgba(255,255,255,0.18)";
-  const muted = "#9aa3b4";
-
+  // Пин рендерится первым (он в потоке wrapper'а), карточка — absolute
+  // выше пина. Раскрытие только по клику (.active), см. CSS.
+  // Border-left на карточке красим severity-цветом — узнаваемая подпись.
   el.innerHTML = `
-    <div style="
-      min-width: 132px;
-      max-width: 220px;
-      padding: 6px 9px;
-      margin-bottom: 4px;
-      background: ${cardBg};
-      border: 1px solid ${cardBorder};
-      border-left: 3px solid ${color};
-      border-radius: 4px;
-      font-size: 11px;
-      line-height: 1.4;
-      color: #e8ecf4;
-      box-shadow: 0 4px 14px rgba(0,0,0,0.45);
-      backdrop-filter: blur(6px);
-      white-space: nowrap;
-      overflow: hidden;
-      text-overflow: ellipsis;
-    ">
-      <div style="font-weight: 700; font-size: 12px;">
-        ${place}${cc && d.city_name ? ` · <span style="color:${muted}">${cc}</span>` : ""}
-      </div>
-      ${ip ? `<div style="font-family: var(--font-mono, ui-monospace); font-size: 10.5px; color: ${muted};">${ip}</div>` : ""}
-      ${attacks ? `<div style="font-size: 10.5px; color: ${color}; margin-top: 2px;">${attacks}</div>` : ""}
-      <div style="font-size: 10px; color: ${muted}; margin-top: 2px;">
-        ${d.hits.toLocaleString()} ${escapeHtml(requestsLabel)}
-      </div>
-    </div>
-    <svg width="14" height="20" viewBox="0 0 14 20" style="display:block; margin: 0 auto; filter: drop-shadow(0 2px 3px rgba(0,0,0,0.4));">
+    <svg class="geoip-marker-pin" viewBox="0 0 14 20">
       <path d="M7 0 C3.13 0 0 3.13 0 7 c0 5.25 7 13 7 13 s7 -7.75 7 -13 c0 -3.87 -3.13 -7 -7 -7 z" fill="${color}" stroke="#0b0f1e" stroke-width="1"/>
       <circle cx="7" cy="7" r="2.6" fill="#0b0f1e"/>
     </svg>
+    <div class="geoip-marker-card" style="border-left: 3px solid ${color};">
+      <div class="geoip-marker-card-head">
+        <span class="geoip-marker-cc">${cc}</span>
+        ${city ? `<span class="geoip-marker-city">${city}</span>` : ""}
+      </div>
+      <div class="geoip-marker-row">
+        <span class="geoip-marker-label">Coords</span>
+        <span class="geoip-marker-value">${escapeHtml(coords)}</span>
+      </div>
+      ${
+        ip
+          ? `<div class="geoip-marker-row">
+               <span class="geoip-marker-label">Top IP</span>
+               <span class="geoip-marker-value">${ip}</span>
+             </div>`
+          : ""
+      }
+      ${
+        attackRows
+          ? `<div class="geoip-marker-attacks">
+               <div class="geoip-marker-label" style="min-width:0; margin-bottom:3px;">Attacks</div>
+               ${attackRows}
+             </div>`
+          : ""
+      }
+      <div class="geoip-marker-hits" style="color:${color};">
+        ${d.hits.toLocaleString()} <span style="color:#9aa3b4; font-weight:400;">${escapeHtml(requestsLabel)}</span>
+      </div>
+    </div>
   `;
   return el;
 }
