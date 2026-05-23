@@ -1,72 +1,53 @@
-import logging
+from datetime import UTC, datetime
 
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..db.models import User
-from .schemas import UserCreate, UserUpdate
 from .security import hash_password, verify_password
 
-logger = logging.getLogger(__name__)
 
-DEFAULT_ADMIN_USERNAME = "admin"
-DEFAULT_ADMIN_PASSWORD = "admin"
-
-
-async def _count_admins(session: AsyncSession) -> int:
-    result = await session.execute(
-        select(func.count()).select_from(User).where(User.role == "admin")
-    )
-    return int(result.scalar_one())
-
-
-async def seed_default_admin(session: AsyncSession) -> None:
-    """Create default admin/admin user if no users exist."""
-    existing = await session.execute(select(func.count()).select_from(User))
-    if existing.scalar_one() > 0:
-        return
-    admin = User(
-        username=DEFAULT_ADMIN_USERNAME,
-        password_hash=hash_password(DEFAULT_ADMIN_PASSWORD),
-        role="admin",
-        must_change_password=True,
-    )
-    session.add(admin)
-    await session.commit()
-    logger.warning(
-        "Created default admin user (username=%s, password=%s, must_change_password=true). "
-        "Change the password on first login.",
-        DEFAULT_ADMIN_USERNAME,
-        DEFAULT_ADMIN_PASSWORD,
-    )
-
-
-async def authenticate(session: AsyncSession, username: str, password: str) -> User | None:
-    result = await session.execute(select(User).where(User.username == username))
-    user = result.scalar_one_or_none()
-    if user and verify_password(password, user.password_hash):
-        return user
-    return None
+class EmailTaken(ValueError): ...
+class UserNotFound(ValueError): ...
 
 
 async def get_user(session: AsyncSession, user_id: int) -> User | None:
     return await session.get(User, user_id)
 
 
-async def list_users(session: AsyncSession) -> list[User]:
-    result = await session.execute(select(User).order_by(User.id))
-    return list(result.scalars().all())
+async def get_by_email(session: AsyncSession, email: str) -> User | None:
+    result = await session.execute(select(User).where(User.email == email.lower()))
+    return result.scalar_one_or_none()
 
 
-async def create_user(session: AsyncSession, payload: UserCreate) -> User:
-    existing = await session.execute(select(User).where(User.username == payload.username))
-    if existing.scalar_one_or_none() is not None:
-        raise ValueError("username already exists")
+async def count_admins(session: AsyncSession) -> int:
+    result = await session.execute(
+        select(func.count()).select_from(User).where(User.platform_role == "admin")
+    )
+    return int(result.scalar_one())
+
+
+async def create_client_user(
+    session: AsyncSession,
+    *,
+    email: str,
+    password: str | None,
+    tenant_id: int,
+    tenant_role: str = "owner",
+    display_name: str = "",
+    email_verified: bool = False,
+) -> User:
+    email = email.lower()
+    if await get_by_email(session, email):
+        raise EmailTaken(email)
     user = User(
-        username=payload.username,
-        password_hash=hash_password(payload.password),
-        role=payload.role,
-        must_change_password=False,
+        email=email,
+        display_name=display_name or email.split("@")[0],
+        password_hash=hash_password(password) if password else None,
+        platform_role="client",
+        tenant_id=tenant_id,
+        tenant_role=tenant_role,
+        email_verified_at=datetime.now(UTC) if email_verified else None,
     )
     session.add(user)
     await session.commit()
@@ -74,39 +55,75 @@ async def create_user(session: AsyncSession, payload: UserCreate) -> User:
     return user
 
 
-async def update_user(session: AsyncSession, user_id: int, payload: UserUpdate) -> User | None:
-    user = await session.get(User, user_id)
-    if user is None:
-        return None
-    if payload.role is not None:
-        if user.role == "admin" and payload.role != "admin":
-            if await _count_admins(session) <= 1:
-                raise ValueError("cannot demote the last admin")
-        user.role = payload.role
-    if payload.password is not None:
-        user.password_hash = hash_password(payload.password)
-        user.must_change_password = True
+async def create_admin(session: AsyncSession, *, email: str, password: str) -> User:
+    email = email.lower()
+    if await get_by_email(session, email):
+        raise EmailTaken(email)
+    user = User(
+        email=email,
+        display_name=email.split("@")[0],
+        password_hash=hash_password(password),
+        platform_role="admin",
+        tenant_id=None,
+        tenant_role=None,
+        email_verified_at=datetime.now(UTC),
+    )
+    session.add(user)
     await session.commit()
     await session.refresh(user)
     return user
 
 
-async def change_password(session: AsyncSession, user_id: int, new_password: str) -> bool:
-    user = await session.get(User, user_id)
-    if user is None:
-        return False
+async def authenticate(session: AsyncSession, email: str, password: str) -> User | None:
+    user = await get_by_email(session, email)
+    if not user or not verify_password(password, user.password_hash):
+        return None
+    return user
+
+
+async def mark_email_verified(session: AsyncSession, user: User) -> None:
+    user.email_verified_at = datetime.now(UTC)
+    await session.commit()
+
+
+async def update_password(session: AsyncSession, user: User, new_password: str) -> None:
     user.password_hash = hash_password(new_password)
-    user.must_change_password = False
     await session.commit()
-    return True
 
 
-async def delete_user(session: AsyncSession, user_id: int) -> bool:
-    user = await session.get(User, user_id)
-    if user is None:
-        return False
-    if user.role == "admin" and await _count_admins(session) <= 1:
-        raise ValueError("cannot delete the last admin")
-    await session.delete(user)
+async def touch_login(session: AsyncSession, user: User) -> None:
+    user.last_login_at = datetime.now(UTC)
     await session.commit()
-    return True
+
+
+# ---------------------------------------------------------------------------
+# Transition shims — removed in Phase 8 when router.py rewrite lands.
+#
+# Legacy router.py calls these functions. They are NEVER actually invoked
+# at runtime (no admin user exists, schema mismatch, endpoints unreachable),
+# but the module must import cleanly. Raising RuntimeError on CALL, not on
+# IMPORT, is the minimum-change approach (option (a) from phase instructions).
+# ---------------------------------------------------------------------------
+
+async def seed_default_admin(session: AsyncSession) -> None:  # noqa: ARG001
+    raise RuntimeError("seed_default_admin: Phase 8 router rewrite pending")
+
+
+async def list_users(session: AsyncSession) -> list:  # noqa: ARG001
+    raise RuntimeError("list_users: Phase 8 router rewrite pending")
+
+
+async def create_user(session: AsyncSession, payload) -> User:  # noqa: ARG001
+    raise RuntimeError("create_user: Phase 8 router rewrite pending")
+
+
+async def update_user(session: AsyncSession, user_id: int, payload) -> User | None:  # noqa: ARG001
+    raise RuntimeError("update_user: Phase 8 router rewrite pending")
+
+
+async def change_password(session: AsyncSession, user_id: int, new_password: str) -> bool:  # noqa: ARG001
+    raise RuntimeError("change_password: Phase 8 router rewrite pending")
+
+
+async def delete_user(session: AsyncSession, user_id: int) -> bool:  # noqa: ARG001
+    raise RuntimeError("delete_user: Phase 8 router rewrite pending")
