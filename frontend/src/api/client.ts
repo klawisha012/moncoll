@@ -517,6 +517,48 @@ export interface TotpConfirmResponse {
   recovery_codes: string[];
 }
 
+// ── Admin types ─────────────────────────────────────────────
+
+export interface TenantRow {
+  id: number;
+  name: string;
+  display_name: string | null;
+  owner_email: string | null;
+  user_count: number;
+  connection_count: number;
+  created_at: string;
+  suspended_at: string | null;
+  last_activity: string | null;
+}
+
+export interface TenantDetailUser {
+  id: number;
+  email: string;
+  tenant_role: "owner" | "member";
+  last_login_at: string | null;
+  email_verified: boolean;
+  totp_enabled: boolean;
+}
+
+export interface TenantDetailConnection {
+  id: number;
+  name: string;
+  domain: string;
+  status: string;
+}
+
+export interface TenantDetail {
+  tenant: {
+    id: number;
+    name: string;
+    display_name: string | null;
+    created_at: string;
+    suspended_at: string | null;
+  };
+  users: TenantDetailUser[];
+  connections: TenantDetailConnection[];
+}
+
 export interface CertificateStatus {
   certificate_exists: boolean;
   key_exists: boolean;
@@ -879,6 +921,22 @@ export const api = {
 
     deleteUser: (id: number) =>
       fetchApi<void>(`/api/auth/users/${id}`, { method: "DELETE" }),
+  },
+
+  // ── Admin ───────────────────────────────────────────────
+  admin: {
+    listTenants: () => fetchApi<TenantRow[]>("/api/admin/tenants"),
+
+    getTenant: (id: number) => fetchApi<TenantDetail>(`/api/admin/tenants/${id}`),
+
+    suspendTenant: (id: number) =>
+      fetchApi<{ suspended_at: string }>(`/api/admin/tenants/${id}/suspend`, { method: "POST" }),
+
+    unsuspendTenant: (id: number) =>
+      fetchApi<{ suspended_at: null }>(`/api/admin/tenants/${id}/unsuspend`, { method: "POST" }),
+
+    deleteTenant: (id: number, confirm: string) =>
+      fetchApi<void>(`/api/admin/tenants/${id}?confirm=${encodeURIComponent(confirm)}`, { method: "DELETE" }),
   },
 
   // ── Real-time (Centrifugo) ──

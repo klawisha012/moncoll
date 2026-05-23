@@ -10,7 +10,6 @@ import Monitoring from "./pages/Monitoring";
 import CrowdSec from "./pages/CrowdSec";
 import Login from "./pages/Login";
 import ChangePassword from "./pages/ChangePassword";
-import Users from "./pages/Users";
 import Tests from "./pages/Tests";
 
 function App() {
@@ -53,14 +52,6 @@ function App() {
             element={
               <RequireRole role="admin">
                 <Tests />
-              </RequireRole>
-            }
-          />
-          <Route
-            path="users"
-            element={
-              <RequireRole role="admin">
-                <Users />
               </RequireRole>
             }
           />
