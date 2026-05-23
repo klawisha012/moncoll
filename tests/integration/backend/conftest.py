@@ -8,6 +8,8 @@ from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from backend.src.db.base import Base
 from backend.src.db.models import (  # noqa: F401 — ensures models are in metadata
     Connection,
+    EmailVerification,
+    OAuthAccount,
     Tenant,
     User,
 )
