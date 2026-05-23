@@ -51,10 +51,8 @@ async def oauth_start(provider: str, intent: str, tenant_name: str | None = None
                                     "provider_unavailable")
     if intent not in ("signup", "login"):
         return _redirect_with_error("login", "invalid_intent")
-    # Fail-fast on signup without a tenant_name so the user gets a clear
-    # frontend message instead of round-tripping through Google for nothing.
-    if intent == "signup" and not tenant_name:
-        return _redirect_with_error("signup", "tenant_name_required")
+    # tenant_name is now optional: if absent, the callback auto-derives a slug
+    # from the OAuth profile (display_name or email local-part).
 
     state = sign_short_lived(
         {"intent": intent, "tenant_name": tenant_name, "provider": provider},
@@ -144,33 +142,42 @@ async def oauth_callback(
         )
     ).scalar_one_or_none()
 
-    # 7. Branch on found / not-found + intent.
+    # 7. Auto-create on first OAuth sign-in (both intents).
+    # In SaaS, "sign in with Google" should NOT require a separate sign-up
+    # step — it creates the account on the fly. Both /signup and /login OAuth
+    # buttons converge here. The only block is an email collision with an
+    # existing password account (avoids account-takeover via OAuth linking).
     if existing:
         user = await auth_service.get_user(session, existing.user_id)
     else:
-        intent = payload["intent"]
-        if intent == "login":
-            return _redirect_with_error("login", "no_account")
+        # Email collision with an existing PASSWORD account → reject. The user
+        # must sign in by password and explicitly link OAuth later (link flow
+        # is deferred to a follow-up spec — for v1 this stays an error).
+        existing_by_email = await auth_service.get_by_email(session, profile["email"])
+        if existing_by_email and existing_by_email.password_hash:
+            intent = payload.get("intent", "login")
+            return _redirect_with_error(intent, "email_in_use")
 
-        # signup
-        tenant_name = payload.get("tenant_name")
-        if not tenant_name:
-            return _redirect_with_error("signup", "tenant_name_required")
-
-        # Reject if email already in use (no auto-linking).
-        if await auth_service.get_by_email(session, profile["email"]):
-            return _redirect_with_error("signup", "email_in_use")
-
+        # User picked a tenant name explicitly during a /signup flow — honour it.
+        # Otherwise auto-derive from display name or email local-part.
+        provided_tenant = payload.get("tenant_name")
         try:
-            tenant = await tenants_service.create_tenant(
-                session,
-                name=tenant_name,
-                display_name=tenant_name,
-            )
+            if provided_tenant:
+                tenant = await tenants_service.create_tenant(
+                    session,
+                    name=provided_tenant,
+                    display_name=provided_tenant,
+                )
+            else:
+                tenant = await tenants_service.auto_create_tenant_for_user(
+                    session,
+                    email=profile["email"],
+                    display_name=profile.get("name", ""),
+                )
         except tenants_service.InvalidTenantName:
-            return _redirect_with_error("signup", "invalid_tenant_name")
+            return _redirect_with_error(payload.get("intent", "signup"), "invalid_tenant_name")
         except tenants_service.TenantNameTaken:
-            return _redirect_with_error("signup", "tenant_name_taken")
+            return _redirect_with_error(payload.get("intent", "signup"), "tenant_name_taken")
 
         user = await auth_service.create_client_user(
             session,

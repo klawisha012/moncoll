@@ -41,11 +41,11 @@ export default function Signup() {
       setError(t("auth.oauth.notConfigured").replace("{provider}", provider));
       return;
     }
-    if (!TENANT_NAME_RE.test(tenantName)) {
-      setError(t("auth.oauth.needTenantName"));
-      return;
-    }
-    oauthStart(provider, "signup", tenantName);
+    // tenant_name is optional with OAuth — backend auto-derives a slug from
+    // the provider profile. If the user typed one, we honour it; otherwise
+    // pass undefined and let the backend pick.
+    const wsName = TENANT_NAME_RE.test(tenantName) ? tenantName : undefined;
+    oauthStart(provider, "signup", wsName);
   };
 
   const submit = async (e: FormEvent) => {
