@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState, type FormEvent } from "react";
-import { Link } from "react-router-dom";
+import { Link, useSearchParams } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 import { useSettings } from "../context/SettingsContext";
 import { api, type ProvidersResponse } from "../api/client";
@@ -8,6 +8,7 @@ import TurnstileWidget from "../components/TurnstileWidget";
 const TENANT_NAME_RE = /^[a-zA-Z0-9][a-zA-Z0-9-]{1,38}[a-zA-Z0-9]$|^[a-zA-Z0-9]{3}$/;
 
 export default function Signup() {
+  const [searchParams] = useSearchParams();
   const { signup, oauthStart } = useAuth();
   const { t } = useSettings();
 
@@ -27,6 +28,12 @@ export default function Signup() {
     api.auth.getProviders().then(setProviders).catch(() => null);
   }, []);
 
+  // Surface OAuth callback errors (we redirect here with ?oauth_error=<code>).
+  useEffect(() => {
+    const code = searchParams.get("oauth_error");
+    if (code) setError(t(`auth.oauth.err.${code}`) || code);
+  }, [searchParams, t]);
+
   const handleToken = useCallback((token: string) => setCaptchaToken(token), []);
 
   const oauthSignup = (provider: "google" | "github") => {
@@ -34,7 +41,11 @@ export default function Signup() {
       setError(t("auth.oauth.notConfigured").replace("{provider}", provider));
       return;
     }
-    oauthStart(provider, "signup", tenantName || undefined);
+    if (!TENANT_NAME_RE.test(tenantName)) {
+      setError(t("auth.oauth.needTenantName"));
+      return;
+    }
+    oauthStart(provider, "signup", tenantName);
   };
 
   const submit = async (e: FormEvent) => {

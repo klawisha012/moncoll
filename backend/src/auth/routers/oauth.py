@@ -1,6 +1,7 @@
 """OAuth2 endpoints: /oauth/{provider}/start and /oauth/{provider}/callback."""
 
 import logging
+from urllib.parse import quote
 
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, Request
@@ -29,14 +30,31 @@ router = APIRouter(tags=["auth"])
 OAUTH_STATE_COOKIE = "waf_oauth_state"
 
 
+def _redirect_with_error(intent: str, code: str) -> RedirectResponse:
+    """Send the user back to /signup or /login with an oauth_error query param,
+    instead of returning raw JSON. The frontend reads ?oauth_error= and shows
+    the appropriate localized message. Also clears the state cookie so a retry
+    doesn't trip on the previous attempt's value (which is the most common cause
+    of the "invalid oauth state" loop)."""
+    target = "/signup" if intent == "signup" else "/login"
+    resp = RedirectResponse(url=f"{target}?oauth_error={quote(code)}", status_code=303)
+    resp.delete_cookie(OAUTH_STATE_COOKIE, path="/")
+    return resp
+
+
 @router.get("/oauth/{provider}/start")
 async def oauth_start(provider: str, intent: str, tenant_name: str | None = None):
     client = get_client(provider)
     ru = redirect_uri(provider)
     if not client or not ru:
-        raise HTTPException(status_code=400, detail="provider unavailable")
+        return _redirect_with_error(intent if intent in ("signup", "login") else "login",
+                                    "provider_unavailable")
     if intent not in ("signup", "login"):
-        raise HTTPException(status_code=400, detail="intent must be signup or login")
+        return _redirect_with_error("login", "invalid_intent")
+    # Fail-fast on signup without a tenant_name so the user gets a clear
+    # frontend message instead of round-tripping through Google for nothing.
+    if intent == "signup" and not tenant_name:
+        return _redirect_with_error("signup", "tenant_name_required")
 
     state = sign_short_lived(
         {"intent": intent, "tenant_name": tenant_name, "provider": provider},
@@ -65,33 +83,56 @@ async def oauth_callback(
     request: Request,
     session: AsyncSession = Depends(get_session),
 ):
-    # 1. Validate state cookie matches state query param.
-    cookie_state = request.cookies.get(OAUTH_STATE_COOKIE)
-    if not cookie_state or cookie_state != state:
-        raise HTTPException(status_code=400, detail="invalid oauth state")
-
-    # 2. Validate state HMAC.
+    # 2. Validate state HMAC first (independent of cookie — gives us the intent
+    # we need to redirect back on cookie failure). If even the HMAC is invalid,
+    # we don't know the intent — default to /login.
     payload = verify_short_lived(state, purpose="oauth_state")
     if not payload or payload.get("provider") != provider:
-        raise HTTPException(status_code=400, detail="invalid oauth state")
+        logger.warning("oauth callback: state HMAC invalid for provider=%s", provider)
+        return _redirect_with_error("login", "invalid_state")
+
+    intent_from_state = payload.get("intent", "login")
+
+    # 1. Validate state cookie matches state query param.
+    # Common cause of failure: user retries from another tab, or a previous
+    # error left a stale cookie. We log the mismatch for diagnostics.
+    cookie_state = request.cookies.get(OAUTH_STATE_COOKIE)
+    if not cookie_state:
+        logger.warning("oauth callback: state cookie missing (provider=%s intent=%s)",
+                       provider, intent_from_state)
+        return _redirect_with_error(intent_from_state, "state_cookie_missing")
+    if cookie_state != state:
+        logger.warning(
+            "oauth callback: state cookie/param mismatch (provider=%s intent=%s)",
+            provider, intent_from_state,
+        )
+        return _redirect_with_error(intent_from_state, "state_mismatch")
 
     client = get_client(provider)
     ru = redirect_uri(provider)
     if not client or not ru:
-        raise HTTPException(status_code=400, detail="provider unavailable")
+        return _redirect_with_error(intent_from_state, "provider_unavailable")
 
     # 3. Exchange code for access token.
-    token_data = await client.get_access_token(code, ru)
+    try:
+        token_data = await client.get_access_token(code, ru)
+    except Exception as exc:  # noqa: BLE001 — provider can fail in many ways
+        logger.warning("oauth token exchange failed: %s", exc)
+        return _redirect_with_error(intent_from_state, "token_exchange_failed")
 
     # 4. Fetch profile.
-    if provider == "google":
-        profile = await _fetch_google_profile(token_data["access_token"])
-    else:
-        profile = await _fetch_github_profile(token_data["access_token"])
+    try:
+        if provider == "google":
+            profile = await _fetch_google_profile(token_data["access_token"])
+        else:
+            profile = await _fetch_github_profile(token_data["access_token"])
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("oauth profile fetch failed: %s", exc)
+        return _redirect_with_error(intent_from_state, "profile_fetch_failed")
 
     # 5. Reject if email not verified at provider.
     if not profile.get("email") or not profile.get("email_verified", False):
-        raise HTTPException(status_code=400, detail="provider email not verified")
+        return _redirect_with_error(intent_from_state, "email_not_verified")
 
     # 6. Look up existing OAuth account.
     existing = (
@@ -109,18 +150,16 @@ async def oauth_callback(
     else:
         intent = payload["intent"]
         if intent == "login":
-            raise HTTPException(status_code=404, detail="no account; sign up first")
+            return _redirect_with_error("login", "no_account")
 
         # signup
         tenant_name = payload.get("tenant_name")
         if not tenant_name:
-            raise HTTPException(status_code=400, detail="tenant_name required for signup")
+            return _redirect_with_error("signup", "tenant_name_required")
 
         # Reject if email already in use (no auto-linking).
         if await auth_service.get_by_email(session, profile["email"]):
-            raise HTTPException(
-                status_code=409, detail="email already in use; sign in with password"
-            )
+            return _redirect_with_error("signup", "email_in_use")
 
         try:
             tenant = await tenants_service.create_tenant(
@@ -128,8 +167,10 @@ async def oauth_callback(
                 name=tenant_name,
                 display_name=tenant_name,
             )
-        except (tenants_service.InvalidTenantName, tenants_service.TenantNameTaken) as exc:
-            raise HTTPException(status_code=400, detail=str(exc)) from None
+        except tenants_service.InvalidTenantName:
+            return _redirect_with_error("signup", "invalid_tenant_name")
+        except tenants_service.TenantNameTaken:
+            return _redirect_with_error("signup", "tenant_name_taken")
 
         user = await auth_service.create_client_user(
             session,

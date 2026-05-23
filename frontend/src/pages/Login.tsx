@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState, type FormEvent } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 import { useSettings } from "../context/SettingsContext";
 import { api, type ProvidersResponse } from "../api/client";
@@ -7,6 +7,7 @@ import TurnstileWidget from "../components/TurnstileWidget";
 
 export default function Login() {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const { login } = useAuth();
   const { t } = useSettings();
 
@@ -23,6 +24,12 @@ export default function Login() {
   useEffect(() => {
     api.auth.getProviders().then(setProviders).catch(() => null);
   }, []);
+
+  // Surface OAuth callback errors (we redirect here with ?oauth_error=<code>).
+  useEffect(() => {
+    const code = searchParams.get("oauth_error");
+    if (code) setError(t(`auth.oauth.err.${code}`) || code);
+  }, [searchParams, t]);
 
   const handleToken = useCallback((token: string) => setCaptchaToken(token), []);
 
