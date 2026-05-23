@@ -46,7 +46,7 @@ class Connection(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     id: int
-    user_id: int | None = None
+    tenant_id: int
     name: str
     domain: str
     origin_hosts: list[str]

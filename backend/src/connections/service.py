@@ -21,7 +21,7 @@ from fastapi import HTTPException
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ..db.models import Connection as ConnectionModel
+from ..db.models import Connection as ConnectionModel, Tenant
 from . import angie_config
 from .dns import (
     DnsResolutionError,
@@ -48,7 +48,7 @@ def _now() -> datetime:
 def _to_dict(row: ConnectionModel) -> dict:
     return {
         "id": row.id,
-        "user_id": row.user_id,
+        "tenant_id": row.tenant_id,
         "name": row.name,
         "domain": row.domain,
         "origin_hosts": list(row.origin_hosts or []),
@@ -94,18 +94,40 @@ def _reload_angie() -> None:
 # ─────────────────────────────────────────────────────────────────────────────
 
 
-async def list_connections(
-    session: AsyncSession, *, user_id: int | None = None
-) -> list[Connection]:
-    """List all connections (admin) or just the user's (when user_id provided)."""
-    stmt = select(ConnectionModel).order_by(ConnectionModel.id)
-    if user_id is not None:
-        stmt = stmt.where(ConnectionModel.user_id == user_id)
+async def list_connections(session: AsyncSession, tenant: Tenant) -> list[Connection]:
+    """List connections belonging to the given tenant."""
+    stmt = (
+        select(ConnectionModel)
+        .where(ConnectionModel.tenant_id == tenant.id)
+        .order_by(ConnectionModel.id)
+    )
     result = await session.execute(stmt)
     return [Connection.model_validate(_to_dict(r)) for r in result.scalars().all()]
 
 
-async def get_connection(session: AsyncSession, conn_id: int) -> Connection | None:
+async def get_connection(
+    session: AsyncSession, tenant: Tenant, conn_id: int
+) -> Connection | None:
+    """Fetch a connection only if it belongs to the given tenant."""
+    result = await session.execute(
+        select(ConnectionModel).where(
+            ConnectionModel.id == conn_id,
+            ConnectionModel.tenant_id == tenant.id,
+        )
+    )
+    row = result.scalar_one_or_none()
+    return Connection.model_validate(_to_dict(row)) if row else None
+
+
+async def get_connection_internal(
+    session: AsyncSession, conn_id: int
+) -> Connection | None:
+    """Fetch a connection by ID without tenant scoping.
+
+    NOTE: This scope is platform-internal, not user-facing. Use only from
+    background jobs or platform-level modules (e.g. certificates) that operate
+    across tenants. Never call this from user-facing request handlers.
+    """
     row = await session.get(ConnectionModel, conn_id)
     return Connection.model_validate(_to_dict(row)) if row else None
 
@@ -135,9 +157,8 @@ async def _resolve_and_validate_origin(domain: str) -> tuple[list[str], int]:
 
 async def create_connection(
     session: AsyncSession,
+    tenant: Tenant,
     conn_in: ConnectionCreate,
-    *,
-    user_id: int | None = None,
 ) -> tuple[Connection, VerifyInstructions]:
     """Create a row in pending_verification state and return wizard instructions.
 
@@ -162,7 +183,7 @@ async def create_connection(
 
     verify_token = secrets.token_urlsafe(24)
     row = ConnectionModel(
-        user_id=user_id,
+        tenant_id=tenant.id,
         name=conn_in.name,
         domain=domain,
         origin_hosts=origin_ips,
@@ -199,9 +220,15 @@ async def create_connection(
 
 
 async def update_connection(
-    session: AsyncSession, conn_id: int, conn_in: ConnectionUpdate
+    session: AsyncSession, tenant: Tenant, conn_id: int, conn_in: ConnectionUpdate
 ) -> Connection | None:
-    row = await session.get(ConnectionModel, conn_id)
+    result = await session.execute(
+        select(ConnectionModel).where(
+            ConnectionModel.id == conn_id,
+            ConnectionModel.tenant_id == tenant.id,
+        )
+    )
+    row = result.scalar_one_or_none()
     if row is None:
         return None
     data = conn_in.model_dump(exclude_unset=True)
@@ -220,8 +247,14 @@ async def update_connection(
     return Connection.model_validate(_to_dict(row))
 
 
-async def delete_connection(session: AsyncSession, conn_id: int) -> bool:
-    row = await session.get(ConnectionModel, conn_id)
+async def delete_connection(session: AsyncSession, tenant: Tenant, conn_id: int) -> bool:
+    result = await session.execute(
+        select(ConnectionModel).where(
+            ConnectionModel.id == conn_id,
+            ConnectionModel.tenant_id == tenant.id,
+        )
+    )
+    row = result.scalar_one_or_none()
     if row is None:
         return False
     await session.delete(row)
@@ -231,7 +264,9 @@ async def delete_connection(session: AsyncSession, conn_id: int) -> bool:
     return True
 
 
-async def probe_connection(session: AsyncSession, conn_id: int) -> Connection | None:
+async def probe_connection(
+    session: AsyncSession, tenant: Tenant, conn_id: int
+) -> Connection | None:
     """Probe a connection NOW and return the updated row.
 
     Synchronous for the two states the wizard cares about:
@@ -251,7 +286,13 @@ async def probe_connection(session: AsyncSession, conn_id: int) -> Connection | 
     """
     import os
 
-    row = await session.get(ConnectionModel, conn_id)
+    result = await session.execute(
+        select(ConnectionModel).where(
+            ConnectionModel.id == conn_id,
+            ConnectionModel.tenant_id == tenant.id,
+        )
+    )
+    row = result.scalar_one_or_none()
     if row is None:
         return None
 
@@ -303,6 +344,10 @@ async def reload_connections_config(session: AsyncSession) -> dict:
 
     Useful after edge IP rotation or template updates. Idempotent — never
     touches DB state, only filesystem + Angie reload.
+
+    NOTE: This scope is platform-internal, not user-facing. It deliberately
+    operates across all tenants so the operator can bulk-refresh configs after
+    an edge IP rotation without knowing per-tenant IDs.
     """
     result = await session.execute(
         select(ConnectionModel).where(ConnectionModel.enabled.is_(True))

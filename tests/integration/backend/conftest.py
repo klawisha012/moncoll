@@ -6,7 +6,11 @@ import pytest_asyncio
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from backend.src.db.base import Base
-from backend.src.db.models import Connection  # noqa: F401 — ensures Connection is in metadata
+from backend.src.db.models import (  # noqa: F401 — ensures models are in metadata
+    Connection,
+    Tenant,
+    User,
+)
 
 
 @pytest.fixture(scope="session")

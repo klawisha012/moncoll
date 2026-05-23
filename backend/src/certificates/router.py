@@ -15,7 +15,7 @@ async def get_certificate_status(
     session: AsyncSession = Depends(get_session),
 ):
     """Check certificate status for a connection."""
-    conn = await connection_service.get_connection(session, connection_id)
+    conn = await connection_service.get_connection_internal(session, connection_id)
     if not conn:
         raise HTTPException(status_code=404, detail="Connection not found")
 
@@ -30,7 +30,7 @@ async def request_certificate(
     session: AsyncSession = Depends(get_session),
 ):
     """Request ACME certificate for a connection."""
-    conn = await connection_service.get_connection(session, connection_id)
+    conn = await connection_service.get_connection_internal(session, connection_id)
     if not conn:
         raise HTTPException(status_code=404, detail="Connection not found")
 
@@ -48,7 +48,7 @@ async def regenerate_certificate(
     session: AsyncSession = Depends(get_session),
 ):
     """Regenerate certificate for a connection."""
-    conn = await connection_service.get_connection(session, connection_id)
+    conn = await connection_service.get_connection_internal(session, connection_id)
     if not conn:
         raise HTTPException(status_code=404, detail="Connection not found")
 
