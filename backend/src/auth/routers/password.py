@@ -160,9 +160,11 @@ async def login(
     response: Response,
     session: AsyncSession = Depends(get_session),
 ):
-    if await auth_service.count_admins(session) == 0:
-        raise HTTPException(status_code=503, detail="system not provisioned")
-
+    # Note: the original spec gated /login on "at least one admin exists"
+    # as a bootstrap check. With self-service signup this guard actively
+    # blocks legitimate clients who signed up before any admin was
+    # provisioned. The CLI `python -m src.cli create-admin` remains the
+    # provisioning path; clients sign in independently.
     await captcha.verify_or_raise(payload.captcha_token, request)
 
     user = await auth_service.authenticate(session, payload.email.lower(), payload.password)
