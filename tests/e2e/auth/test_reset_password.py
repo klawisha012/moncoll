@@ -55,7 +55,7 @@ def test_forgot_always_202():
     """POST /password/forgot with unknown email still returns 202 (no oracle)."""
     r = requests.post(
         f"{API_URL}/api/auth/password/forgot",
-        json={"email": "nobody@nowhere.invalid", "captcha_token": _CAPTCHA},
+        json={"email": "nobody@no-such-tenant.example.com", "captcha_token": _CAPTCHA},
         timeout=10,
     )
     assert r.status_code == 202, f"expected 202, got {r.status_code}: {r.text}"
