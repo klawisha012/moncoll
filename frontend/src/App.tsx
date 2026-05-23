@@ -1,7 +1,7 @@
 import { Routes, Route, Navigate } from "react-router-dom";
 import Layout from "./components/Layout";
 import ProtectedRoute from "./components/ProtectedRoute";
-import AdminOnly from "./components/AdminOnly";
+import RequireRole from "./components/RequireRole";
 import Home from "./pages/Home";
 import Dashboard from "./pages/Dashboard";
 import Connections from "./pages/Connections";
@@ -27,41 +27,41 @@ function App() {
           <Route
             path="connections"
             element={
-              <AdminOnly>
+              <RequireRole role="admin">
                 <Connections />
-              </AdminOnly>
+              </RequireRole>
             }
           />
           <Route
             path="config"
             element={
-              <AdminOnly>
+              <RequireRole role="admin">
                 <ConfigEditor />
-              </AdminOnly>
+              </RequireRole>
             }
           />
           <Route
             path="crowdsec"
             element={
-              <AdminOnly>
+              <RequireRole role="admin">
                 <CrowdSec />
-              </AdminOnly>
+              </RequireRole>
             }
           />
           <Route
             path="tests"
             element={
-              <AdminOnly>
+              <RequireRole role="admin">
                 <Tests />
-              </AdminOnly>
+              </RequireRole>
             }
           />
           <Route
             path="users"
             element={
-              <AdminOnly>
+              <RequireRole role="admin">
                 <Users />
-              </AdminOnly>
+              </RequireRole>
             }
           />
         </Route>
