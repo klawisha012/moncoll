@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { type ReactNode, useEffect, useState } from "react";
 import { NavLink, Outlet, useNavigate } from "react-router-dom";
 import {
   LayoutDashboard,
@@ -31,6 +31,49 @@ function loadCollapsed(): boolean {
   }
 }
 
+type NavItem = { path: string; labelKey: string; icon: ReactNode };
+type NavSection = { titleKey: string; items: NavItem[] };
+
+// Declared outside component to avoid re-creating every render
+const ADMIN_NAV: NavSection[] = [
+  {
+    titleKey: "nav.operations",
+    items: [
+      { path: "/monitoring", labelKey: "nav.monitoring", icon: <Activity /> },
+      { path: "/clients", labelKey: "nav.clients", icon: <UsersIcon /> },
+    ],
+  },
+];
+
+const CLIENT_NAV: NavSection[] = [
+  {
+    titleKey: "nav.overview",
+    items: [
+      { path: "/home", labelKey: "nav.home", icon: <HomeIcon /> },
+      { path: "/dashboard", labelKey: "nav.dashboard", icon: <LayoutDashboard /> },
+    ],
+  },
+  {
+    titleKey: "nav.management",
+    items: [
+      { path: "/connections", labelKey: "nav.connections", icon: <Link2 /> },
+      { path: "/config", labelKey: "nav.configuration", icon: <Settings /> },
+    ],
+  },
+  {
+    titleKey: "nav.security",
+    items: [
+      { path: "/crowdsec", labelKey: "nav.crowdsec", icon: <Ban /> },
+      { path: "/tests", labelKey: "nav.tests", icon: <TestTube /> },
+    ],
+  },
+];
+
+const NAV_MAP: Record<"admin" | "client", NavSection[]> = {
+  admin: ADMIN_NAV,
+  client: CLIENT_NAV,
+};
+
 export default function Layout() {
   const { t, theme } = useSettings();
   const { user, logout } = useAuth();
@@ -50,6 +93,9 @@ export default function Layout() {
     await logout();
     navigate("/login", { replace: true });
   };
+
+  const role = user?.platform_role ?? "client";
+  const sections = NAV_MAP[role] ?? CLIENT_NAV;
 
   return (
     <div className={`layout ${collapsed ? "sidebar-collapsed" : ""}`}>
@@ -85,94 +131,22 @@ export default function Layout() {
         </div>
 
         <nav className="sidebar-nav">
-          <div className="nav-section">
-            <div className="nav-section-title">{t("nav.overview")}</div>
-            <NavLink
-              to="/home"
-              end
-              className={({ isActive }) =>
-                `nav-link ${isActive ? "active" : ""}`
-              }
-            >
-              <HomeIcon />
-              {t("nav.home")}
-            </NavLink>
-            <NavLink
-              to="/dashboard"
-              className={({ isActive }) =>
-                `nav-link ${isActive ? "active" : ""}`
-              }
-            >
-              <LayoutDashboard />
-              {t("nav.dashboard")}
-            </NavLink>
-            <NavLink
-              to="/monitoring"
-              className={({ isActive }) =>
-                `nav-link ${isActive ? "active" : ""}`
-              }
-            >
-              <Activity />
-              {t("nav.monitoring")}
-            </NavLink>
-          </div>
-
-          {user?.platform_role === "admin" && (
-            <>
-              <div className="nav-section">
-                <div className="nav-section-title">{t("nav.management")}</div>
+          {sections.map((section) => (
+            <div key={section.titleKey} className="nav-section">
+              <div className="nav-section-title">{t(section.titleKey)}</div>
+              {section.items.map((item) => (
                 <NavLink
-                  to="/connections"
-                  className={({ isActive }) =>
-                    `nav-link ${isActive ? "active" : ""}`
-                  }
+                  key={item.path}
+                  to={item.path}
+                  end={item.path === "/home"}
+                  className={({ isActive }) => `nav-link ${isActive ? "active" : ""}`}
                 >
-                  <Link2 />
-                  {t("nav.connections")}
+                  {item.icon}
+                  {t(item.labelKey)}
                 </NavLink>
-                <NavLink
-                  to="/config"
-                  className={({ isActive }) =>
-                    `nav-link ${isActive ? "active" : ""}`
-                  }
-                >
-                  <Settings />
-                  {t("nav.configuration")}
-                </NavLink>
-                <NavLink
-                  to="/users"
-                  className={({ isActive }) =>
-                    `nav-link ${isActive ? "active" : ""}`
-                  }
-                >
-                  <UsersIcon />
-                  {t("nav.users")}
-                </NavLink>
-              </div>
-
-              <div className="nav-section">
-                <div className="nav-section-title">{t("nav.security")}</div>
-                <NavLink
-                  to="/crowdsec"
-                  className={({ isActive }) =>
-                    `nav-link ${isActive ? "active" : ""}`
-                  }
-                >
-                  <Ban />
-                  {t("nav.crowdsec")}
-                </NavLink>
-                <NavLink
-                  to="/tests"
-                  className={({ isActive }) =>
-                    `nav-link ${isActive ? "active" : ""}`
-                  }
-                >
-                  <TestTube />
-                  {t("nav.tests")}
-                </NavLink>
-              </div>
-            </>
-          )}
+              ))}
+            </div>
+          ))}
         </nav>
 
         <div className="sidebar-footer">
