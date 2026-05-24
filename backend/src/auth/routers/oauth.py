@@ -143,76 +143,66 @@ async def oauth_callback(
     ).scalar_one_or_none()
 
     # 7. Resolve the authenticated user.
-    # Three cases:
+    # Two cases:
     #   a) OAuthAccount row exists for (provider, sub) → log in directly.
-    #   b) No OAuthAccount, but a user with this email already exists AND has
-    #      no password_hash → existing user is OAuth-only on some other
-    #      provider; both providers verified the same email so they're the
-    #      same human. Auto-link the new provider to that user.
-    #   c) Truly new user → create tenant + user + oauth_account.
-    # The only rejection is (b) when the existing user DOES have a password
-    # hash — that's the password-account takeover risk, kept blocked.
+    #   b) Truly new user → create tenant + user + oauth_account.
+    # Email-collision is ALWAYS rejected (password account OR existing
+    # OAuth-only account). Auto-linking a new provider based on email
+    # match alone is unsafe: provider verification proves the attacker
+    # currently controls the mailbox, but not that they are the same
+    # human as the original account owner. Corporate email recycling
+    # (old@company.com reassigned to a new employee after the original
+    # owner left) was the concrete trigger — both providers correctly
+    # verify the new owner, but the new owner is not entitled to the
+    # original tenant. The legitimate user must sign in via their
+    # already-linked provider and add the new one explicitly from the
+    # account settings page.
     if existing:
         user = await auth_service.get_user(session, existing.user_id)
     else:
         existing_by_email = await auth_service.get_by_email(session, profile["email"])
-        if existing_by_email and existing_by_email.password_hash:
-            # case (b)-blocked: a password account owns this email.
+        if existing_by_email:
             intent = payload.get("intent", "login")
             return _redirect_with_error(intent, "email_in_use")
 
-        if existing_by_email:
-            # case (b)-linked: existing OAuth-only user, new provider with the
-            # same verified email. Add this provider to their account.
-            user = existing_by_email
-            session.add(
-                OAuthAccount(
-                    user_id=user.id,
-                    provider=provider,
-                    provider_account_id=profile["sub"],
-                    email_at_provider=profile["email"],
+        # case (b): truly new user — provision tenant + user + oauth_account.
+        provided_tenant = payload.get("tenant_name")
+        try:
+            if provided_tenant:
+                tenant = await tenants_service.create_tenant(
+                    session,
+                    name=provided_tenant,
+                    display_name=provided_tenant,
                 )
-            )
-            await session.commit()
-        else:
-            # case (c): truly new user — provision tenant + user + oauth_account.
-            provided_tenant = payload.get("tenant_name")
-            try:
-                if provided_tenant:
-                    tenant = await tenants_service.create_tenant(
-                        session,
-                        name=provided_tenant,
-                        display_name=provided_tenant,
-                    )
-                else:
-                    tenant = await tenants_service.auto_create_tenant_for_user(
-                        session,
-                        email=profile["email"],
-                        display_name=profile.get("name", ""),
-                    )
-            except tenants_service.InvalidTenantName:
-                return _redirect_with_error(payload.get("intent", "signup"), "invalid_tenant_name")
-            except tenants_service.TenantNameTaken:
-                return _redirect_with_error(payload.get("intent", "signup"), "tenant_name_taken")
+            else:
+                tenant = await tenants_service.auto_create_tenant_for_user(
+                    session,
+                    email=profile["email"],
+                    display_name=profile.get("name", ""),
+                )
+        except tenants_service.InvalidTenantName:
+            return _redirect_with_error(payload.get("intent", "signup"), "invalid_tenant_name")
+        except tenants_service.TenantNameTaken:
+            return _redirect_with_error(payload.get("intent", "signup"), "tenant_name_taken")
 
-            user = await auth_service.create_client_user(
-                session,
-                email=profile["email"],
-                password=None,
-                tenant_id=tenant.id,
-                tenant_role="owner",
-                display_name=profile.get("name", ""),
-                email_verified=True,
+        user = await auth_service.create_client_user(
+            session,
+            email=profile["email"],
+            password=None,
+            tenant_id=tenant.id,
+            tenant_role="owner",
+            display_name=profile.get("name", ""),
+            email_verified=True,
+        )
+        session.add(
+            OAuthAccount(
+                user_id=user.id,
+                provider=provider,
+                provider_account_id=profile["sub"],
+                email_at_provider=profile["email"],
             )
-            session.add(
-                OAuthAccount(
-                    user_id=user.id,
-                    provider=provider,
-                    provider_account_id=profile["sub"],
-                    email_at_provider=profile["email"],
-                )
-            )
-            await session.commit()
+        )
+        await session.commit()
 
     await auth_service.touch_login(session, user)
     s_token = create_session_token(
