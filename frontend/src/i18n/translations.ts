@@ -707,9 +707,11 @@ const en: TranslationDict = {
   "auth.totp.orEnterSecret": "or enter this secret manually:",
   "auth.totp.recoveryCodes": "Recovery codes",
   "auth.totp.recoveryCodesDesc": "Save these codes somewhere safe. Each can be used once if you lose your device.",
+  "auth.totp.downloadCodes": "Download codes",
   "auth.totp.enterCode": "Enter the 6-digit code from your app to confirm",
   "auth.totp.confirm": "Confirm",
   "auth.totp.confirming": "Confirming…",
+  "general.continue": "Continue",
 
   // Clients admin page
   "clients.title": "Clients",
@@ -1450,9 +1452,11 @@ const ru: TranslationDict = {
   "auth.totp.orEnterSecret": "или введите секрет вручную:",
   "auth.totp.recoveryCodes": "Коды восстановления",
   "auth.totp.recoveryCodesDesc": "Сохраните эти коды в безопасном месте. Каждый можно использовать один раз.",
+  "auth.totp.downloadCodes": "Скачать коды",
   "auth.totp.enterCode": "Введите 6-значный код из приложения для подтверждения",
   "auth.totp.confirm": "Подтвердить",
   "auth.totp.confirming": "Подтверждение…",
+  "general.continue": "Продолжить",
 
   // Clients admin page
   "clients.title": "Клиенты",

@@ -50,6 +50,28 @@ export default function TotpSetup() {
     navigate(role === "admin" ? "/monitoring" : "/home", { replace: true });
   };
 
+  const downloadCodes = () => {
+    const lines = [
+      "WAF — recovery codes",
+      `Account: ${user?.email ?? ""}`,
+      `Issued:  ${new Date().toISOString()}`,
+      "",
+      "Each code can be used ONCE. Store this file somewhere safe.",
+      "",
+      ...recoveryCodes,
+      "",
+    ];
+    const blob = new Blob([lines.join("\n")], { type: "text/plain;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `waf-recovery-codes-${new Date().toISOString().slice(0, 10)}.txt`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  };
+
   return (
     <div className="cv-root">
       <style>{styles}</style>
@@ -123,10 +145,18 @@ export default function TotpSetup() {
                     <code key={rc} className="cv-rc">{rc}</code>
                   ))}
                 </div>
+                <button
+                  type="button"
+                  className="cv-download"
+                  onClick={downloadCodes}
+                  disabled={recoveryCodes.length === 0}
+                >
+                  ↓ {t("auth.totp.downloadCodes")}
+                </button>
               </div>
 
               <button type="button" className="cv-submit" onClick={proceed}>
-                <span>{t("general.continue") || "Continue"}</span>
+                <span>{t("general.continue")}</span>
                 <span className="cv-ar">→</span>
               </button>
             </>
@@ -233,6 +263,18 @@ const styles = `
   font-family: 'JetBrains Mono', monospace; font-size: 12px;
   background: var(--ink); color: var(--cream); padding: 6px 10px; text-align: center;
 }
+.cv-download {
+  margin-top: 12px;
+  background: var(--cream); color: var(--ink);
+  border: 2px solid var(--rule); padding: 10px 14px; cursor: pointer;
+  font-family: 'Oswald', sans-serif; font-weight: 700;
+  font-size: 12px; letter-spacing: 0.18em; text-transform: uppercase;
+  display: inline-flex; align-items: center; gap: 8px;
+  align-self: flex-start;
+  transition: transform 90ms, box-shadow 90ms;
+}
+.cv-download:hover:not(:disabled) { background: var(--ink); color: var(--cream); }
+.cv-download:disabled { opacity: 0.4; cursor: not-allowed; }
 .cv-error {
   border: 3px solid var(--red); background: rgba(214, 54, 42, 0.08); padding: 12px 16px;
   font-family: 'JetBrains Mono', monospace; font-size: 13px; color: var(--red);
