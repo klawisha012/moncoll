@@ -23,7 +23,6 @@ import {
 } from "lucide-react";
 import { api } from "../api/client";
 import type {
-  Connection,
   Metrics,
   TrafficDataPoint,
   ThreatOrigin,
@@ -43,6 +42,7 @@ import type {
   CountryHit,
 } from "../api/client";
 import { useSettings } from "../context/SettingsContext";
+import { useGlobalFilters } from "../context/GlobalFiltersContext";
 import TrafficChart from "../components/charts/TrafficChart";
 import {
   ChartTooltip,
@@ -53,8 +53,6 @@ import {
   type TooltipRow,
 } from "../components/charts/chart-utils";
 import { injectionLabel, ruleFileToFamily } from "../utils/ruleNames";
-
-type TimeUnit = "minutes" | "hours" | "days";
 
 type PanelKey =
   | "metricTotalRequests"
@@ -145,12 +143,6 @@ function loadVisible(): Set<PanelKey> {
     return new Set([...ALL_METRIC_KEYS, ...ALL_PANEL_KEYS]);
   }
 }
-
-const UNITS: { value: TimeUnit; labelKey: string; multiplier: number }[] = [
-  { value: "minutes", labelKey: "dashboard.ui.minutes", multiplier: 1 / 60 },
-  { value: "hours", labelKey: "dashboard.ui.hours", multiplier: 1 },
-  { value: "days", labelKey: "dashboard.ui.days", multiplier: 24 },
-];
 
 // No-flicker fetch hook: only the very first fetch (or one triggered by a
 // deps change while we have no cached data) shows a spinner. Background
@@ -1189,26 +1181,11 @@ function NativePanels({
 
 export default function Dashboard() {
   const { t } = useSettings();
-
-  const [timeValue, setTimeValue] = useState<number>(24);
-  const [timeUnit, setTimeUnit] = useState<TimeUnit>("hours");
+  const { connectionId, selectedHours } = useGlobalFilters();
 
   const [visiblePanels, setVisiblePanels] = useState<Set<PanelKey>>(() => loadVisible());
   const [gearOpen, setGearOpen] = useState(false);
   const gearPopoverRef = useRef<HTMLDivElement>(null);
-
-  const [connections, setConnections] = useState<Connection[]>([]);
-  const [connectionId, setConnectionId] = useState<number | null>(null);
-
-  useEffect(() => {
-    let cancelled = false;
-    api.getConnections().then((data) => {
-      if (!cancelled) setConnections(data);
-    }).catch(() => undefined);
-    return () => {
-      cancelled = true;
-    };
-  }, []);
 
   useEffect(() => {
     try {
@@ -1243,11 +1220,6 @@ export default function Dashboard() {
     };
   }, [gearOpen]);
 
-  const unitMultiplier = UNITS.find((u) => u.value === timeUnit)?.multiplier ?? 1;
-  const selectedHours = +(timeValue * unitMultiplier).toFixed(4);
-  const MAX_HOURS = 8760;
-  const maxValue = Math.floor(MAX_HOURS / unitMultiplier);
-
   return (
     <div>
       <div className="page-header">
@@ -1258,135 +1230,57 @@ export default function Dashboard() {
       </div>
 
       <div
-            style={{
-              display: "flex",
-              alignItems: "center",
-              gap: "10px",
-              marginBottom: "16px",
-              padding: "10px 16px",
-              background: "var(--card-bg, #1a1a2e)",
-              borderRadius: "var(--radius-md, 8px)",
-              border: "1px solid var(--border-color, #2a2a2a)",
-              flexWrap: "wrap",
-            }}
+        style={{
+          display: "flex",
+          justifyContent: "flex-end",
+          marginBottom: "16px",
+        }}
+      >
+        <div style={{ position: "relative" }}>
+          <button
+            data-testid="dashboard-gear"
+            className="settings-gear-btn"
+            onClick={() => setGearOpen(!gearOpen)}
+            title={t("dashboard.ui.panelVisibility")}
+            style={{ width: "32px", height: "32px" }}
           >
-            <span style={{ fontSize: "13px", color: "var(--text-secondary, #888)", fontWeight: 500 }}>{t("dashboard.ui.timeRange")}</span>
-            <input
-              type="number"
-              min={1}
-              max={maxValue}
-              value={timeValue}
-              onChange={(e) => {
-                const v = parseInt(e.target.value, 10);
-                if (!isNaN(v) && v >= 1 && v <= maxValue) setTimeValue(v);
-              }}
+            <Cog size={16} />
+          </button>
+          {gearOpen && (
+            <div
+              ref={gearPopoverRef}
               style={{
-                width: "80px",
-                padding: "6px 10px",
-                fontSize: "13px",
-                border: "1px solid var(--border-color, #2a2a2a)",
-                borderRadius: "var(--radius-sm, 6px)",
-                background: "var(--input-bg, #0d0d1a)",
-                color: "var(--text-primary, #e0e0e0)",
-                outline: "none",
-              }}
-            />
-            <select
-              value={timeUnit}
-              onChange={(e) => setTimeUnit(e.target.value as TimeUnit)}
-              style={{
-                padding: "6px 10px",
-                fontSize: "13px",
-                border: "1px solid var(--border-color, #2a2a2a)",
-                borderRadius: "var(--radius-sm, 6px)",
-                background: "var(--input-bg, #0d0d1a)",
-                color: "var(--text-primary, #e0e0e0)",
-                outline: "none",
-                cursor: "pointer",
+                position: "absolute",
+                top: "calc(100% + 8px)",
+                right: "0",
+                background: "var(--bg-elevated)",
+                border: "1px solid var(--border-default)",
+                borderRadius: "var(--radius-md)",
+                padding: "6px",
+                boxShadow: "0 16px 48px rgba(0, 0, 0, 0.5), 0 0 0 1px var(--border-subtle)",
+                zIndex: 50,
+                minWidth: "260px",
+                maxHeight: "70vh",
+                overflowY: "auto",
+                animation: "scaleIn var(--duration-fast) var(--ease-out)",
               }}
             >
-              {UNITS.map((unit) => (
-                <option key={unit.value} value={unit.value}>{t(unit.labelKey)}</option>
+              <div style={{ fontSize: "10px", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.06em", color: "var(--text-muted)", padding: "8px 10px 4px" }}>
+                {t("dashboard.ui.sectionMetrics")}
+              </div>
+              {METRIC_ITEMS.map((p) => (
+                <PanelToggleRow key={p.key} item={p} on={visiblePanels.has(p.key)} onClick={() => togglePanel(p.key)} />
               ))}
-            </select>
-            <span style={{ fontSize: "12px", color: "var(--text-secondary, #666)" }}>
-              (last {timeValue} {timeUnit === "minutes" ? t("dashboard.ui.min") : timeUnit === "hours" ? t("dashboard.ui.hr") : t("dashboard.ui.day")}{timeValue !== 1 ? "s" : ""})
-            </span>
-
-            <span style={{ fontSize: "13px", color: "var(--text-secondary, #888)", fontWeight: 500, marginLeft: "12px" }}>{t("dashboard.ui.domain")}</span>
-            <select
-              data-testid="dashboard-connection-picker"
-              value={connectionId ?? ""}
-              onChange={(e) => {
-                const v = e.target.value;
-                setConnectionId(v === "" ? null : parseInt(v, 10));
-              }}
-              style={{
-                padding: "6px 10px",
-                fontSize: "13px",
-                border: "1px solid var(--border-color, #2a2a2a)",
-                borderRadius: "var(--radius-sm, 6px)",
-                background: "var(--input-bg, #0d0d1a)",
-                color: "var(--text-primary, #e0e0e0)",
-                outline: "none",
-                cursor: "pointer",
-                minWidth: "180px",
-              }}
-            >
-              <option value="">{t("dashboard.ui.allDomains")}</option>
-              {connections.filter((c) => c.enabled).map((c) => (
-                <option key={c.id} value={c.id}>
-                  {c.name}
-                  {c.domain ? ` (${c.domain})` : ""}
-                </option>
+              <div style={{ fontSize: "10px", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.06em", color: "var(--text-muted)", padding: "12px 10px 4px", borderTop: "1px solid var(--border-subtle)", marginTop: "2px" }}>
+                {t("dashboard.ui.sectionPanels")}
+              </div>
+              {PANEL_ITEMS.map((p) => (
+                <PanelToggleRow key={p.key} item={p} on={visiblePanels.has(p.key)} onClick={() => togglePanel(p.key)} />
               ))}
-            </select>
-
-            <div style={{ position: "relative", marginLeft: "auto" }}>
-              <button
-                data-testid="dashboard-gear"
-                className="settings-gear-btn"
-                onClick={() => setGearOpen(!gearOpen)}
-                title={t("dashboard.ui.panelVisibility")}
-                style={{ width: "32px", height: "32px" }}
-              >
-                <Cog size={16} />
-              </button>
-              {gearOpen && (
-                <div
-                  ref={gearPopoverRef}
-                  style={{
-                    position: "absolute",
-                    top: "calc(100% + 8px)",
-                    right: "0",
-                    background: "var(--bg-elevated)",
-                    border: "1px solid var(--border-default)",
-                    borderRadius: "var(--radius-md)",
-                    padding: "6px",
-                    boxShadow: "0 16px 48px rgba(0, 0, 0, 0.5), 0 0 0 1px var(--border-subtle)",
-                    zIndex: 50,
-                    minWidth: "260px",
-                    maxHeight: "70vh",
-                    overflowY: "auto",
-                    animation: "scaleIn var(--duration-fast) var(--ease-out)",
-                  }}
-                >
-                  <div style={{ fontSize: "10px", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.06em", color: "var(--text-muted)", padding: "8px 10px 4px" }}>
-                    {t("dashboard.ui.sectionMetrics")}
-                  </div>
-                  {METRIC_ITEMS.map((p) => (
-                    <PanelToggleRow key={p.key} item={p} on={visiblePanels.has(p.key)} onClick={() => togglePanel(p.key)} />
-                  ))}
-                  <div style={{ fontSize: "10px", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.06em", color: "var(--text-muted)", padding: "12px 10px 4px", borderTop: "1px solid var(--border-subtle)", marginTop: "2px" }}>
-                    {t("dashboard.ui.sectionPanels")}
-                  </div>
-                  {PANEL_ITEMS.map((p) => (
-                    <PanelToggleRow key={p.key} item={p} on={visiblePanels.has(p.key)} onClick={() => togglePanel(p.key)} />
-                  ))}
-                </div>
-              )}
             </div>
-          </div>
+          )}
+        </div>
+      </div>
 
       <NativePanels hours={selectedHours} connectionId={connectionId} visiblePanels={visiblePanels} />
     </div>

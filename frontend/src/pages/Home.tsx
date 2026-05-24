@@ -1,12 +1,12 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   api,
-  Connection,
   GeoipMapPoint,
   UnresolvedIp,
   SecurityEvent,
 } from "../api/client";
 import { useSettings } from "../context/SettingsContext";
+import { useGlobalFilters } from "../context/GlobalFiltersContext";
 import { EmptyState } from "../components/charts/chart-utils";
 import GeoipGlobe from "../components/GeoipGlobe";
 import Geoip2DMap from "../components/Geoip2DMap";
@@ -18,14 +18,7 @@ interface EnrichedGeoPoint extends GeoipMapPoint {
   topAttacks?: string[];
 }
 
-type TimeUnit = "minutes" | "hours" | "days";
 type View = "2d" | "3d";
-
-const UNITS: { value: TimeUnit; labelKey: string; multiplier: number }[] = [
-  { value: "minutes", labelKey: "dashboard.ui.minutes", multiplier: 1 / 60 },
-  { value: "hours", labelKey: "dashboard.ui.hours", multiplier: 1 },
-  { value: "days", labelKey: "dashboard.ui.days", multiplier: 24 },
-];
 
 function classifyUnresolvedIp(ip: string): { kind: string; reason: string } {
   const parts = ip.split(".").map(Number);
@@ -114,25 +107,14 @@ function GeoipMapPanel({
 
 export default function Home() {
   const { t } = useSettings();
-  const [connections, setConnections] = useState<Connection[]>([]);
-  const [connectionId, setConnectionId] = useState<number | null>(null);
-  const [timeUnit, setTimeUnit] = useState<TimeUnit>("hours");
-  const [timeValue, setTimeValue] = useState<number>(24);
+  const { connectionId, selectedHours } = useGlobalFilters();
+  const hours = useMemo(() => Math.max(1, Math.round(selectedHours)), [selectedHours]);
   const [view, setView] = useState<View>("3d");
   const [data, setData] = useState<GeoipMapPoint[] | null>(null);
   const [unresolved, setUnresolved] = useState<UnresolvedIp[] | null>(null);
   const [events, setEvents] = useState<SecurityEvent[] | null>(null);
   const [loading, setLoading] = useState(true);
   const cancelledRef = useRef(false);
-
-  const hours = useMemo(() => {
-    const m = UNITS.find((u) => u.value === timeUnit)?.multiplier ?? 1;
-    return Math.max(1, Math.round(timeValue * m));
-  }, [timeUnit, timeValue]);
-
-  useEffect(() => {
-    api.getConnections().then(setConnections).catch(() => {});
-  }, []);
 
   useEffect(() => {
     cancelledRef.current = false;
@@ -234,67 +216,27 @@ export default function Home() {
         })}
       </div>
 
-      <aside className="home-settings">
-        <div className="home-settings-section">
-          <label className="home-settings-label">{t("dashboard.ui.timeRange")}</label>
-          <div className="home-settings-row">
-            <input
-              type="number"
-              min={1}
-              value={timeValue}
-              onChange={(e) => setTimeValue(Math.max(1, Number(e.target.value) || 1))}
-              className="home-settings-input"
-            />
-            <select
-              value={timeUnit}
-              onChange={(e) => setTimeUnit(e.target.value as TimeUnit)}
-              className="home-settings-select"
-            >
-              {UNITS.map((u) => (
-                <option key={u.value} value={u.value}>{t(u.labelKey)}</option>
-              ))}
-            </select>
-          </div>
-        </div>
-
-        <div className="home-settings-section">
-          <label className="home-settings-label">{t("dashboard.ui.domain")}</label>
-          <select
-            value={connectionId ?? ""}
-            onChange={(e) => setConnectionId(e.target.value === "" ? null : Number(e.target.value))}
-            className="home-settings-select"
-            style={{ width: "100%" }}
-          >
-            <option value="">{t("dashboard.ui.allDomains")}</option>
-            {connections.map((c) => (
-              <option key={c.id} value={c.id}>{c.name}</option>
-            ))}
-          </select>
-        </div>
-
-        {unresolvedList.length > 0 && (
-          <>
-            <div className="home-settings-divider" />
-            <div className="home-settings-section">
-              <label className="home-settings-label">
-                {unresolvedList.length} {t("dashboard.unresolvedIP")}{unresolvedList.length === 1 ? "" : "s"} · {unresolvedTotal.toLocaleString()} {t("dashboard.hit")}{unresolvedTotal === 1 ? "" : "s"}
-              </label>
-              <div className="home-settings-unresolved">
-                {unresolvedList.slice(0, 8).map((d) => {
-                  const cls = classifyUnresolvedIp(d.ip);
-                  return (
-                    <div key={d.ip} title={cls.reason} className="home-settings-unresolved-row">
-                      <span className="home-settings-ip">{d.ip}</span>
-                      <span className="home-settings-tag">{cls.kind}</span>
-                      <span className="home-settings-count">{d.hits.toLocaleString()}</span>
-                    </div>
-                  );
-                })}
-              </div>
+      {unresolvedList.length > 0 && (
+        <aside className="home-settings">
+          <div className="home-settings-section">
+            <label className="home-settings-label">
+              {unresolvedList.length} {t("dashboard.unresolvedIP")}{unresolvedList.length === 1 ? "" : "s"} · {unresolvedTotal.toLocaleString()} {t("dashboard.hit")}{unresolvedTotal === 1 ? "" : "s"}
+            </label>
+            <div className="home-settings-unresolved">
+              {unresolvedList.slice(0, 8).map((d) => {
+                const cls = classifyUnresolvedIp(d.ip);
+                return (
+                  <div key={d.ip} title={cls.reason} className="home-settings-unresolved-row">
+                    <span className="home-settings-ip">{d.ip}</span>
+                    <span className="home-settings-tag">{cls.kind}</span>
+                    <span className="home-settings-count">{d.hits.toLocaleString()}</span>
+                  </div>
+                );
+              })}
             </div>
-          </>
-        )}
-      </aside>
+          </div>
+        </aside>
+      )}
     </>
   );
 }

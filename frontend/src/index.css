@@ -486,6 +486,57 @@ button { font-family: inherit; }
   overflow-y: auto;
 }
 
+/* ── Global filters block (under brand) ────────────────────────── */
+.global-filters {
+  padding: 12px 14px 14px;
+  border-bottom: 3px solid var(--ink);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  background: var(--bg-soft, transparent);
+}
+.global-filters-row {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.global-filters-label {
+  font-family: var(--font-cond);
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.18em;
+  color: var(--ink);
+}
+.global-filters-time-row {
+  display: flex;
+  gap: 6px;
+}
+.global-filters-input,
+.global-filters-select {
+  padding: 6px 8px;
+  font-size: 12px;
+  font-family: var(--font-mono);
+  border: 2px solid var(--ink);
+  border-radius: 0;
+  background: var(--cream);
+  color: var(--ink);
+  outline: none;
+  cursor: pointer;
+  min-width: 0;
+}
+.global-filters-input {
+  width: 70px;
+  cursor: text;
+}
+.global-filters-select {
+  flex: 1;
+}
+.global-filters-input:focus,
+.global-filters-select:focus {
+  box-shadow: 2px 2px 0 var(--red);
+}
+
 .nav-section { padding: 14px 0 4px; }
 
 .nav-section-title {

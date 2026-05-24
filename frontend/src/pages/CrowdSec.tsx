@@ -25,6 +25,7 @@ import {
 } from "lucide-react";
 import { api, CrowdSecStatus, DecisionItem, ScenarioInfo, AlertItem, Connection } from "../api/client";
 import { useSettings } from "../context/SettingsContext";
+import { useGlobalFilters } from "../context/GlobalFiltersContext";
 
 interface ManualBlockLog {
   timestamp: string;
@@ -47,18 +48,9 @@ type PanelKey = "status" | "blocks" | "scenarios" | "alerts";
 
 const ALL_PANELS: PanelKey[] = ["status", "blocks", "scenarios", "alerts"];
 
-type TimeUnit = "minutes" | "hours" | "days";
-
-const TIME_UNITS: { value: TimeUnit; label: string; multiplier: number }[] = [
-  { value: "minutes", label: "Minutes", multiplier: 1 / 60 },
-  { value: "hours", label: "Hours", multiplier: 1 },
-  { value: "days", label: "Days", multiplier: 24 },
-];
-
-const MAX_HOURS = 8760;
-
 export default function CrowdSec() {
   const { t } = useSettings();
+  const { selectedHours, timeValue, timeUnit } = useGlobalFilters();
   const [status, setStatus] = useState<CrowdSecStatus | null>(null);
   const [decisions, setDecisions] = useState<DecisionItem[]>([]);
   const [scenarios, setScenarios] = useState<ScenarioInfo[]>([]);
@@ -73,14 +65,6 @@ export default function CrowdSec() {
   const [expandedCards, setExpandedCards] = useState<Set<string>>(new Set());
   const [visiblePanels, setVisiblePanels] = useState<Set<PanelKey>>(new Set(ALL_PANELS));
   const [gearOpen, setGearOpen] = useState(false);
-
-  // Time range for alerts + manual block history (mirrors Dashboard's picker)
-  const [timeValue, setTimeValue] = useState<number>(24);
-  const [timeUnit, setTimeUnit] = useState<TimeUnit>("hours");
-
-  const unitMultiplier = TIME_UNITS.find((u) => u.value === timeUnit)?.multiplier ?? 1;
-  const selectedHours = +(timeValue * unitMultiplier).toFixed(4);
-  const maxValue = Math.floor(MAX_HOURS / unitMultiplier);
 
   // Block form state
   const [blockIp, setBlockIp] = useState("");
@@ -494,7 +478,7 @@ export default function CrowdSec() {
         </div>
       </div>
 
-      {/* ── Time range + Gear ── */}
+      {/* ── Header row: range hint + Gear ── */}
       <div
         style={{
           display: "flex",
@@ -508,52 +492,6 @@ export default function CrowdSec() {
           flexWrap: "wrap",
         }}
       >
-        {/* Time range selector (same UX as the Dashboard native panels) */}
-        <span style={{ fontSize: "13px", color: "var(--text-secondary, #888)", fontWeight: 500 }}>
-          {t("dashboard.ui.timeRange")}
-        </span>
-        <input
-          type="number"
-          data-testid="crowdsec-time-value"
-          min={1}
-          max={maxValue}
-          value={timeValue}
-          onChange={(e) => {
-            const v = parseInt(e.target.value, 10);
-            if (!isNaN(v) && v >= 1 && v <= maxValue) setTimeValue(v);
-          }}
-          style={{
-            width: "80px",
-            padding: "6px 10px",
-            fontSize: "13px",
-            border: "1px solid var(--border-color, #2a2a2a)",
-            borderRadius: "var(--radius-sm, 6px)",
-            background: "var(--input-bg, #0d0d1a)",
-            color: "var(--text-primary, #e0e0e0)",
-            outline: "none",
-          }}
-        />
-        <select
-          data-testid="crowdsec-time-unit"
-          value={timeUnit}
-          onChange={(e) => setTimeUnit(e.target.value as TimeUnit)}
-          style={{
-            padding: "6px 10px",
-            fontSize: "13px",
-            border: "1px solid var(--border-color, #2a2a2a)",
-            borderRadius: "var(--radius-sm, 6px)",
-            background: "var(--input-bg, #0d0d1a)",
-            color: "var(--text-primary, #e0e0e0)",
-            outline: "none",
-            cursor: "pointer",
-          }}
-        >
-          {TIME_UNITS.map((unit) => (
-            <option key={unit.value} value={unit.value}>
-              {unit.label}
-            </option>
-          ))}
-        </select>
         <span style={{ fontSize: "12px", color: "var(--text-secondary, #666)" }}>
           {t("crowdsec.subtitle.range", {
             n: timeValue,

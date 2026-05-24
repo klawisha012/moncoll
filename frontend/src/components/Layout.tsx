@@ -18,6 +18,7 @@ import {
 import { useSettings } from "../context/SettingsContext";
 import { useAuth } from "../context/AuthContext";
 import SettingsPopover from "./SettingsPopover";
+import GlobalFilters from "./GlobalFilters";
 import logoDark from "../assets/images/dark theme logo.png";
 import logoLight from "../assets/images/ligth theme logo.png";
 
@@ -129,6 +130,8 @@ export default function Layout() {
             <PanelLeftClose size={16} />
           </button>
         </div>
+
+        {!collapsed && <GlobalFilters />}
 
         <nav className="sidebar-nav">
           {sections.map((section) => (
