@@ -15,6 +15,10 @@ export default function Login() {
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [captchaToken, setCaptchaToken] = useState("");
+  // Bumped to force the Turnstile widget to remount and issue a fresh,
+  // single-use token after the previous one was consumed by a backend call
+  // that didn't fully complete the login (e.g. totp_required).
+  const [captchaResetKey, setCaptchaResetKey] = useState(0);
   const [totpCode, setTotpCode] = useState("");
   const [totpRequired, setTotpRequired] = useState(false);
   const [submitting, setSubmitting] = useState(false);
@@ -45,6 +49,13 @@ export default function Login() {
       }
       if ("totp_required" in result) {
         setTotpRequired(true);
+        // First-attempt token was consumed by /api/auth/login (siteverify
+        // ran and marked it used). Force a fresh challenge before the user
+        // resubmits with the TOTP code — otherwise Cloudflare returns
+        // 'timeout-or-duplicate' and the second submit fails with
+        // 'captcha failed' even though the widget still shows "Успешно".
+        setCaptchaToken("");
+        setCaptchaResetKey((k) => k + 1);
         setSubmitting(false);
         return;
       }
@@ -52,6 +63,10 @@ export default function Login() {
       const role = result.user.platform_role;
       navigate(role === "admin" ? "/monitoring" : "/home", { replace: true });
     } catch (err) {
+      // Any failed login attempt (wrong password, invalid totp, captcha
+      // failure) also consumes the single-use Turnstile token — refresh it.
+      setCaptchaToken("");
+      setCaptchaResetKey((k) => k + 1);
       setError(err instanceof Error ? err.message : t("general.error"));
     } finally {
       setSubmitting(false);
@@ -188,7 +203,11 @@ export default function Login() {
           {/* Turnstile captcha — site key (and dev fallback) supplied by /api/auth/providers */}
           {providers?.captcha_site_key && (
             <div className="cv-captcha">
-              <TurnstileWidget siteKey={providers.captcha_site_key} onToken={handleToken} />
+              <TurnstileWidget
+                key={captchaResetKey}
+                siteKey={providers.captcha_site_key}
+                onToken={handleToken}
+              />
               {providers.captcha_dev_mode && (
                 <span className="cv-captcha-dev-tag">{t("auth.captcha.devMode")}</span>
               )}
