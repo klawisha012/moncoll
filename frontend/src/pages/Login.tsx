@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState, type FormEvent } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 import { useSettings } from "../context/SettingsContext";
-import { api, type ProvidersResponse } from "../api/client";
+import { useAuthProviders } from "../hooks/useAuthProviders";
 import TurnstileWidget from "../components/TurnstileWidget";
 import GithubMark from "../components/GithubMark";
 
@@ -24,11 +24,7 @@ export default function Login() {
   const [totpRequired, setTotpRequired] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [providers, setProviders] = useState<ProvidersResponse | null>(null);
-
-  useEffect(() => {
-    api.auth.getProviders().then(setProviders).catch(() => null);
-  }, []);
+  const providers = useAuthProviders();
 
   // Surface OAuth callback errors (we redirect here with ?oauth_error=<code>).
   useEffect(() => {
@@ -120,7 +116,14 @@ export default function Login() {
               type="button"
               className={`cv-oauth-btn ${providers?.google ? "" : "cv-oauth-btn-off"}`}
               onClick={() => oauthLogin("google")}
-              title={providers?.google ? "Google" : t("auth.oauth.notConfigured").replace("{provider}", "Google")}
+              disabled={!providers?.google}
+              title={
+                !providers
+                  ? t("auth.oauth.loading")
+                  : providers.google
+                    ? "Google"
+                    : t("auth.oauth.notConfigured").replace("{provider}", "Google")
+              }
             >
               <span className="cv-oauth-icon">G</span>
               Google
@@ -130,7 +133,14 @@ export default function Login() {
               type="button"
               className={`cv-oauth-btn ${providers?.github ? "" : "cv-oauth-btn-off"}`}
               onClick={() => oauthLogin("github")}
-              title={providers?.github ? "GitHub" : t("auth.oauth.notConfigured").replace("{provider}", "GitHub")}
+              disabled={!providers?.github}
+              title={
+                !providers
+                  ? t("auth.oauth.loading")
+                  : providers.github
+                    ? "GitHub"
+                    : t("auth.oauth.notConfigured").replace("{provider}", "GitHub")
+              }
             >
               <span className="cv-oauth-icon"><GithubMark size={14} /></span>
               GitHub
