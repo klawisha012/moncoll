@@ -66,6 +66,8 @@ def _to_dict(row: ConnectionModel) -> dict:
         "http_versions": row.http_versions,
         "compression_algo": row.compression_algo,
         "enabled": row.enabled,
+        "modsec_state": row.modsec_state,
+        "geoip_denied_countries": list(row.geoip_denied_countries or []),
         "ssl_cert_path": row.ssl_cert_path,
         "ssl_key_path": row.ssl_key_path,
         "created_at": row.created_at,
@@ -337,6 +339,36 @@ async def probe_connection(
 
     await session.commit()
     await session.refresh(row)
+    return Connection.model_validate(_to_dict(row))
+
+
+async def update_security(
+    session: AsyncSession,
+    conn_id: int,
+    modsec_state: str,
+    geoip_denied_countries: list[str],
+) -> Connection | None:
+    """Update per-connection ModSecurity state + GeoIP denied countries.
+
+    Persists, regenerates the per-connection Angie .conf file (so the new
+    `modsecurity_rules 'SecRuleEngine X'` directive and `if ($geoip2_data_
+    country_code ~ ...)` block land on disk), then triggers a graceful
+    `angie -s reload`. Reload failures are logged, not raised — the row
+    is already saved.
+    """
+    row = await session.get(ConnectionModel, conn_id)
+    if row is None:
+        return None
+    row.modsec_state = modsec_state
+    row.geoip_denied_countries = list(geoip_denied_countries)
+    await session.commit()
+    await session.refresh(row)
+    try:
+        if row.enabled:
+            angie_config.write_config(_to_dict(row))
+            _reload_angie()
+    except Exception:
+        logger.exception("Conn %d: failed to apply security update", conn_id)
     return Connection.model_validate(_to_dict(row))
 
 

@@ -83,6 +83,45 @@ def _norm_compression(value: str | None) -> str:
     return v if v in _VALID_COMPRESSION else "auto"
 
 
+def _emit_modsec_state(state: str) -> list[str]:
+    """Per-connection ModSecurity state, emitted at server scope.
+
+    Overrides the global `modsecurity on;` declared in angie.conf's http {}.
+    Only `SecRuleEngine` is set inline — the rules file is loaded once at
+    http scope and inherited. Inline `modsecurity_rules` with a single
+    directive (not a rule) is safe; loading the rules FILE a second time
+    duplicates rule IDs and silently kills workers.
+    """
+    s = (state or "detection_only").lower()
+    if s == "off":
+        return ["    modsecurity off;"]
+    engine = "On" if s == "blocking" else "DetectionOnly"
+    return [
+        "    modsecurity on;",
+        f"    modsecurity_rules 'SecRuleEngine {engine}';",
+    ]
+
+
+def _emit_geoip_deny(countries: list[str]) -> list[str]:
+    """Per-location GeoIP2 block. Empty list → no lines.
+
+    Placed inside non-ACME location blocks so Let's Encrypt validation
+    traffic (which originates from arbitrary countries) is never blocked
+    by this rule, even when the country list would otherwise match.
+    Returns 403; `if` with `return ...` is the documented-safe nginx
+    usage that doesn't trigger the "if is evil" caveats.
+    """
+    if not countries:
+        return []
+    codes = sorted({c.strip().upper() for c in countries if c.strip()})
+    if not codes:
+        return []
+    pattern = "|".join(codes)
+    return [
+        f'        if ($geoip2_data_country_code ~ "^({pattern})$") {{ return 403; }}',
+    ]
+
+
 def _emit_compression_overrides(algo: str) -> list[str]:
     if algo == "auto":
         return []
@@ -160,6 +199,8 @@ def render(conn: dict) -> str:
     tls_mode = conn.get("origin_tls_mode") or "strict"
     http_versions = _parse_http_versions(conn.get("http_versions"))
     compression = _norm_compression(conn.get("compression_algo"))
+    modsec_state = conn.get("modsec_state") or "detection_only"
+    geoip_denied = list(conn.get("geoip_denied_countries") or [])
     cert_path = conn.get("ssl_cert_path")
     key_path = conn.get("ssl_key_path")
     has_cert = bool(cert_path and key_path) and status == "active"
@@ -194,6 +235,8 @@ def render(conn: dict) -> str:
     lines.append("")
     lines.append(blocked_ips_include)
     lines.append("")
+    lines.extend(_emit_modsec_state(modsec_state))
+    lines.append("")
     lines.append("    location ^~ /.well-known/acme-challenge/ {")
     lines.append(f"        root {acme_root};")
     lines.append("        try_files $uri =404;")
@@ -201,20 +244,25 @@ def render(conn: dict) -> str:
     lines.append("")
     if has_cert:
         # Active: port 80 only serves ACME + redirects everything else.
+        # GeoIP deny applies to the redirect too — no point handing out
+        # a 301 to a country we'd block at the TLS server anyway.
         lines.append("    location / {")
+        lines.extend(_emit_geoip_deny(geoip_denied))
         lines.append("        return 301 https://$host$request_uri;")
         lines.append("    }")
     else:
         # Pre-active: HTTP-only proxy so traffic flows immediately after DNS flip.
-        # ModSecurity is enabled globally at http {} scope (see angie.conf),
-        # rules are inherited — do not re-declare at server scope or rules
-        # load twice and workers silently drop responses.
+        # /socket.io/ keeps ModSecurity off regardless of connection state —
+        # websocket frame inspection breaks streams and produces no useful
+        # WAF signal.
         lines.append("    location /socket.io/ {")
         lines.append("        modsecurity off;")
+        lines.extend(_emit_geoip_deny(geoip_denied))
         lines.extend(proxy_block)
         lines.append("    }")
         lines.append("")
         lines.append("    location / {")
+        lines.extend(_emit_geoip_deny(geoip_denied))
         lines.extend(proxy_block)
         lines.append("    }")
     lines.append("}")
@@ -249,8 +297,8 @@ def render(conn: dict) -> str:
         lines.append("    access_log /var/log/angie/access.log combined;")
         lines.append(blocked_ips_include)
         lines.append("")
-        # ModSecurity inherited from http {} scope (see angie.conf).
-        # Per-location overrides below still apply.
+        # Per-connection ModSecurity state overrides the global http {} default.
+        lines.extend(_emit_modsec_state(modsec_state))
         comp = _emit_compression_overrides(compression)
         if comp:
             lines.append("")
@@ -258,10 +306,12 @@ def render(conn: dict) -> str:
         lines.append("")
         lines.append("    location /socket.io/ {")
         lines.append("        modsecurity off;")
+        lines.extend(_emit_geoip_deny(geoip_denied))
         lines.extend(proxy_block)
         lines.append("    }")
         lines.append("")
         lines.append("    location / {")
+        lines.extend(_emit_geoip_deny(geoip_denied))
         lines.extend(proxy_block)
         lines.append("    }")
         lines.append("}")

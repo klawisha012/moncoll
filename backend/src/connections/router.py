@@ -20,14 +20,20 @@ from __future__ import annotations
 import os
 
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, Field, field_validator
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..auth.dependencies import current_tenant, require_admin
 from ..db.models import Tenant
 from ..db.session import get_session
 from . import service
-from .schemas import Connection, ConnectionCreate, ConnectionUpdate, VerifyInstructions
+from .schemas import (
+    Connection,
+    ConnectionCreate,
+    ConnectionUpdate,
+    ModSecState,
+    VerifyInstructions,
+)
 
 connections_router = APIRouter(prefix="/api/connections", tags=["connections"])
 
@@ -131,3 +137,67 @@ async def reload_connections(
 ):
     # Platform-internal: cross-tenant bulk config regeneration; admin-only.
     return await service.reload_connections_config(session)
+
+
+# ── Per-connection WAF security (ModSecurity state + GeoIP2 denied countries) ──
+
+
+class SecurityConfig(BaseModel):
+    """Per-connection WAF knobs surfaced on the /config page.
+
+    Kept deliberately small: just the ModSecurity rule-engine state and the
+    list of ISO 3166-1 alpha-2 country codes to block via GeoIP2. Everything
+    else (audit log, PCRE, body limits, mmdb file) stays global on disk.
+    """
+
+    modsec_state: ModSecState
+    geoip_denied_countries: list[str] = Field(default_factory=list)
+
+    @field_validator("geoip_denied_countries")
+    @classmethod
+    def _validate_iso_codes(cls, v: list[str]) -> list[str]:
+        seen: set[str] = set()
+        out: list[str] = []
+        for code in v:
+            up = code.strip().upper()
+            if len(up) != 2 or not up.isalpha():
+                raise ValueError(
+                    f"'{code}' is not a valid ISO 3166-1 alpha-2 country code"
+                )
+            if up not in seen:
+                seen.add(up)
+                out.append(up)
+        return out
+
+
+@connections_router.get("/{connection_id}/security", response_model=SecurityConfig)
+async def get_security(
+    connection_id: int, session: AsyncSession = Depends(get_session)
+):
+    conn = await service.get_connection(session, connection_id)
+    if conn is None:
+        raise HTTPException(status_code=404, detail="Connection not found")
+    return SecurityConfig(
+        modsec_state=conn.modsec_state,
+        geoip_denied_countries=conn.geoip_denied_countries,
+    )
+
+
+@connections_router.put("/{connection_id}/security", response_model=SecurityConfig)
+async def update_security(
+    connection_id: int,
+    body: SecurityConfig,
+    session: AsyncSession = Depends(get_session),
+):
+    conn = await service.update_security(
+        session,
+        connection_id,
+        modsec_state=body.modsec_state,
+        geoip_denied_countries=body.geoip_denied_countries,
+    )
+    if conn is None:
+        raise HTTPException(status_code=404, detail="Connection not found")
+    return SecurityConfig(
+        modsec_state=conn.modsec_state,
+        geoip_denied_countries=conn.geoip_denied_countries,
+    )
