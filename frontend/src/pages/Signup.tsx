@@ -4,6 +4,7 @@ import { useAuth } from "../context/AuthContext";
 import { useSettings } from "../context/SettingsContext";
 import { api, type ProvidersResponse } from "../api/client";
 import TurnstileWidget from "../components/TurnstileWidget";
+import GithubMark from "../components/GithubMark";
 
 const TENANT_NAME_RE = /^[a-zA-Z0-9][a-zA-Z0-9-]{1,38}[a-zA-Z0-9]$|^[a-zA-Z0-9]{3}$/;
 
@@ -156,7 +157,7 @@ export default function Signup() {
               onClick={() => oauthSignup("github")}
               title={providers?.github ? "GitHub" : t("auth.oauth.notConfigured").replace("{provider}", "GitHub")}
             >
-              <span className="cv-oauth-icon">⌥</span>
+              <span className="cv-oauth-icon"><GithubMark size={14} /></span>
               GitHub
               {providers && !providers.github && <span className="cv-oauth-off-tag">{t("auth.oauth.offTag")}</span>}
             </button>
@@ -307,7 +308,10 @@ const styles = `
   display: flex; align-items: center; gap: 10px; transition: background 90ms;
 }
 .cv-oauth-btn:hover { background: var(--ink); color: var(--cream); }
-.cv-oauth-icon { font-family: 'JetBrains Mono', monospace; font-size: 14px; font-weight: 700; }
+.cv-oauth-icon {
+  font-family: 'JetBrains Mono', monospace; font-size: 14px; font-weight: 700;
+  display: inline-flex; align-items: center; justify-content: center; line-height: 1;
+}
 .cv-divider { display: flex; align-items: center; gap: 12px; }
 .cv-divider::before, .cv-divider::after { content: ''; flex: 1; height: 2px; background: var(--rule); }
 .cv-divider span {

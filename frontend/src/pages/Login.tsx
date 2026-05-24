@@ -4,6 +4,7 @@ import { useAuth } from "../context/AuthContext";
 import { useSettings } from "../context/SettingsContext";
 import { api, type ProvidersResponse } from "../api/client";
 import TurnstileWidget from "../components/TurnstileWidget";
+import GithubMark from "../components/GithubMark";
 
 export default function Login() {
   const navigate = useNavigate();
@@ -131,7 +132,7 @@ export default function Login() {
               onClick={() => oauthLogin("github")}
               title={providers?.github ? "GitHub" : t("auth.oauth.notConfigured").replace("{provider}", "GitHub")}
             >
-              <span className="cv-oauth-icon">⌥</span>
+              <span className="cv-oauth-icon"><GithubMark size={14} /></span>
               GitHub
               {providers && !providers.github && <span className="cv-oauth-off-tag">{t("auth.oauth.offTag")}</span>}
             </button>
@@ -371,6 +372,8 @@ const styles = `
 .cv-oauth-icon {
   font-family: 'JetBrains Mono', monospace;
   font-size: 14px; font-weight: 700;
+  display: inline-flex; align-items: center; justify-content: center;
+  line-height: 1;
 }
 
 .cv-divider {
