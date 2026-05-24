@@ -172,9 +172,11 @@ class SecurityConfig(BaseModel):
 
 @connections_router.get("/{connection_id}/security", response_model=SecurityConfig)
 async def get_security(
-    connection_id: int, session: AsyncSession = Depends(get_session)
+    connection_id: int,
+    session: AsyncSession = Depends(get_session),
+    tenant: Tenant = Depends(current_tenant),
 ):
-    conn = await service.get_connection(session, connection_id)
+    conn = await service.get_connection(session, tenant, connection_id)
     if conn is None:
         raise HTTPException(status_code=404, detail="Connection not found")
     return SecurityConfig(
@@ -188,9 +190,11 @@ async def update_security(
     connection_id: int,
     body: SecurityConfig,
     session: AsyncSession = Depends(get_session),
+    tenant: Tenant = Depends(current_tenant),
 ):
     conn = await service.update_security(
         session,
+        tenant,
         connection_id,
         modsec_state=body.modsec_state,
         geoip_denied_countries=body.geoip_denied_countries,

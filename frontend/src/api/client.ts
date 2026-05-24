@@ -5,34 +5,11 @@ export interface ReloadResponse {
   message: string;
 }
 
-export interface ModSecuritySettings {
-  rule_engine: string;
-  request_body_access: boolean;
-  response_body_access: boolean;
-  request_body_limit: number;
-  request_body_no_files_limit: number;
-  request_body_limit_action: string;
-  request_body_json_depth_limit: number;
-  arguments_limit: number;
-  response_body_mime_types: string[];
-  response_body_limit: number;
-  response_body_limit_action: string;
-  audit_engine: string;
-  audit_log_type: string;
-  audit_log_format: string;
-  audit_log_parts: string;
-  audit_log_relevant_status: string;
-  audit_log_path: string;
-  pcre_match_limit: number;
-  pcre_match_limit_recursion: number;
-  status_engine: boolean;
-  tmp_dir: string;
-  data_dir: string;
-}
+export type ModSecState = "off" | "detection_only" | "blocking";
 
-export interface ModuleInfo {
-  name: string;
-  loaded: boolean;
+export interface SecurityConfig {
+  modsec_state: ModSecState;
+  geoip_denied_countries: string[];
 }
 
 export type HttpVersion = "h1" | "h2" | "h3";
@@ -68,6 +45,8 @@ export interface Connection {
   http_versions: string; // CSV of HttpVersion
   compression_algo: CompressionAlgo;
   enabled: boolean;
+  modsec_state: ModSecState;
+  geoip_denied_countries: string[];
   ssl_cert_path: string | null;
   ssl_key_path: string | null;
   created_at: string;
@@ -101,16 +80,6 @@ export interface VerifyInstructions {
 export interface ConnectionCreateResponse {
   connection: Connection;
   instructions: VerifyInstructions;
-}
-
-export interface AngieSettings {
-  worker_processes: string;
-  worker_rlimit_nofile: number;
-  worker_connections: number;
-  keepalive_timeout: number;
-  sendfile: boolean;
-  denied_countries: string[];
-  modules: ModuleInfo[];
 }
 
 // ── CrowdSec types ─────────────────────────────────────────
@@ -591,26 +560,6 @@ export interface CertificateResponse {
 }
 
 export const api = {
-  getModsecSettings: () =>
-    fetchApi<ModSecuritySettings>("/api/modsecurity/settings"),
-  updateModsecSettings: (settings: ModSecuritySettings) =>
-    fetchApi<ModSecuritySettings>("/api/modsecurity/settings", {
-      method: "PUT",
-      body: JSON.stringify(settings),
-    }),
-
-  getAngieSettings: () => fetchApi<AngieSettings>("/api/angie/settings"),
-  updateAngieSettings: (settings: AngieSettings) =>
-    fetchApi<AngieSettings>("/api/angie/settings", {
-      method: "PUT",
-      body: JSON.stringify(settings),
-    }),
-
-  reloadModsec: () =>
-    fetchApi<ReloadResponse>("/api/modsecurity/reload", { method: "POST" }),
-  reloadAngie: () =>
-    fetchApi<ReloadResponse>("/api/angie/reload", { method: "POST" }),
-
   getMetrics: (hours?: number, connectionId?: number | null) =>
     fetchApi<Metrics>(`/api/dashboard/metrics${buildDashboardQuery(hours, connectionId)}`),
   getContainerMetrics: () =>
@@ -745,6 +694,17 @@ export const api = {
     fetchApi<Connection>(`/api/connections/${id}/probe`, { method: "POST" }),
   reloadConnections: () =>
     fetchApi<ReloadResponse>("/api/connections/reload", { method: "POST" }),
+
+  // Per-connection WAF settings (ModSecurity state + GeoIP denied countries).
+  // Persisting via PUT also regenerates the per-connection .conf and triggers
+  // `angie -s reload` on the server — no separate reload call is needed.
+  getConnectionSecurity: (id: number) =>
+    fetchApi<SecurityConfig>(`/api/connections/${id}/security`),
+  updateConnectionSecurity: (id: number, payload: SecurityConfig) =>
+    fetchApi<SecurityConfig>(`/api/connections/${id}/security`, {
+      method: "PUT",
+      body: JSON.stringify(payload),
+    }),
 
   // SSL Certificates API
   getCertificateStatus: (connectionId: number) =>

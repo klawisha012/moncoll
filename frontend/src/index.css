@@ -1046,6 +1046,40 @@ label.label,
   gap: 4px 18px;
 }
 
+/* Configuration page: ModSecurity state picker. 3-way radio rendered as
+   stacked cards so the description for each state stays readable. */
+.config-radio-group {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.config-radio-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 12px 14px;
+  border: 1px solid var(--line, #d6d2c4);
+  border-radius: 6px;
+  cursor: pointer;
+  background: var(--cream-1, transparent);
+  transition: border-color 0.12s ease, background 0.12s ease;
+}
+.config-radio-row:hover { border-color: var(--ink, #0c0c0c); }
+.config-radio-row.selected {
+  border-color: var(--ink, #0c0c0c);
+  background: var(--cream-2, rgba(0, 0, 0, 0.03));
+}
+.config-radio-row input[type="radio"] {
+  margin-top: 3px;
+  width: 18px;
+  height: 18px;
+  accent-color: var(--red, #c24747);
+  cursor: pointer;
+  flex-shrink: 0;
+}
+.config-radio-row strong { font-weight: 600; font-size: 14px; }
+.config-radio-row small { margin-top: 2px; font-size: 12.5px; }
+
 /* ═══════════════════════════════════════════════════════════════════════════
    MODAL
    ═══════════════════════════════════════════════════════════════════════════ */

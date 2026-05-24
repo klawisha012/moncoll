@@ -344,19 +344,27 @@ async def probe_connection(
 
 async def update_security(
     session: AsyncSession,
+    tenant: Tenant,
     conn_id: int,
     modsec_state: str,
     geoip_denied_countries: list[str],
 ) -> Connection | None:
     """Update per-connection ModSecurity state + GeoIP denied countries.
 
-    Persists, regenerates the per-connection Angie .conf file (so the new
-    `modsecurity_rules 'SecRuleEngine X'` directive and `if ($geoip2_data_
-    country_code ~ ...)` block land on disk), then triggers a graceful
-    `angie -s reload`. Reload failures are logged, not raised — the row
-    is already saved.
+    Tenant-scoped: returns None if the connection doesn't belong to *tenant*
+    so callers can 404 without leaking existence. Persists, regenerates the
+    per-connection Angie .conf file (so the new `modsecurity_rules
+    'SecRuleEngine X'` directive and `if ($geoip2_data_country_code ~ ...)`
+    block land on disk), then triggers a graceful `angie -s reload`. Reload
+    failures are logged, not raised — the row is already saved.
     """
-    row = await session.get(ConnectionModel, conn_id)
+    result = await session.execute(
+        select(ConnectionModel).where(
+            ConnectionModel.id == conn_id,
+            ConnectionModel.tenant_id == tenant.id,
+        )
+    )
+    row = result.scalar_one_or_none()
     if row is None:
         return None
     row.modsec_state = modsec_state
