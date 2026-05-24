@@ -837,21 +837,35 @@ export const api = {
   // ── Auth ────────────────────────────────────────────────
 
   auth: {
-    login: (
+    login: async (
       email: string,
       password: string,
       captchaToken: string,
       totpCode?: string,
-    ) =>
-      fetchApi<SaasLoginResponse>("/api/auth/login", {
-        method: "POST",
-        body: JSON.stringify({
-          email,
-          password,
-          captcha_token: captchaToken,
-          ...(totpCode !== undefined ? { totp_code: totpCode } : {}),
-        }),
-      }),
+    ): Promise<SaasLoginResponse> => {
+      try {
+        return await fetchApi<SaasLoginResponse>("/api/auth/login", {
+          method: "POST",
+          body: JSON.stringify({
+            email,
+            password,
+            captcha_token: captchaToken,
+            ...(totpCode !== undefined ? { totp_code: totpCode } : {}),
+          }),
+        });
+      } catch (err) {
+        // Backend signals next-step continuation via HTTP-error responses
+        // carrying a sentinel `detail` (e.g. 401 totp_required, 403
+        // totp_enrol_required) plus a continuation cookie. fetchApi turns
+        // those into thrown Errors; translate them back to the structured
+        // shape Login.tsx expects so the user gets the TOTP / enrol screen
+        // instead of a raw red error.
+        const msg = err instanceof Error ? err.message : "";
+        if (msg === "totp_required") return { totp_required: true };
+        if (msg === "totp_enrol_required") return { enrol_required: true };
+        throw err;
+      }
+    },
 
     signup: (
       email: string,
