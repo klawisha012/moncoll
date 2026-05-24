@@ -523,13 +523,14 @@ export interface ProvidersResponse {
 }
 
 export interface TotpSetupResponse {
-  provisioning_uri: string;
-  secret: string;
+  secret_base32: string;
   qr_code_data_uri: string;
+  recovery_codes: string[];
 }
 
 export interface TotpConfirmResponse {
-  recovery_codes: string[];
+  ok: boolean;
+  user: User;
 }
 
 // ── Admin types ─────────────────────────────────────────────

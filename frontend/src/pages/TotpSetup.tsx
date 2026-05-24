@@ -22,7 +22,10 @@ export default function TotpSetup() {
     api.auth.totpSetup()
       .then((data) => {
         setQrDataUri(data.qr_code_data_uri);
-        setSecret(data.secret);
+        setSecret(data.secret_base32);
+        // Recovery codes are issued ONCE at setup; we surface them after
+        // the user successfully confirms a code.
+        setRecoveryCodes(data.recovery_codes ?? []);
       })
       .catch((err: Error) => setLoadError(err.message));
   }, []);
@@ -32,8 +35,7 @@ export default function TotpSetup() {
     setSubmitError(null);
     setSubmitting(true);
     try {
-      const { recovery_codes } = await api.auth.totpConfirm(code);
-      setRecoveryCodes(recovery_codes);
+      await api.auth.totpConfirm(code);
       setConfirmed(true);
       await refresh();
     } catch (err) {
