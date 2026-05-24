@@ -111,39 +111,82 @@ def _clamp_minutes(hours: float) -> int:
     return max(1, int(hours * 60))
 
 
-def _domains_for_connection(connection_id: int | None) -> list[str]:
-    """Look up enabled domains for a connection.
+def _domains_for_connection(
+    connection_id: int | None,
+    tenant_id: int | None = None,
+) -> list[str] | None:
+    """Resolve the host-filter domain list for a dashboard query.
+
+    Return-value contract (consumed by ``_host_filter_nginx`` / ``_host_filter_waf``):
+
+    ===========================  ===========================  ===============
+    ``connection_id``            ``tenant_id``                Returns
+    ===========================  ===========================  ===============
+    ``None``                     ``None`` (admin)             ``None`` — no filter, see all platform traffic
+    ``None``                     int   (client)               all enabled domains belonging to the tenant; ``[]`` if the tenant has no connections
+    int                          ``None`` (admin)             that connection's domain; ``[]`` if not found
+    int                          int   (client)               that connection's domain *iff* the tenant owns it; ``[]`` otherwise
+    ===========================  ===========================  ===============
+
+    The distinction between ``None`` (no filter) and ``[]`` (filter that
+    matches nothing) is critical: previously this function returned ``[]`` for
+    every empty case and the filter helpers short-circuited to ``""``, which
+    silently leaked the entire platform's traffic to every client.  Now ``[]``
+    forces the SQL filter to ``host IN ('__none__')`` so a client with zero
+    domains sees an empty dashboard — never default-server / other-tenant data.
 
     Imported lazily to avoid a circular import between dashboard <-> db.
-    Returns an empty list if the connection cannot be loaded.
     """
-    if connection_id is None:
-        return []
     try:
         from sqlalchemy import create_engine, select
 
         from ..db.models import Connection as ConnectionModel
     except Exception:
-        return []
+        return [] if tenant_id is not None or connection_id is not None else None
+
+    # Admin viewing all domains: no filter at all.
+    if connection_id is None and tenant_id is None:
+        return None
+
+    db_url = os.getenv("DATABASE_URL", "")
+    if not db_url:
+        return [] if tenant_id is not None or connection_id is not None else None
+    sync_url = db_url.replace("+asyncpg", "").replace("+aiosqlite", "")
 
     try:
-        db_url = os.getenv("DATABASE_URL", "")
-        if not db_url:
-            return []
-        sync_url = db_url.replace("+asyncpg", "").replace("+aiosqlite", "")
         engine = create_engine(sync_url, future=True)
         with engine.connect() as conn:
-            row = conn.execute(
-                select(ConnectionModel).where(ConnectionModel.id == connection_id)
-            ).first()
-        engine.dispose()
-        if not row:
-            return []
-        domains = row[0].domains if hasattr(row[0], "domains") else []
-        return [str(d) for d in (domains or [])]
+            if connection_id is not None:
+                stmt = select(ConnectionModel.domain).where(
+                    ConnectionModel.id == connection_id,
+                    ConnectionModel.enabled.is_(True),
+                )
+                if tenant_id is not None:
+                    stmt = stmt.where(ConnectionModel.tenant_id == tenant_id)
+                row = conn.execute(stmt).first()
+                if not row or not row[0]:
+                    return []
+                return [str(row[0])]
+            # connection_id is None, tenant_id is set: aggregate all tenant domains.
+            stmt = select(ConnectionModel.domain).where(
+                ConnectionModel.tenant_id == tenant_id,
+                ConnectionModel.enabled.is_(True),
+            )
+            rows = conn.execute(stmt).all()
+            return [str(r[0]) for r in rows if r[0]]
     except Exception:
-        logger.exception("Failed to load connection %s for dashboard filter", connection_id)
-        return []
+        logger.exception(
+            "Failed to resolve dashboard domains (connection_id=%s, tenant_id=%s)",
+            connection_id,
+            tenant_id,
+        )
+        # Fail closed for clients, fail open for admins.
+        return [] if tenant_id is not None else None
+    finally:
+        try:
+            engine.dispose()
+        except Exception:
+            pass
 
 
 def _quote_domains(domains: Iterable[str]) -> str:
@@ -160,14 +203,23 @@ def _quote_domains(domains: Iterable[str]) -> str:
     return "(" + ", ".join(f"'{d}'" for d in cleaned) + ")"
 
 
-def _host_filter_nginx(domains: list[str]) -> str:
-    if not domains:
+def _host_filter_nginx(domains: list[str] | None) -> str:
+    """Build the nginx_access_log host filter.
+
+    ``None`` → no filter (admin viewing whole platform).
+    ``[]``   → ``AND host IN ('__none__')`` (sentinel that matches nothing —
+               used when a client has zero connections or queried a connection
+               they don't own; previously this leaked the entire platform).
+    ``[d…]`` → ``AND host IN ('d1', 'd2')``.
+    """
+    if domains is None:
         return ""
     return f" AND host IN {_quote_domains(domains)}"
 
 
-def _host_filter_waf(domains: list[str]) -> str:
-    if not domains:
+def _host_filter_waf(domains: list[str] | None) -> str:
+    """Same contract as ``_host_filter_nginx`` for the WAF audit log."""
+    if domains is None:
         return ""
     return f" AND request_headers['Host'] IN {_quote_domains(domains)}"
 
@@ -175,7 +227,11 @@ def _host_filter_waf(domains: list[str]) -> str:
 # ── Public API ──────────────────────────────────────────────────────
 
 
-def get_dashboard_metrics(hours: float = 24, connection_id: int | None = None) -> dict[str, Any]:
+def get_dashboard_metrics(
+    hours: float = 24,
+    connection_id: int | None = None,
+    tenant_id: int | None = None,
+) -> dict[str, Any]:
     """Fetch summary metrics for the dashboard stat cards."""
     try:
         client = _get_client()
@@ -185,7 +241,7 @@ def get_dashboard_metrics(hours: float = 24, connection_id: int | None = None) -
 
     minutes = _clamp_minutes(hours)
     prev_minutes = max(1, minutes * 2)
-    domains = _domains_for_connection(connection_id)
+    domains = _domains_for_connection(connection_id, tenant_id)
     nginx_filter = _host_filter_nginx(domains)
     waf_filter = _host_filter_waf(domains)
 
@@ -271,7 +327,11 @@ def _empty_metrics() -> dict[str, Any]:
     }
 
 
-def get_traffic_data(hours: float = 24, connection_id: int | None = None) -> list[dict[str, Any]]:
+def get_traffic_data(
+    hours: float = 24,
+    connection_id: int | None = None,
+    tenant_id: int | None = None,
+) -> list[dict[str, Any]]:
     """Get traffic data points aggregated by hour."""
     try:
         client = _get_client()
@@ -279,7 +339,7 @@ def get_traffic_data(hours: float = 24, connection_id: int | None = None) -> lis
         return []
 
     minutes = _clamp_minutes(hours)
-    domains = _domains_for_connection(connection_id)
+    domains = _domains_for_connection(connection_id, tenant_id)
     nginx_filter = _host_filter_nginx(domains)
     waf_filter = _host_filter_waf(domains)
 
@@ -315,7 +375,11 @@ def get_traffic_data(hours: float = 24, connection_id: int | None = None) -> lis
     return result
 
 
-def get_threat_origins(hours: float = 24, connection_id: int | None = None) -> list[dict[str, Any]]:
+def get_threat_origins(
+    hours: float = 24,
+    connection_id: int | None = None,
+    tenant_id: int | None = None,
+) -> list[dict[str, Any]]:
     """Get threat origin distribution by country from WAF logs.
 
     Always returns a JSON-serialisable list (possibly empty) — never 500s.
@@ -326,7 +390,7 @@ def get_threat_origins(hours: float = 24, connection_id: int | None = None) -> l
         return []
 
     minutes = _clamp_minutes(hours)
-    domains = _domains_for_connection(connection_id)
+    domains = _domains_for_connection(connection_id, tenant_id)
     waf_filter = _host_filter_waf(domains)
 
     total_blocks = _scalar(
@@ -379,7 +443,11 @@ def get_threat_origins(hours: float = 24, connection_id: int | None = None) -> l
     return result
 
 
-def get_geoip_map_data(hours: float = 24, connection_id: int | None = None) -> list[dict[str, Any]]:
+def get_geoip_map_data(
+    hours: float = 24,
+    connection_id: int | None = None,
+    tenant_id: int | None = None,
+) -> list[dict[str, Any]]:
     """Get GeoIP coordinates with hit counts for world map visualization."""
     try:
         client = _get_client()
@@ -387,7 +455,7 @@ def get_geoip_map_data(hours: float = 24, connection_id: int | None = None) -> l
         return []
 
     minutes = _clamp_minutes(hours)
-    domains = _domains_for_connection(connection_id)
+    domains = _domains_for_connection(connection_id, tenant_id)
     nginx_filter = _host_filter_nginx(domains)
 
     rows = (
@@ -424,6 +492,7 @@ def get_geoip_map_data(hours: float = 24, connection_id: int | None = None) -> l
 def get_geoip_unresolved_ips(
     hours: float = 24,
     connection_id: int | None = None,
+    tenant_id: int | None = None,
 ) -> list[dict[str, Any]]:
     """Return non-private client IPs that failed GeoIP enrichment.
 
@@ -439,7 +508,7 @@ def get_geoip_unresolved_ips(
         return []
 
     minutes = _clamp_minutes(hours)
-    domains = _domains_for_connection(connection_id)
+    domains = _domains_for_connection(connection_id, tenant_id)
     nginx_filter = _host_filter_nginx(domains)
 
     # remote_addr is typed as IPv4 in ClickHouse — cast directly to UInt32
@@ -479,6 +548,7 @@ def get_security_events(
     severity: str = "all",
     hours: float = 24,
     connection_id: int | None = None,
+    tenant_id: int | None = None,
 ) -> list[dict[str, Any]]:
     """Get recent security events from WAF audit logs."""
     try:
@@ -487,7 +557,7 @@ def get_security_events(
         return []
 
     minutes = _clamp_minutes(hours)
-    domains = _domains_for_connection(connection_id)
+    domains = _domains_for_connection(connection_id, tenant_id)
     waf_filter = _host_filter_waf(domains)
 
     severity_filter = ""
@@ -542,7 +612,9 @@ _SEVERITY_NAMES = {
 
 
 def get_waf_events_timeline(
-    hours: float = 24, connection_id: int | None = None
+    hours: float = 24,
+    connection_id: int | None = None,
+    tenant_id: int | None = None,
 ) -> list[dict[str, Any]]:
     """WAF audit events bucketed per minute."""
     try:
@@ -550,7 +622,7 @@ def get_waf_events_timeline(
     except Exception:
         return []
     minutes = _clamp_minutes(hours)
-    waf_filter = _host_filter_waf(_domains_for_connection(connection_id))
+    waf_filter = _host_filter_waf(_domains_for_connection(connection_id, tenant_id))
     rows = (
         _safe_execute(
             client,
@@ -566,7 +638,10 @@ def get_waf_events_timeline(
 
 
 def get_top_rules(
-    hours: float = 24, connection_id: int | None = None, limit: int = 10
+    hours: float = 24,
+    connection_id: int | None = None,
+    limit: int = 10,
+    tenant_id: int | None = None,
 ) -> list[dict[str, Any]]:
     """Top WAF rules by trigger count."""
     try:
@@ -574,7 +649,7 @@ def get_top_rules(
     except Exception:
         return []
     minutes = _clamp_minutes(hours)
-    waf_filter = _host_filter_waf(_domains_for_connection(connection_id))
+    waf_filter = _host_filter_waf(_domains_for_connection(connection_id, tenant_id))
     rows = (
         _safe_execute(
             client,
@@ -590,7 +665,9 @@ def get_top_rules(
 
 
 def get_severity_distribution(
-    hours: float = 24, connection_id: int | None = None
+    hours: float = 24,
+    connection_id: int | None = None,
+    tenant_id: int | None = None,
 ) -> list[dict[str, Any]]:
     """Severity-level counts across WAF messages."""
     try:
@@ -598,7 +675,7 @@ def get_severity_distribution(
     except Exception:
         return []
     minutes = _clamp_minutes(hours)
-    waf_filter = _host_filter_waf(_domains_for_connection(connection_id))
+    waf_filter = _host_filter_waf(_domains_for_connection(connection_id, tenant_id))
     rows = (
         _safe_execute(
             client,
@@ -617,7 +694,10 @@ def get_severity_distribution(
 
 
 def get_top_attacking_ips(
-    hours: float = 24, connection_id: int | None = None, limit: int = 15
+    hours: float = 24,
+    connection_id: int | None = None,
+    limit: int = 15,
+    tenant_id: int | None = None,
 ) -> list[dict[str, Any]]:
     """Top attacking IPs (WAF audit log)."""
     try:
@@ -625,7 +705,7 @@ def get_top_attacking_ips(
     except Exception:
         return []
     minutes = _clamp_minutes(hours)
-    waf_filter = _host_filter_waf(_domains_for_connection(connection_id))
+    waf_filter = _host_filter_waf(_domains_for_connection(connection_id, tenant_id))
     rows = (
         _safe_execute(
             client,
@@ -640,7 +720,9 @@ def get_top_attacking_ips(
 
 
 def get_anomaly_score_timeline(
-    hours: float = 24, connection_id: int | None = None
+    hours: float = 24,
+    connection_id: int | None = None,
+    tenant_id: int | None = None,
 ) -> list[dict[str, Any]]:
     """Max anomaly score per minute."""
     try:
@@ -648,7 +730,7 @@ def get_anomaly_score_timeline(
     except Exception:
         return []
     minutes = _clamp_minutes(hours)
-    waf_filter = _host_filter_waf(_domains_for_connection(connection_id))
+    waf_filter = _host_filter_waf(_domains_for_connection(connection_id, tenant_id))
     rows = (
         _safe_execute(
             client,
@@ -664,7 +746,10 @@ def get_anomaly_score_timeline(
 
 
 def get_top_tags(
-    hours: float = 24, connection_id: int | None = None, limit: int = 10
+    hours: float = 24,
+    connection_id: int | None = None,
+    limit: int = 10,
+    tenant_id: int | None = None,
 ) -> list[dict[str, Any]]:
     """Top WAF tags."""
     try:
@@ -672,7 +757,7 @@ def get_top_tags(
     except Exception:
         return []
     minutes = _clamp_minutes(hours)
-    waf_filter = _host_filter_waf(_domains_for_connection(connection_id))
+    waf_filter = _host_filter_waf(_domains_for_connection(connection_id, tenant_id))
     rows = (
         _safe_execute(
             client,
@@ -688,7 +773,10 @@ def get_top_tags(
 
 
 def get_top_uris(
-    hours: float = 24, connection_id: int | None = None, limit: int = 10
+    hours: float = 24,
+    connection_id: int | None = None,
+    limit: int = 10,
+    tenant_id: int | None = None,
 ) -> list[dict[str, Any]]:
     """Top blocked URIs from WAF audit log."""
     try:
@@ -696,7 +784,7 @@ def get_top_uris(
     except Exception:
         return []
     minutes = _clamp_minutes(hours)
-    waf_filter = _host_filter_waf(_domains_for_connection(connection_id))
+    waf_filter = _host_filter_waf(_domains_for_connection(connection_id, tenant_id))
     rows = (
         _safe_execute(
             client,
@@ -711,7 +799,10 @@ def get_top_uris(
 
 
 def get_top_rule_files(
-    hours: float = 24, connection_id: int | None = None, limit: int = 10
+    hours: float = 24,
+    connection_id: int | None = None,
+    limit: int = 10,
+    tenant_id: int | None = None,
 ) -> list[dict[str, Any]]:
     """Top rule files involved in WAF events."""
     try:
@@ -719,7 +810,7 @@ def get_top_rule_files(
     except Exception:
         return []
     minutes = _clamp_minutes(hours)
-    waf_filter = _host_filter_waf(_domains_for_connection(connection_id))
+    waf_filter = _host_filter_waf(_domains_for_connection(connection_id, tenant_id))
     rows = (
         _safe_execute(
             client,
@@ -736,7 +827,9 @@ def get_top_rule_files(
 
 
 def get_status_codes_timeline(
-    hours: float = 24, connection_id: int | None = None
+    hours: float = 24,
+    connection_id: int | None = None,
+    tenant_id: int | None = None,
 ) -> list[dict[str, Any]]:
     """HTTP status-code distribution per minute (nginx access log)."""
     try:
@@ -744,6 +837,7 @@ def get_status_codes_timeline(
     except Exception:
         return []
     minutes = _clamp_minutes(hours)
+    nginx_filter = _host_filter_nginx(_domains_for_connection(connection_id, tenant_id))
     rows = (
         _safe_execute(
             client,
@@ -753,7 +847,7 @@ def get_status_codes_timeline(
             "countIf(status >= 400 AND status < 500) AS c4xx, "
             "countIf(status >= 500) AS c5xx "
             "FROM logs.nginx_access_log "
-            f"WHERE time_local >= now() - INTERVAL {minutes} MINUTE "
+            f"WHERE time_local >= now() - INTERVAL {minutes} MINUTE{nginx_filter} "
             "GROUP BY t ORDER BY t",
             default=[],
         )
@@ -772,7 +866,10 @@ def get_status_codes_timeline(
 
 
 def get_top_user_agents(
-    hours: float = 24, connection_id: int | None = None, limit: int = 15
+    hours: float = 24,
+    connection_id: int | None = None,
+    limit: int = 15,
+    tenant_id: int | None = None,
 ) -> list[dict[str, Any]]:
     """Top user-agents (nginx access log)."""
     try:
@@ -780,12 +877,13 @@ def get_top_user_agents(
     except Exception:
         return []
     minutes = _clamp_minutes(hours)
+    nginx_filter = _host_filter_nginx(_domains_for_connection(connection_id, tenant_id))
     rows = (
         _safe_execute(
             client,
             "SELECT http_user_agent AS ua, count() AS hits "
             "FROM logs.nginx_access_log "
-            f"WHERE time_local >= now() - INTERVAL {minutes} MINUTE "
+            f"WHERE time_local >= now() - INTERVAL {minutes} MINUTE{nginx_filter} "
             f"GROUP BY ua ORDER BY hits DESC LIMIT {int(limit)}",
             default=[],
         )
@@ -794,19 +892,24 @@ def get_top_user_agents(
     return [{"user_agent": str(ua or "-"), "hits": int(hits)} for ua, hits in rows]
 
 
-def get_traffic_volume(hours: float = 24, connection_id: int | None = None) -> list[dict[str, Any]]:
+def get_traffic_volume(
+    hours: float = 24,
+    connection_id: int | None = None,
+    tenant_id: int | None = None,
+) -> list[dict[str, Any]]:
     """Bytes sent per minute (nginx access log)."""
     try:
         client = _get_client()
     except Exception:
         return []
     minutes = _clamp_minutes(hours)
+    nginx_filter = _host_filter_nginx(_domains_for_connection(connection_id, tenant_id))
     rows = (
         _safe_execute(
             client,
             "SELECT toStartOfMinute(time_local) AS t, sum(body_bytes_sent) AS bytes "
             "FROM logs.nginx_access_log "
-            f"WHERE time_local >= now() - INTERVAL {minutes} MINUTE "
+            f"WHERE time_local >= now() - INTERVAL {minutes} MINUTE{nginx_filter} "
             "GROUP BY t ORDER BY t",
             default=[],
         )
@@ -816,7 +919,9 @@ def get_traffic_volume(hours: float = 24, connection_id: int | None = None) -> l
 
 
 def get_requests_per_second(
-    hours: float = 24, connection_id: int | None = None
+    hours: float = 24,
+    connection_id: int | None = None,
+    tenant_id: int | None = None,
 ) -> list[dict[str, Any]]:
     """Requests per second derived from per-minute counts."""
     try:
@@ -824,12 +929,13 @@ def get_requests_per_second(
     except Exception:
         return []
     minutes = _clamp_minutes(hours)
+    nginx_filter = _host_filter_nginx(_domains_for_connection(connection_id, tenant_id))
     rows = (
         _safe_execute(
             client,
             "SELECT toStartOfMinute(time_local) AS t, count() / 60.0 AS rps "
             "FROM logs.nginx_access_log "
-            f"WHERE time_local >= now() - INTERVAL {minutes} MINUTE "
+            f"WHERE time_local >= now() - INTERVAL {minutes} MINUTE{nginx_filter} "
             "GROUP BY t ORDER BY t",
             default=[],
         )
@@ -839,7 +945,10 @@ def get_requests_per_second(
 
 
 def get_requests_by_country(
-    hours: float = 24, connection_id: int | None = None, limit: int = 15
+    hours: float = 24,
+    connection_id: int | None = None,
+    limit: int = 15,
+    tenant_id: int | None = None,
 ) -> list[dict[str, Any]]:
     """Top countries by request count (nginx access log)."""
     try:
@@ -847,12 +956,13 @@ def get_requests_by_country(
     except Exception:
         return []
     minutes = _clamp_minutes(hours)
+    nginx_filter = _host_filter_nginx(_domains_for_connection(connection_id, tenant_id))
     rows = (
         _safe_execute(
             client,
             "SELECT if(geoip_country_code = '' OR geoip_country_code IS NULL, 'Unknown', geoip_country_code) "
             "AS country, count() AS hits FROM logs.nginx_access_log "
-            f"WHERE time_local >= now() - INTERVAL {minutes} MINUTE "
+            f"WHERE time_local >= now() - INTERVAL {minutes} MINUTE{nginx_filter} "
             f"GROUP BY country ORDER BY hits DESC LIMIT {int(limit)}",
             default=[],
         )
@@ -924,7 +1034,10 @@ def get_test_traffic_by_marker(marker: str) -> dict[str, Any]:
 
 
 def get_top_client_ips(
-    hours: float = 24, connection_id: int | None = None, limit: int = 15
+    hours: float = 24,
+    connection_id: int | None = None,
+    limit: int = 15,
+    tenant_id: int | None = None,
 ) -> list[dict[str, Any]]:
     """Top client IPs from nginx access log."""
     try:
@@ -932,12 +1045,13 @@ def get_top_client_ips(
     except Exception:
         return []
     minutes = _clamp_minutes(hours)
+    nginx_filter = _host_filter_nginx(_domains_for_connection(connection_id, tenant_id))
     rows = (
         _safe_execute(
             client,
             "SELECT toString(remote_addr) AS ip, count() AS hits "
             "FROM logs.nginx_access_log "
-            f"WHERE time_local >= now() - INTERVAL {minutes} MINUTE "
+            f"WHERE time_local >= now() - INTERVAL {minutes} MINUTE{nginx_filter} "
             f"GROUP BY ip ORDER BY hits DESC LIMIT {int(limit)}",
             default=[],
         )

@@ -13,7 +13,7 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel
 
-from ..auth.dependencies import require_password_changed
+from ..auth.dependencies import require_verified
 from ..db.models import User
 from . import publisher
 
@@ -29,7 +29,7 @@ class TokenResponse(BaseModel):
 
 
 @router.post("/token", response_model=TokenResponse)
-async def issue_token(user: User = Depends(require_password_changed)) -> TokenResponse:
+async def issue_token(user: User = Depends(require_verified)) -> TokenResponse:
     ttl = 3600
     token = publisher.make_connection_token(user_id=str(user.id), ttl_seconds=ttl)
     return TokenResponse(token=token, ttl_seconds=ttl)

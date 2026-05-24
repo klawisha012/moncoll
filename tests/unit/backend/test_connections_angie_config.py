@@ -16,6 +16,7 @@ def _base_conn(**overrides) -> dict:
     """Minimal connection dict that renders cleanly."""
     base = {
         "id": 7,
+        "tenant_id": 42,
         "name": "acme prod",
         "domain": "acme.com",
         "origin_hosts": ["1.1.1.1"],
@@ -44,9 +45,9 @@ def test_pending_dns_emits_only_port_80():
 def test_pending_dns_includes_acme_challenge():
     out = ac.render(_base_conn(status="pending_dns"))
     assert "/.well-known/acme-challenge/" in out
-    # Webroot must match certificates.service.trigger_acme_request webroot
-    # (.../conn_<id>/site) — see angie_config._acme_dir docstring.
-    assert "/etc/angie/http.d/conn_7/site" in out
+    # Webroot must use per-tenant path (Phase 13):
+    # /etc/angie/tenants/<tenant_id>/compose/conn_<id>/site
+    assert "/etc/angie/tenants/42/compose/conn_7/site" in out
 
 
 def test_pending_dns_proxies_immediately():
@@ -65,14 +66,14 @@ def test_active_emits_both_blocks():
     out = ac.render(
         _base_conn(
             status="active",
-            ssl_cert_path="/etc/angie/http.d/conn_7/7.crt",
-            ssl_key_path="/etc/angie/http.d/conn_7/7.key",
+            ssl_cert_path="/etc/angie/tenants/42/compose/conn_7/7.crt",
+            ssl_key_path="/etc/angie/tenants/42/compose/conn_7/7.key",
         )
     )
     assert "listen 80;" in out
     assert "listen 443 ssl;" in out
     assert "return 301 https://" in out  # port 80 → 443 redirect
-    assert "ssl_certificate     /etc/angie/http.d/conn_7/7.crt;" in out
+    assert "ssl_certificate     /etc/angie/tenants/42/compose/conn_7/7.crt;" in out
 
 
 def test_active_hsts_header():
@@ -209,3 +210,40 @@ def test_socket_io_bypass_modsecurity():
     assert "location /socket.io/" in out
     socketio_section = out.split("location /socket.io/")[1].split("location /")[0]
     assert "modsecurity off;" in socketio_section
+
+
+# ── Phase 13: per-tenant path construction ───────────────────────────────────
+
+
+def test_render_uses_tenant_scoped_paths():
+    """All in-config paths must use /etc/angie/tenants/<tid>/compose/..."""
+    conn = _base_conn(tenant_id=5, id=3)
+    out = ac.render(conn)
+    # Blocked IPs include should reference the tenant-scoped dir.
+    assert "/etc/angie/tenants/5/compose/conn_3/blocked_ips.conf" in out
+    # Must NOT reference old legacy path.
+    assert "/etc/angie/http.d/conn_" not in out
+
+
+def test_render_different_tenants_have_different_paths():
+    """Two tenants' configs must have separate include paths."""
+    out_a = ac.render(_base_conn(tenant_id=1, id=10))
+    out_b = ac.render(_base_conn(tenant_id=2, id=10))
+    assert "/etc/angie/tenants/1/compose" in out_a
+    assert "/etc/angie/tenants/2/compose" in out_b
+    # Tenant A's output must not contain tenant B's path.
+    assert "/etc/angie/tenants/2/compose" not in out_a
+    assert "/etc/angie/tenants/1/compose" not in out_b
+
+
+def test_conn_dir_path_construction():
+    """_conn_dir returns path under TENANTS_BASE."""
+    from pathlib import Path
+    d = ac._conn_dir(tenant_id=7, conn_id=42)
+    assert d == Path("/var/lib/waf/tenants/7/compose/conn_42")
+
+
+def test_acme_dir_path_construction():
+    from pathlib import Path
+    d = ac._acme_dir(tenant_id=7, conn_id=42)
+    assert d == Path("/var/lib/waf/tenants/7/compose/conn_42/site")

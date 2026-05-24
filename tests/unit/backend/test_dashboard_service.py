@@ -39,12 +39,31 @@ def test_quote_domains_renders_in_list():
     assert ds._quote_domains(["a.test", "b.test"]) == "('a.test', 'b.test')"
 
 
-def test_host_filter_nginx_no_domains_is_empty():
-    assert ds._host_filter_nginx([]) == ""
+def test_host_filter_nginx_none_means_no_filter():
+    """``None`` is the admin "see everything" sentinel — must be empty string."""
+    assert ds._host_filter_nginx(None) == ""
+
+
+def test_host_filter_nginx_empty_list_matches_nothing():
+    """Empty list (client w/ zero domains) must produce a never-match filter,
+    NOT the empty string — otherwise the dashboard leaks default-server and
+    other-tenant traffic."""
+    assert ds._host_filter_nginx([]) == f" AND host IN ('{ds._NO_DOMAINS_SENTINEL}')"
 
 
 def test_host_filter_nginx_with_domains():
     assert ds._host_filter_nginx(["a.test"]) == " AND host IN ('a.test')"
+
+
+def test_host_filter_waf_none_means_no_filter():
+    assert ds._host_filter_waf(None) == ""
+
+
+def test_host_filter_waf_empty_list_matches_nothing():
+    assert (
+        ds._host_filter_waf([])
+        == f" AND request_headers['Host'] IN ('{ds._NO_DOMAINS_SENTINEL}')"
+    )
 
 
 def test_host_filter_waf_uses_request_headers():
@@ -166,3 +185,92 @@ def test_metrics_passes_host_filter_when_connection_id_supplied(mock_ch_client):
     assert any("request_headers['Host'] IN ('a.test')" in q for q in seen_queries), (
         seen_queries
     )
+
+
+# ── tenant-isolation: client w/ zero domains gets a sentinel filter ────────
+
+
+def test_metrics_client_with_no_domains_filters_to_nothing(mock_ch_client):
+    """A client whose tenant has zero enabled connections must NOT see platform-wide
+    traffic (default.conf, other tenants). _domains_for_connection returns [] for
+    that case; every ClickHouse query must carry the never-match sentinel filter."""
+    with patch.object(ds, "_domains_for_connection", return_value=[]):
+        mock_ch_client.execute.return_value = [(0,)]
+        ds.get_dashboard_metrics(hours=1, connection_id=None, tenant_id=42)
+
+    seen_queries = [call.args[0] for call in mock_ch_client.execute.call_args_list]
+    sentinel = ds._NO_DOMAINS_SENTINEL
+    assert all(
+        f"host IN ('{sentinel}')" in q or f"request_headers['Host'] IN ('{sentinel}')" in q
+        for q in seen_queries
+    ), seen_queries
+
+
+def test_metrics_admin_no_connection_has_no_host_filter(mock_ch_client):
+    """Admin (tenant_id=None) viewing all domains (connection_id=None) must see the
+    whole platform — no host filter at all."""
+    with patch.object(ds, "_domains_for_connection", return_value=None):
+        mock_ch_client.execute.return_value = [(0,)]
+        ds.get_dashboard_metrics(hours=1, connection_id=None, tenant_id=None)
+
+    seen_queries = [call.args[0] for call in mock_ch_client.execute.call_args_list]
+    assert all("host IN" not in q for q in seen_queries), seen_queries
+
+
+def test_top_client_ips_now_applies_host_filter(mock_ch_client):
+    """Regression: previously this endpoint ignored connection_id and tenant_id
+    entirely, leaking platform-wide client-IP stats to every logged-in client."""
+    with patch.object(ds, "_domains_for_connection", return_value=["t.test"]):
+        mock_ch_client.execute.return_value = []
+        ds.get_top_client_ips(hours=1, connection_id=5, tenant_id=1)
+
+    seen_queries = [call.args[0] for call in mock_ch_client.execute.call_args_list]
+    assert any("host IN ('t.test')" in q for q in seen_queries), seen_queries
+
+
+def test_status_codes_now_applies_host_filter(mock_ch_client):
+    """Same regression as top_client_ips — status codes also leaked."""
+    with patch.object(ds, "_domains_for_connection", return_value=[]):
+        mock_ch_client.execute.return_value = []
+        ds.get_status_codes_timeline(hours=1, connection_id=None, tenant_id=99)
+
+    seen_queries = [call.args[0] for call in mock_ch_client.execute.call_args_list]
+    sentinel = ds._NO_DOMAINS_SENTINEL
+    assert any(f"host IN ('{sentinel}')" in q for q in seen_queries), seen_queries
+
+
+def test_traffic_volume_now_applies_host_filter(mock_ch_client):
+    with patch.object(ds, "_domains_for_connection", return_value=["v.test"]):
+        mock_ch_client.execute.return_value = []
+        ds.get_traffic_volume(hours=1, connection_id=2, tenant_id=1)
+
+    seen_queries = [call.args[0] for call in mock_ch_client.execute.call_args_list]
+    assert any("host IN ('v.test')" in q for q in seen_queries), seen_queries
+
+
+def test_requests_by_country_now_applies_host_filter(mock_ch_client):
+    with patch.object(ds, "_domains_for_connection", return_value=[]):
+        mock_ch_client.execute.return_value = []
+        ds.get_requests_by_country(hours=1, connection_id=None, tenant_id=7)
+
+    seen_queries = [call.args[0] for call in mock_ch_client.execute.call_args_list]
+    sentinel = ds._NO_DOMAINS_SENTINEL
+    assert any(f"host IN ('{sentinel}')" in q for q in seen_queries), seen_queries
+
+
+def test_top_user_agents_now_applies_host_filter(mock_ch_client):
+    with patch.object(ds, "_domains_for_connection", return_value=["ua.test"]):
+        mock_ch_client.execute.return_value = []
+        ds.get_top_user_agents(hours=1, connection_id=3, tenant_id=1)
+
+    seen_queries = [call.args[0] for call in mock_ch_client.execute.call_args_list]
+    assert any("host IN ('ua.test')" in q for q in seen_queries), seen_queries
+
+
+def test_requests_per_second_now_applies_host_filter(mock_ch_client):
+    with patch.object(ds, "_domains_for_connection", return_value=["r.test"]):
+        mock_ch_client.execute.return_value = []
+        ds.get_requests_per_second(hours=1, connection_id=4, tenant_id=1)
+
+    seen_queries = [call.args[0] for call in mock_ch_client.execute.call_args_list]
+    assert any("host IN ('r.test')" in q for q in seen_queries), seen_queries

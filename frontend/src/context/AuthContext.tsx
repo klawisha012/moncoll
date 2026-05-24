@@ -6,12 +6,31 @@ import {
   useState,
   type ReactNode,
 } from "react";
-import { api, type UserPublic } from "../api/client";
+import { api, type SignupResponse, type User } from "../api/client";
 
-interface AuthContextValue {
-  user: UserPublic | null;
+export type { User };
+
+export interface AuthContextValue {
+  user: User | null;
   loading: boolean;
-  login: (username: string, password: string) => Promise<UserPublic>;
+  login: (
+    email: string,
+    password: string,
+    captchaToken: string,
+    totpCode?: string,
+  ) => Promise<{ user: User } | { totp_required: true } | { enrol_required: true }>;
+  signup: (
+    email: string,
+    password: string,
+    tenantName: string,
+    captchaToken: string,
+    displayName?: string,
+  ) => Promise<SignupResponse>;
+  oauthStart: (
+    provider: "google" | "github",
+    intent: "signup" | "login",
+    tenantName?: string,
+  ) => void;
   logout: () => Promise<void>;
   changePassword: (currentPassword: string, newPassword: string) => Promise<void>;
   refresh: () => Promise<void>;
@@ -20,7 +39,7 @@ interface AuthContextValue {
 const AuthContext = createContext<AuthContextValue | null>(null);
 
 export function AuthProvider({ children }: { children: ReactNode }) {
-  const [user, setUser] = useState<UserPublic | null>(null);
+  const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
 
   const refresh = useCallback(async () => {
@@ -49,11 +68,44 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return () => window.removeEventListener("auth:unauthorized", handler);
   }, []);
 
-  const login = useCallback(async (username: string, password: string) => {
-    const resp = await api.auth.login(username, password);
-    setUser(resp.user);
-    return resp.user;
-  }, []);
+  const login = useCallback(
+    async (
+      email: string,
+      password: string,
+      captchaToken: string,
+      totpCode?: string,
+    ) => {
+      const resp = await api.auth.login(email, password, captchaToken, totpCode);
+      if ("user" in resp) {
+        setUser(resp.user);
+      }
+      return resp;
+    },
+    [],
+  );
+
+  const signup = useCallback(
+    async (
+      email: string,
+      password: string,
+      tenantName: string,
+      captchaToken: string,
+      displayName?: string,
+    ) => {
+      return api.auth.signup(email, password, tenantName, captchaToken, displayName);
+    },
+    [],
+  );
+
+  const oauthStart = useCallback(
+    (provider: "google" | "github", intent: "signup" | "login", tenantName?: string) => {
+      // Backend route is /api/auth/oauth/{provider}/start?intent=...&tenant_name=...
+      const params = new URLSearchParams({ intent });
+      if (tenantName) params.set("tenant_name", tenantName);
+      window.location.href = `/api/auth/oauth/${provider}/start?${params.toString()}`;
+    },
+    [],
+  );
 
   const logout = useCallback(async () => {
     try {
@@ -66,13 +118,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const changePassword = useCallback(
     async (currentPassword: string, newPassword: string) => {
       const updated = await api.auth.changePassword(currentPassword, newPassword);
-      setUser(updated);
+      if (updated) setUser(updated);
     },
-    []
+    [],
   );
 
   return (
-    <AuthContext.Provider value={{ user, loading, login, logout, changePassword, refresh }}>
+    <AuthContext.Provider
+      value={{ user, loading, login, signup, oauthStart, logout, changePassword, refresh }}
+    >
       {children}
     </AuthContext.Provider>
   );

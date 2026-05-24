@@ -481,6 +481,100 @@ export interface UserUpdateRequest {
   password?: string;
 }
 
+// ── SaaS auth types ────────────────────────────────────────
+
+export interface User {
+  id: number;
+  email: string;
+  display_name: string;
+  platform_role: "admin" | "client";
+  tenant_id: number | null;
+  tenant_role: "owner" | "member" | null;
+  email_verified: boolean;
+  totp_enabled: boolean;
+}
+
+export type SaasLoginResponse =
+  | { user: User }
+  | { totp_required: true }
+  | { enrol_required: true };
+
+export interface SignupResponse {
+  message: string;
+  // Present only when WAF_SMTP_HOST is unset (dev mode). Lets the UI show the
+  // verify link directly so the user isn't blocked on email delivery.
+  dev_verify_url?: string;
+}
+
+export interface ForgotPasswordResponse {
+  message: string;
+  dev_reset_url?: string;
+}
+
+export interface ProvidersResponse {
+  google: boolean;
+  github: boolean;
+  // Always a usable Turnstile site key. Falls back to Cloudflare's "always pass"
+  // test key (1x00000000000000000000AA) when WAF_TURNSTILE_SITE_KEY is unset,
+  // so the captcha widget stays visible in dev/staging.
+  captcha_site_key: string;
+  captcha_dev_mode: boolean;
+  smtp_dev_mode: boolean;
+}
+
+export interface TotpSetupResponse {
+  secret_base32: string;
+  qr_code_data_uri: string;
+  recovery_codes: string[];
+}
+
+export interface TotpConfirmResponse {
+  ok: boolean;
+  user: User;
+}
+
+// ── Admin types ─────────────────────────────────────────────
+
+export interface TenantRow {
+  id: number;
+  name: string;
+  display_name: string | null;
+  owner_email: string | null;
+  user_count: number;
+  connection_count: number;
+  created_at: string;
+  suspended_at: string | null;
+  last_activity: string | null;
+}
+
+export interface TenantDetailUser {
+  id: number;
+  email: string;
+  tenant_role: "owner" | "member";
+  last_login_at: string | null;
+  email_verified: boolean;
+  totp_enabled: boolean;
+}
+
+export interface TenantDetailConnection {
+  id: number;
+  name: string;
+  domain: string;
+  status: string;
+}
+
+export interface TenantDetail {
+  tenant: {
+    id: number;
+    name: string;
+    display_name: string | null;
+    created_at: string;
+    suspended_at: string | null;
+  };
+  users: TenantDetailUser[];
+  connections: TenantDetailConnection[];
+}
+
 export interface CertificateStatus {
   certificate_exists: boolean;
   key_exists: boolean;
@@ -744,25 +838,96 @@ export const api = {
   // ── Auth ────────────────────────────────────────────────
 
   auth: {
-    login: (username: string, password: string) =>
-      fetchApi<LoginResponse>("/api/auth/login", {
+    login: async (
+      email: string,
+      password: string,
+      captchaToken: string,
+      totpCode?: string,
+    ): Promise<SaasLoginResponse> => {
+      try {
+        return await fetchApi<SaasLoginResponse>("/api/auth/login", {
+          method: "POST",
+          body: JSON.stringify({
+            email,
+            password,
+            captcha_token: captchaToken,
+            ...(totpCode !== undefined ? { totp_code: totpCode } : {}),
+          }),
+        });
+      } catch (err) {
+        // Backend signals next-step continuation via HTTP-error responses
+        // carrying a sentinel `detail` (e.g. 401 totp_required, 403
+        // totp_enrol_required) plus a continuation cookie. fetchApi turns
+        // those into thrown Errors; translate them back to the structured
+        // shape Login.tsx expects so the user gets the TOTP / enrol screen
+        // instead of a raw red error.
+        const msg = err instanceof Error ? err.message : "";
+        if (msg === "totp_required") return { totp_required: true };
+        if (msg === "totp_enrol_required") return { enrol_required: true };
+        throw err;
+      }
+    },
+
+    signup: (
+      email: string,
+      password: string,
+      tenantName: string,
+      captchaToken: string,
+      displayName?: string,
+    ) =>
+      fetchApi<SignupResponse>("/api/auth/signup", {
         method: "POST",
-        body: JSON.stringify({ username, password }),
+        body: JSON.stringify({
+          email,
+          password,
+          tenant_name: tenantName,
+          captcha_token: captchaToken,
+          ...(displayName !== undefined ? { display_name: displayName } : {}),
+        }),
+      }),
+
+    verifyEmail: (token: string) =>
+      fetchApi<{ message: string }>("/api/auth/verify-email", {
+        method: "POST",
+        body: JSON.stringify({ token }),
+      }),
+
+    forgotPassword: (email: string, captchaToken: string) =>
+      fetchApi<ForgotPasswordResponse>("/api/auth/password/forgot", {
+        method: "POST",
+        body: JSON.stringify({ email, captcha_token: captchaToken }),
+      }),
+
+    resetPassword: (token: string, newPassword: string) =>
+      fetchApi<{ message: string }>("/api/auth/password/reset", {
+        method: "POST",
+        body: JSON.stringify({ token, new_password: newPassword }),
+      }),
+
+    getProviders: () => fetchApi<ProvidersResponse>("/api/auth/providers"),
+
+    totpSetup: () =>
+      fetchApi<TotpSetupResponse>("/api/auth/totp/setup", { method: "POST" }),
+
+    totpConfirm: (code: string) =>
+      fetchApi<TotpConfirmResponse>("/api/auth/totp/confirm", {
+        method: "POST",
+        body: JSON.stringify({ code }),
       }),
 
     logout: () =>
       fetchApi<void>("/api/auth/logout", { method: "POST" }),
 
-    me: async (): Promise<UserPublic | null> => {
+    me: async (): Promise<User | null> => {
       try {
-        return await fetchApi<UserPublic>("/api/auth/me");
+        return await fetchApi<User>("/api/auth/me");
       } catch {
         return null;
       }
     },
 
     changePassword: (currentPassword: string, newPassword: string) =>
-      fetchApi<UserPublic>("/api/auth/change-password", {
+      fetchApi<User>("/api/auth/change-password", {
         method: "POST",
         body: JSON.stringify({
           current_password: currentPassword,
@@ -786,6 +951,22 @@ export const api = {
 
     deleteUser: (id: number) =>
       fetchApi<void>(`/api/auth/users/${id}`, { method: "DELETE" }),
+  },
+
+  // ── Admin ───────────────────────────────────────────────
+  admin: {
+    listTenants: () => fetchApi<TenantRow[]>("/api/admin/tenants"),
+
+    getTenant: (id: number) => fetchApi<TenantDetail>(`/api/admin/tenants/${id}`),
+
+    suspendTenant: (id: number) =>
+      fetchApi<{ suspended_at: string }>(`/api/admin/tenants/${id}/suspend`, { method: "POST" }),
+
+    unsuspendTenant: (id: number) =>
+      fetchApi<{ suspended_at: null }>(`/api/admin/tenants/${id}/unsuspend`, { method: "POST" }),
+
+    deleteTenant: (id: number, confirm: string) =>
+      fetchApi<void>(`/api/admin/tenants/${id}?confirm=${encodeURIComponent(confirm)}`, { method: "DELETE" }),
   },
 
   // ── Real-time (Centrifugo) ──

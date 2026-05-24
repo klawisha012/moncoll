@@ -16,6 +16,7 @@ POSTGRES_PASSWORD=$(openssl rand -base64 24 | tr -dc 'a-zA-Z0-9' | head -c 32)
 # backend restarts — otherwise security.py falls back to an ephemeral secret
 # and every restart invalidates all active sessions, forcing re-login.
 WAF_JWT_SECRET=$(openssl rand -base64 48 | tr -dc 'a-zA-Z0-9' | head -c 64)
+WAF_PASETO_KEY=$(openssl rand -hex 32)
 # CrowdSec bouncer API key. Pre-generated here (instead of letting
 # `cscli bouncers add` allocate one) so the value lives only in .env
 # (gitignored, mode 0600) and is injected at bouncer registration via
@@ -102,6 +103,46 @@ CENTRIFUGO_API_URL=http://centrifugo:8000/api
 # publishes deltas to Centrifugo). Same Redis as Centrifugo engine.
 REDIS_URL=redis://redis:6379/0
 
+# ── SaaS auth ─────────────────────────────────────────────────────────────
+# PASETO session signing key (required). Generated fresh by generate-env.sh.
+WAF_PASETO_KEY=$WAF_PASETO_KEY
+
+# Public base URL of this WAF instance (required for OAuth redirect URIs and
+# email links). Change to your real domain before going to production.
+WAF_PUBLIC_BASE_URL=https://CHANGEME
+
+# Set to true in production (HTTPS). Dev stack runs on HTTP so leave false.
+WAF_COOKIE_SECURE=false
+
+# ── Cloudflare Turnstile (optional — anti-bot on signup/login) ─────────────
+# Leave blank to run without captcha (dev mode).
+# Get keys at: https://dash.cloudflare.com/?to=/:account/turnstile
+WAF_TURNSTILE_SITE_KEY=
+WAF_TURNSTILE_SECRET_KEY=
+
+# ── SMTP email transport (optional) ───────────────────────────────────────
+# Without SMTP, verification/reset emails are logged to backend stdout.
+WAF_SMTP_HOST=
+WAF_SMTP_PORT=587
+WAF_SMTP_USERNAME=
+WAF_SMTP_PASSWORD=
+WAF_SMTP_FROM_EMAIL=
+WAF_SMTP_FROM_NAME=WAF Platform
+
+# ── Google OAuth (optional) ────────────────────────────────────────────────
+# Create credentials at: https://console.cloud.google.com/apis/credentials
+# Redirect URI: \${WAF_PUBLIC_BASE_URL}/api/auth/oauth/google/callback
+WAF_OAUTH_GOOGLE_CLIENT_ID=
+WAF_OAUTH_GOOGLE_CLIENT_SECRET=
+WAF_OAUTH_GOOGLE_REDIRECT_URI=
+
+# ── GitHub OAuth (optional) ────────────────────────────────────────────────
+# Create credentials at: https://github.com/settings/developers
+# Redirect URI: \${WAF_PUBLIC_BASE_URL}/api/auth/oauth/github/callback
+WAF_OAUTH_GITHUB_CLIENT_ID=
+WAF_OAUTH_GITHUB_CLIENT_SECRET=
+WAF_OAUTH_GITHUB_REDIRECT_URI=
+
 EOF
 
 # 0600 so other users on the host can't read the secrets.
@@ -140,9 +181,10 @@ EOF
 
 echo "Generated .env file (mode 0600)"
 echo "  CLICKHOUSE_USER=$CLICKHOUSE_USER"
-echo "  (POSTGRES_PASSWORD, CLICKHOUSE_PASSWORD, CROWDSEC_BOUNCER_KEY - see .env)"
+echo "  (POSTGRES_PASSWORD, CLICKHOUSE_PASSWORD, CROWDSEC_BOUNCER_KEY, WAF_PASETO_KEY - see .env)"
 echo "  DOCKER_GID=$DOCKER_GID"
 echo "  Wrote configs/clickhouse/users.d/default-user.xml for $CLICKHOUSE_USER"
+echo "  WAF_PUBLIC_BASE_URL=https://CHANGEME  ← edit this in .env before production"
 
 # Render CrowdSec bouncer config from template. The .conf is gitignored;
 # the .template is the canonical, key-free version that lives in git.

@@ -16,16 +16,15 @@ from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from prometheus_fastapi_instrumentator import Instrumentator
 
+from .admin.router import router as admin_router
 from .angie import router as angie_router
 from .auth import auth_router
-from .auth import service as auth_service
-from .auth.dependencies import require_admin, require_password_changed
+from .auth.dependencies import require_admin, require_verified
 from .certificates import certificates_router
 from .connections import poller as connections_poller
 from .connections.router import connections_router
 from .crowdsec.router import router as crowdsec_router
 from .dashboard.router import router as dashboard_router
-from .db.base import get_sessionmaker
 from .modsecurity import router as modsecurity_router
 from .monitoring import router as monitoring_router
 from .realtime import realtime_router
@@ -48,13 +47,6 @@ def _allowed_origins() -> list[str]:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    try:
-        sessionmaker = get_sessionmaker()
-        async with sessionmaker() as session:
-            await auth_service.seed_default_admin(session)
-    except Exception as exc:
-        logger.exception("Failed to seed default admin user: %s", exc)
-
     # ── Connections poller (spec §5 poller.py): single asyncio task that
     #    walks pending rows, verifies TXT ownership, detects DNS-flip onto
     #    the WAF edge, and triggers ACME. Started under lifespan so it
@@ -98,15 +90,21 @@ def create_app() -> FastAPI:
     # endpoints inside it are individually guarded by require_admin.
     app.include_router(auth_router)
 
-    # Dashboard & Monitoring — accessible to both admin and viewer roles.
-    viewer = [Depends(require_password_changed)]
+    # Admin router — all routes require admin + TOTP via require_admin dep.
+    app.include_router(admin_router)
+
+    # Dashboard — viewer-level gate; individual routes enforce tenant scoping
+    # via require_verified (Phase 5.2.c).
+    viewer = [Depends(require_verified)]
     app.include_router(dashboard_router, dependencies=viewer)
-    app.include_router(monitoring_router, dependencies=viewer)
     # Realtime token endpoint — both roles need it to subscribe to live updates.
     app.include_router(realtime_router, dependencies=viewer)
 
     # Admin-only routers — viewer role cannot access configuration or security.
     admin = [Depends(require_admin)]
+    # Monitoring: Docker stats are platform-wide; per-route require_admin added
+    # in Phase 5.2.e. App-level admin dep here is a belt-and-suspenders guard.
+    app.include_router(monitoring_router, dependencies=admin)
     app.include_router(modsecurity_router, dependencies=admin)
     app.include_router(angie_router, dependencies=admin)
     app.include_router(connections_router, dependencies=admin)

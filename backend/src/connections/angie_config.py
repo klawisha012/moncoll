@@ -10,7 +10,15 @@ Two states are emitted depending on `status`:
     coverage (ModSecurity, compression, HSTS, blocked-IP includes).
 
 The render functions are pure: they take a row dict (no DB / IO) and return
-a string. _write_nginx_config is the only side-effecting wrapper.
+a string. write_config / delete_config are the only side-effecting wrappers.
+
+Filesystem layout (Phase 13):
+  Backend writes to:  /var/lib/waf/tenants/<tenant_id>/compose/conn_<id>/
+  Angie sees at:       /etc/angie/tenants/<tenant_id>/compose/conn_<id>/
+  Include glob:        /etc/angie/tenants/*/compose/*.conf (and subpaths)
+
+Suspended tenants have their compose/ dir renamed to compose.suspended/
+so the glob stops matching — see admin/router.py.
 
 See spec §6 (Angie config — two states) and §7.1 (token bindings).
 """
@@ -24,30 +32,37 @@ from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
-CONNECTIONS_DIR = Path("/var/lib/angie")
-CONNECTIONS_D_DIR = CONNECTIONS_DIR / "http.d"
+# Base directory where tenant config trees live (backend's host-side view).
+TENANTS_BASE = Path("/var/lib/waf/tenants")
+
 ACME_TRUSTED_CA = "/etc/ssl/certs/ca-certificates.crt"
 
 _VALID_HTTP_VERSIONS = ("h1", "h2", "h3")
 _VALID_COMPRESSION = ("auto", "gzip", "brotli", "zstd", "none")
 
 
-def _ensure_dirs() -> None:
-    CONNECTIONS_DIR.mkdir(parents=True, exist_ok=True)
-    CONNECTIONS_D_DIR.mkdir(parents=True, exist_ok=True)
+def _tenant_compose_dir(tenant_id: int) -> Path:
+    """Backend-side path: /var/lib/waf/tenants/<tenant_id>/compose/"""
+    return TENANTS_BASE / str(tenant_id) / "compose"
 
 
-def _conn_dir(conn_id: int) -> Path:
-    return CONNECTIONS_D_DIR / f"conn_{conn_id}"
+def _conn_dir(tenant_id: int, conn_id: int) -> Path:
+    return _tenant_compose_dir(tenant_id) / f"conn_{conn_id}"
 
 
-def _acme_dir(conn_id: int) -> Path:
-    # Must match certificates.service.trigger_acme_request webroot:
-    #   /var/lib/angie/http.d/conn_<id>/site  (host volume mount)
-    # → /etc/angie/http.d/conn_<id>/site      (Angie container view)
-    # certbot writes /.well-known/acme-challenge/<token> under this root,
-    # so the Angie location block has to use the same root or HTTP-01 fails.
-    return _conn_dir(conn_id) / "site"
+def _acme_dir(tenant_id: int, conn_id: int) -> Path:
+    """ACME webroot inside the connection directory.
+
+    Backend writes to:  /var/lib/waf/tenants/<tid>/compose/conn_<id>/site/
+    Angie serves from:  /etc/angie/tenants/<tid>/compose/conn_<id>/site/
+    certbot writes:     /.well-known/acme-challenge/<token> under that root.
+    """
+    return _conn_dir(tenant_id, conn_id) / "site"
+
+
+def _ensure_dirs(tenant_id: int) -> None:
+    TENANTS_BASE.mkdir(parents=True, exist_ok=True)
+    _tenant_compose_dir(tenant_id).mkdir(parents=True, exist_ok=True)
 
 
 def _parse_http_versions(value: str | None) -> list[str]:
@@ -137,6 +152,7 @@ def _emit_proxy_block(conn_id: int, domain: str, tls_mode: str) -> list[str]:
 def render(conn: dict) -> str:
     """Render the full Angie config for *conn*. Pure function — no IO."""
     conn_id = conn["id"]
+    tenant_id = conn["tenant_id"]
     domain = conn["domain"]
     origin_hosts = conn.get("origin_hosts") or []
     origin_port = int(conn.get("origin_port") or 443)
@@ -147,13 +163,18 @@ def render(conn: dict) -> str:
     cert_path = conn.get("ssl_cert_path")
     key_path = conn.get("ssl_key_path")
     has_cert = bool(cert_path and key_path) and status == "active"
-    # HSTS pins the domain to HTTPS for a year. Emitting it alongside a
-    # self-signed cert is a foot-gun: the browser caches HSTS, then refuses
-    # to bypass the cert warning on subsequent visits even though there's
-    # nothing wrong with the site. Only safe to send when the cert chains
+    # HSTS pins the domain to HTTPS for a year. Only safe to send when the cert chains
     # to a trusted root — i.e. when ACME succeeded.
     is_self_signed = "self-signed" in (conn.get("status_detail") or "").lower()
     emit_hsts = has_cert and not is_self_signed
+
+    # Angie-side paths (what the Angie container sees via the shared mount).
+    # These paths are written into .conf files destined for a Linux container —
+    # always use POSIX-style forward slashes regardless of the build host OS.
+    angie_conn_dir_posix = f"/etc/angie/tenants/{tenant_id}/compose/conn_{conn_id}"
+    blocked_ips_include = f"    include {angie_conn_dir_posix}/blocked_ips.conf;"
+    acme_root = f"{angie_conn_dir_posix}/site"
+    proxy_block = _emit_proxy_block(conn_id, domain, tls_mode)
 
     lines: list[str] = []
     lines.append(f"## conn_{conn_id}: {conn.get('name', '')} | {domain} | status={status}")
@@ -162,10 +183,6 @@ def render(conn: dict) -> str:
     lines.append("")
     lines.extend(_emit_upstream(conn_id, origin_hosts, origin_port))
     lines.append("")
-
-    blocked_ips_include = f"    include http.d/conn_{conn_id}/blocked_ips.conf;"
-    acme_root = f"/etc/angie/http.d/conn_{conn_id}/site"
-    proxy_block = _emit_proxy_block(conn_id, domain, tls_mode)
 
     # ── Plain HTTP server block (always emitted; ACME + either proxy or redirect) ──
     lines.append("server {")
@@ -254,18 +271,19 @@ def render(conn: dict) -> str:
 
 def write_config(conn: dict) -> None:
     """Write conf + ensure on-disk skeleton (acme dir + blocked_ips stub)."""
-    _ensure_dirs()
     conn_id = conn["id"]
-    conn_dir = _conn_dir(conn_id)
+    tenant_id = conn["tenant_id"]
+    _ensure_dirs(tenant_id)
+    conn_dir = _conn_dir(tenant_id, conn_id)
     conn_dir.mkdir(parents=True, exist_ok=True)
-    _acme_dir(conn_id).mkdir(parents=True, exist_ok=True)
+    _acme_dir(tenant_id, conn_id).mkdir(parents=True, exist_ok=True)
     (conn_dir / f"{conn_id}.conf").write_text(render(conn))
     blocked = conn_dir / "blocked_ips.conf"
     if not blocked.exists():
         blocked.write_text("# Auto-generated — blocked IPs for this connection\n")
 
 
-def delete_config(conn_id: int) -> None:
-    conn_dir = _conn_dir(conn_id)
+def delete_config(tenant_id: int, conn_id: int) -> None:
+    conn_dir = _conn_dir(tenant_id, conn_id)
     if conn_dir.exists():
         shutil.rmtree(conn_dir, ignore_errors=True)

@@ -7,12 +7,25 @@ prometheus-fastapi-instrumentator>=6.1.0
 clickhouse-driver>=0.2.6
 passlib[bcrypt]>=1.7.4
 bcrypt>=4.0.0,<4.1.0
-python-jose[cryptography]>=3.3.0
+pyseto>=1.7.6
 python-multipart>=0.0.9
 sqlalchemy[asyncio]>=2.0.25
 asyncpg>=0.29.0
+# Sync psycopg2 driver needed by dashboard.service._domains_for_connection,
+# which builds a sync SQLAlchemy engine in the thread-pool path used alongside
+# ClickHouse queries. Without this, every dashboard host-filter lookup raised
+# ModuleNotFoundError and silently returned "no filter" — leaking other
+# tenants' traffic. See test_dashboard_tenant_scoping.py.
+psycopg2-binary>=2.9.9
 alembic>=1.13.0
 pydantic-settings>=2.1.0
 httpx>=0.27.0
 dnspython>=2.6.0
 redis>=5.0.0
+pyotp>=2.9.0
+qrcode[pil]>=7.4.2
+httpx-oauth>=0.15.0
+aiosmtplib>=3.0.0
+jinja2>=3.1.0
+typer>=0.12.0
+email-validator>=2.1.0
