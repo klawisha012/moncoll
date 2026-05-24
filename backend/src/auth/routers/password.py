@@ -2,7 +2,7 @@
 
 import logging
 
-from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request, Response, status
 from fastapi.responses import JSONResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -230,36 +230,50 @@ async def me(user: User = Depends(get_current_user)):
     return UserPublic.from_user(user)
 
 
+async def _send_password_reset_safe(
+    to_email: str, display_name: str, reset_url: str
+) -> None:
+    """Background email send for /password/forgot. Failures stay out of the
+    response body so an attacker can't infer SMTP state from the public API."""
+    try:
+        await mailer.send_password_reset(
+            to_email=to_email, display_name=display_name, reset_url=reset_url
+        )
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("reset-password background send failed: %s", exc)
+
+
 @router.post("/password/forgot", status_code=202)
 async def forgot(
     payload: ForgotPasswordRequest,
     request: Request,
+    background_tasks: BackgroundTasks,
     session: AsyncSession = Depends(get_session),
 ):
     await captcha.verify_or_raise(payload.captcha_token, request)
     user = await auth_service.get_by_email(session, payload.email)
     s = get_settings()
     dev_url: str | None = None
-    smtp_send_failed = False
+    # Constant-shape response: the body never tells the caller whether the
+    # email exists, whether SMTP is reachable, or whether the send succeeded.
+    # SMTP latency (~50-500ms) is moved off the response path via
+    # BackgroundTasks so timing-based enumeration is gone too.
     if user and user.email_verified_at:
         token = await verification.issue(session, user, purpose="reset_password")
         reset_url = f"{s.public_base_url}/reset-password?token={token}"
-        try:
-            await mailer.send_password_reset(
-                to_email=user.email,
-                display_name=user.display_name,
-                reset_url=reset_url,
-            )
-        except Exception as exc:  # noqa: BLE001
-            logger.warning("reset-password send failed: %s", exc)
-            smtp_send_failed = True
-        if not s.smtp_host or smtp_send_failed:
+        background_tasks.add_task(
+            _send_password_reset_safe, user.email, user.display_name, reset_url
+        )
+        # Dev-only convenience: when SMTP is not configured at all (i.e. a
+        # local dev box, never prod), surface the URL so the developer can
+        # click through without inbox plumbing. This is gated on
+        # ``smtp_host`` being unset — a config-time decision, not a runtime
+        # send-state — so production never sees it.
+        if not s.smtp_host:
             dev_url = reset_url
     body: dict = {"message": "if that email exists, a reset link was sent"}
     if dev_url is not None:
         body["dev_reset_url"] = dev_url
-    if smtp_send_failed:
-        body["smtp_send_failed"] = True
     return body
 
 
