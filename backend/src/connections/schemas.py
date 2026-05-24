@@ -13,6 +13,7 @@ ConnectionStatus = Literal[
 ]
 HttpVersions = str  # comma-separated subset of {h1,h2,h3}
 CompressionAlgo = Literal["auto", "gzip", "brotli", "zstd", "none"]
+ModSecState = Literal["off", "detection_only", "blocking"]
 
 
 class ConnectionCreate(BaseModel):
@@ -64,6 +65,8 @@ class Connection(BaseModel):
     http_versions: str
     compression_algo: str
     enabled: bool
+    modsec_state: ModSecState
+    geoip_denied_countries: list[str]
     ssl_cert_path: str | None
     ssl_key_path: str | None
     created_at: datetime

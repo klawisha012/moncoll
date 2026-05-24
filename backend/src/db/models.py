@@ -178,6 +178,22 @@ class Connection(Base):
     http_versions: Mapped[str] = mapped_column(String(32), nullable=False, default="h1,h2")
     compression_algo: Mapped[str] = mapped_column(String(16), nullable=False, default="auto")
     enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    # ModSecurity rule engine state for this connection's server block.
+    # Translates to `modsecurity_rules 'SecRuleEngine X'` (and `modsecurity on/off`)
+    # in the per-connection .conf file. 'detection_only' is the safe default —
+    # client opts into 'blocking' explicitly via the Configuration UI.
+    modsec_state: Mapped[str] = mapped_column(
+        Enum("off", "detection_only", "blocking", name="modsec_state"),
+        nullable=False,
+        default="detection_only",
+        server_default="detection_only",
+    )
+    # ISO 3166-1 alpha-2 country codes blocked by GeoIP2 for this connection.
+    # Empty list = no GeoIP block. Rendered as `if ($geoip2_data_country_code ~
+    # "^(XX|YY)$") { return 403; }` inside the per-connection server block.
+    geoip_denied_countries: Mapped[list[str]] = mapped_column(
+        JSON, nullable=False, default=list, server_default="[]"
+    )
     # ACME-managed cert paths; populated once status transitions to 'active'.
     ssl_cert_path: Mapped[str | None] = mapped_column(String(512), nullable=True)
     ssl_key_path: Mapped[str | None] = mapped_column(String(512), nullable=True)
