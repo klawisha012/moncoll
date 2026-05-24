@@ -17,7 +17,6 @@ from fastapi.middleware.cors import CORSMiddleware
 from prometheus_fastapi_instrumentator import Instrumentator
 
 from .admin.router import router as admin_router
-from .angie import router as angie_router
 from .auth import auth_router
 from .auth.dependencies import require_admin, require_verified
 from .certificates import certificates_router
@@ -106,7 +105,6 @@ def create_app() -> FastAPI:
     # in Phase 5.2.e. App-level admin dep here is a belt-and-suspenders guard.
     app.include_router(monitoring_router, dependencies=admin)
     app.include_router(modsecurity_router, dependencies=admin)
-    app.include_router(angie_router, dependencies=admin)
     app.include_router(connections_router, dependencies=admin)
     app.include_router(certificates_router, dependencies=admin)
     app.include_router(crowdsec_router, dependencies=admin)

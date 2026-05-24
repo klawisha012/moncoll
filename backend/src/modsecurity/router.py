@@ -15,7 +15,6 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from ..auth.dependencies import require_admin
 from ..db.models import User
 from . import service as modsecurity_service
-from . import settings_service as modsec_settings_service
 from .exceptions import ConfigNotFoundError, InvalidRuleError
 from .schemas import (
     ModSecurityConfigResponse,
@@ -25,7 +24,6 @@ from .schemas import (
     RuleItem,
     RuleResponse,
 )
-from .settings_schemas import ModSecuritySettingsResponse, ModSecuritySettingsUpdate
 
 logger = logging.getLogger(__name__)
 
@@ -122,14 +120,3 @@ async def reload_angie(_: User = Depends(require_admin)):
         return ReloadResponse(success=False, message=str(e))
 
 
-@router.get("/settings", response_model=ModSecuritySettingsResponse)
-async def get_modsecurity_settings(_: User = Depends(require_admin)):
-    return modsec_settings_service.get_modsecurity_settings()
-
-
-@router.put("/settings", response_model=ModSecuritySettingsResponse)
-async def update_modsecurity_settings(
-    update: ModSecuritySettingsUpdate, _: User = Depends(require_admin)
-):
-    modsec_settings_service.save_modsecurity_settings(update)
-    return update
