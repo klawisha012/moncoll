@@ -331,10 +331,17 @@ async def test_traffic(
 
     Path param is strictly validated as UUID4 — non-conforming values return
     400 BEFORE any ClickHouse query is built (SQL-injection barrier).
+
+    Tenant scoping: the marker alone was previously sufficient authorization
+    — anyone who could guess/intercept it could read another tenant's test
+    results. Now the query is additionally constrained to the caller's
+    tenant domains (admins keep cross-tenant view).
     """
     if not _UUID4_RE.match(marker):
         raise HTTPException(status_code=400, detail="marker must be a UUID4")
     try:
-        return await _run(functools.partial(get_test_traffic_by_marker, marker))
+        return await _run(
+            functools.partial(get_test_traffic_by_marker, marker, user.tenant_id)
+        )
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e)) from e

@@ -979,12 +979,22 @@ def get_requests_by_country(
 _TEST_MARKER_HEADER = "X-Test-Marker"
 
 
-def get_test_traffic_by_marker(marker: str) -> dict[str, Any]:
+def get_test_traffic_by_marker(
+    marker: str,
+    tenant_id: int | None = None,
+) -> dict[str, Any]:
     """Return the WAF audit rows tagged with this X-Test-Marker.
 
     The caller (router) MUST validate ``marker`` as a UUID4 before calling
     this — we still single-quote-strip defensively, but the regex check at
     the router layer is the actual SQL-injection barrier.
+
+    Tenant scoping: when ``tenant_id`` is set (client role), the query is
+    additionally constrained to that tenant's domains via the standard
+    ``_host_filter_waf`` helper. ``tenant_id=None`` (admin / platform-level
+    caller) returns every row matching the marker. This prevents one tenant
+    from reading another tenant's WAF test results by guessing/leaking the
+    marker UUID — without it, the marker alone was sufficient authorization.
 
     Returns ``{"events": [...], "timestamps": [...]}`` — the timestamp list
     is what the frontend chart consumes to draw spike highlight markers.
@@ -995,6 +1005,10 @@ def get_test_traffic_by_marker(marker: str) -> dict[str, Any]:
         return {"events": [], "timestamps": []}
 
     safe_marker = marker.replace("'", "").replace("\\", "").replace("\x00", "")
+    # Reuse the same domain-resolution path as the rest of dashboard endpoints
+    # so the failure mode is identical (fail-closed for clients, fail-open
+    # for admins) and the WAF host header lookup stays consistent.
+    waf_filter = _host_filter_waf(_domains_for_connection(None, tenant_id))
 
     query = (
         "SELECT w.timestamp, m.ruleId, w.client_ip, w.request_uri, "
@@ -1002,7 +1016,7 @@ def get_test_traffic_by_marker(marker: str) -> dict[str, Any]:
         "FROM logs.waf_audit_log AS w "
         "LEFT ARRAY JOIN messages AS m "
         f"WHERE w.request_headers['{_TEST_MARKER_HEADER}'] = '{safe_marker}' "
-        "AND w.timestamp >= now() - INTERVAL 1 HOUR "
+        f"AND w.timestamp >= now() - INTERVAL 1 HOUR{waf_filter} "
         "ORDER BY w.timestamp"
     )
     rows = _direct_execute(client, query, default=[]) or []
