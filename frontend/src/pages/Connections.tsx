@@ -822,25 +822,15 @@ function Step2(props: {
         style={{
           "font-size": "12px",
           color: txtNotFound() ? "var(--red-deep)" : "var(--ink-soft)",
-          margin: "10px 0 18px",
+          margin: "10px 0 6px",
           "min-height": "18px",
           display: "flex",
           "align-items": "center",
-          gap: "6px",
+          gap: "8px",
         }}
       >
         <Show when={props.verifying}>
-          <span
-            aria-hidden
-            style={{
-              display: "inline-block",
-              animation: "spin 0.9s linear infinite",
-              "font-size": "14px",
-              "line-height": 1,
-            }}
-          >
-            ◐
-          </span>
+          <Spinner size={14} />
         </Show>
         {props.verifying
           ? "Checking DNS for the TXT record…"
@@ -849,10 +839,40 @@ function Step2(props: {
           : settings.t("wizard.step2.polling")}
       </div>
 
-      {/* Local keyframes (Constructivist system has no spinner utility yet). */}
-      <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
+      <Show when={props.verifying}>
+        <div
+          style={{
+            width: "100%",
+            height: "4px",
+            background: "var(--cream-3)",
+            border: "1px solid var(--border-subtle)",
+            overflow: "hidden",
+            position: "relative",
+            margin: "4px 0 18px",
+          }}
+        >
+          <div
+            style={{
+              position: "absolute",
+              height: "100%",
+              background: "var(--red)",
+              width: "35%",
+              animation: "progress-slide 1.5s infinite ease-in-out",
+            }}
+          />
+        </div>
+      </Show>
 
-      <div style={{ display: "flex", "justify-content": "flex-end", gap: "12px" }}>
+      {/* Local keyframes (Constructivist system has no spinner utility yet). */}
+      <style>{`
+        @keyframes spin { to { transform: rotate(360deg); } }
+        @keyframes progress-slide {
+          0% { left: -35%; }
+          100% { left: 100%; }
+        }
+      `}</style>
+
+      <div style={{ display: "flex", "justify-content": "flex-end", gap: "12px", "margin-top": "18px" }}>
         <button type="button" class="btn-outline" onClick={props.onCancel}>
           {settings.t("wizard.cancel")}
         </button>
@@ -868,12 +888,7 @@ function Step2(props: {
             when={!props.verifying}
             fallback={
               <span style={{ display: "inline-flex", "align-items": "center", gap: "6px" }}>
-                <span
-                  aria-hidden
-                  style={{ animation: "spin 0.9s linear infinite", display: "inline-block" }}
-                >
-                  ◐
-                </span>
+                <Spinner size={14} />
                 {"Checking…"}
               </span>
             }
@@ -1006,7 +1021,7 @@ function KeyValueBlock(props: {
           color: "var(--ink)",
           "text-align": "left",
           cursor: "pointer",
-        }}
+         }}
       >
         <span style={{ overflow: "auto", "word-break": "break-all" }}>{props.value}</span>
         <Copy size={14} style={{ "flex-shrink": 0, "margin-left": "8px" }} />
@@ -1014,3 +1029,37 @@ function KeyValueBlock(props: {
     </div>
   );
 }
+
+function Spinner(props: { size?: number }) {
+  const size = () => props.size ?? 14;
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      fill="none"
+      xmlns="http://www.w3.org/2000/svg"
+      style={{
+        width: `${size()}px`,
+        height: `${size()}px`,
+        animation: "spin 0.8s linear infinite",
+        display: "inline-block",
+        "vertical-align": "middle",
+      }}
+    >
+      <circle
+        cx="12"
+        cy="12"
+        r="10"
+        stroke="currentColor"
+        stroke-width="3"
+        style={{ opacity: 0.2 }}
+      />
+      <path
+        d="M12 2C6.47715 2 2 6.47715 2 12C2 13.5997 2.37562 15.1116 3.0434 16.4526"
+        stroke="currentColor"
+        stroke-width="3"
+        stroke-linecap="round"
+      />
+    </svg>
+  );
+}
+
