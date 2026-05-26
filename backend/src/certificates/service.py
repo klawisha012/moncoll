@@ -21,17 +21,25 @@ def _ensure_ssl_dirs():
     BACKEND_HTTPD_DIR.mkdir(parents=True, exist_ok=True)
 
 
-def get_backend_ssl_paths(connection_id: int) -> tuple[str, str]:
+def get_backend_ssl_paths(connection_id: int, tenant_id: int | None = None) -> tuple[str, str]:
     """Get certificate and key paths for backend file operations."""
-    cert_path = f"/var/lib/angie/http.d/conn_{connection_id}/{connection_id}.crt"
-    key_path = f"/var/lib/angie/http.d/conn_{connection_id}/{connection_id}.key"
+    if tenant_id is not None:
+        cert_path = f"/var/lib/waf/tenants/{tenant_id}/compose/conn_{connection_id}/{connection_id}.crt"
+        key_path = f"/var/lib/waf/tenants/{tenant_id}/compose/conn_{connection_id}/{connection_id}.key"
+    else:
+        cert_path = f"/var/lib/angie/http.d/conn_{connection_id}/{connection_id}.crt"
+        key_path = f"/var/lib/angie/http.d/conn_{connection_id}/{connection_id}.key"
     return cert_path, key_path
 
 
-def get_angie_ssl_paths(connection_id: int) -> tuple[str, str]:
+def get_angie_ssl_paths(connection_id: int, tenant_id: int | None = None) -> tuple[str, str]:
     """Get certificate and key paths as seen from inside the Angie container."""
-    cert_path = f"{ANGIE_HTTPD_DIR}/conn_{connection_id}/{connection_id}.crt"
-    key_path = f"{ANGIE_HTTPD_DIR}/conn_{connection_id}/{connection_id}.key"
+    if tenant_id is not None:
+        cert_path = f"/etc/angie/tenants/{tenant_id}/compose/conn_{connection_id}/{connection_id}.crt"
+        key_path = f"/etc/angie/tenants/{tenant_id}/compose/conn_{connection_id}/{connection_id}.key"
+    else:
+        cert_path = f"{ANGIE_HTTPD_DIR}/conn_{connection_id}/{connection_id}.crt"
+        key_path = f"{ANGIE_HTTPD_DIR}/conn_{connection_id}/{connection_id}.key"
     return cert_path, key_path
 
 
@@ -41,7 +49,7 @@ def get_connection_ssl_paths(connection_id: int) -> tuple[str, str]:
     return get_backend_ssl_paths(connection_id)
 
 
-def generate_self_signed_certificate(connection_id: int, domains: list[str]) -> dict:
+def generate_self_signed_certificate(connection_id: int, domains: list[str], tenant_id: int | None = None) -> dict:
     """Generate certificate signed by the local CA (or self-signed as fallback).
 
     Writes files using backend-container paths, but returns Angie-container
@@ -49,8 +57,8 @@ def generate_self_signed_certificate(connection_id: int, domains: list[str]) -> 
     """
     _ensure_ssl_dirs()
 
-    backend_cert, backend_key = get_backend_ssl_paths(connection_id)
-    angie_cert, angie_key = get_angie_ssl_paths(connection_id)
+    backend_cert, backend_key = get_backend_ssl_paths(connection_id, tenant_id=tenant_id)
+    angie_cert, angie_key = get_angie_ssl_paths(connection_id, tenant_id=tenant_id)
 
     # CA paths (backend-container view)
     ca_cert_path = "/var/lib/angie/http.d/ca.crt"
@@ -214,7 +222,7 @@ def _find_existing_le_cert(domains: list[str]) -> Path | None:
     return None
 
 
-def trigger_acme_request(connection_id: int, domains: list[str]) -> dict:
+def trigger_acme_request(connection_id: int, domains: list[str], tenant_id: int | None = None) -> dict:
     """Request a real Let's Encrypt certificate via certbot (webroot mode).
 
     If a valid certificate already exists on disk this function simply
@@ -222,10 +230,16 @@ def trigger_acme_request(connection_id: int, domains: list[str]) -> dict:
     certificate is only requested when none exists yet.
     """
     _ensure_ssl_dirs()
-    _ensure_acme_challenge_dir(connection_id)
+    if tenant_id is not None:
+        webroot = f"/var/lib/waf/tenants/{tenant_id}/compose/conn_{connection_id}/site"
+        challenge_dir = Path(webroot) / ".well-known" / "acme-challenge"
+        challenge_dir.mkdir(parents=True, exist_ok=True)
+    else:
+        webroot = str(BACKEND_HTTPD_DIR / f"conn_{connection_id}" / "site")
+        _ensure_acme_challenge_dir(connection_id)
 
-    backend_cert, backend_key = get_backend_ssl_paths(connection_id)
-    angie_cert, angie_key = get_angie_ssl_paths(connection_id)
+    backend_cert, backend_key = get_backend_ssl_paths(connection_id, tenant_id=tenant_id)
+    angie_cert, angie_key = get_angie_ssl_paths(connection_id, tenant_id=tenant_id)
 
     # Ensure connection subdirectory exists
     Path(backend_cert).parent.mkdir(parents=True, exist_ok=True)
@@ -272,7 +286,6 @@ def trigger_acme_request(connection_id: int, domains: list[str]) -> dict:
         }
 
     # ── No cert yet → request a new one ──
-    webroot = str(BACKEND_HTTPD_DIR / f"conn_{connection_id}" / "site")
     email = _ACME_EMAIL
     domain_args: list[str] = []
     for d in domains:
@@ -359,10 +372,10 @@ def trigger_acme_request(connection_id: int, domains: list[str]) -> dict:
         }
 
 
-def check_certificate_status(connection_id: int) -> dict:
+def check_certificate_status(connection_id: int, tenant_id: int | None = None) -> dict:
     """Check if certificate exists for connection."""
-    cert_path, key_path = get_backend_ssl_paths(connection_id)
-    angie_cert, angie_key = get_angie_ssl_paths(connection_id)
+    cert_path, key_path = get_backend_ssl_paths(connection_id, tenant_id=tenant_id)
+    angie_cert, angie_key = get_angie_ssl_paths(connection_id, tenant_id=tenant_id)
 
     cert_exists = Path(cert_path).exists()
     key_exists = Path(key_path).exists()
@@ -377,11 +390,11 @@ def check_certificate_status(connection_id: int) -> dict:
     }
 
 
-def regenerate_certificate(connection_id: int, domains: list[str]) -> dict:
+def regenerate_certificate(connection_id: int, domains: list[str], tenant_id: int | None = None) -> dict:
     """Regenerate certificate for a connection."""
     _ensure_ssl_dirs()
 
-    cert_path, key_path = get_backend_ssl_paths(connection_id)
+    cert_path, key_path = get_backend_ssl_paths(connection_id, tenant_id=tenant_id)
 
     # Ensure connection subdirectory exists
     Path(cert_path).parent.mkdir(parents=True, exist_ok=True)
@@ -396,6 +409,6 @@ def regenerate_certificate(connection_id: int, domains: list[str]) -> dict:
         key_file.unlink()
 
     # Trigger new ACME request
-    result = trigger_acme_request(connection_id, domains)
+    result = trigger_acme_request(connection_id, domains, tenant_id=tenant_id)
 
     return result

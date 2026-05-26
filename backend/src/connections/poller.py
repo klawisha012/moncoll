@@ -29,6 +29,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ..db.base import get_sessionmaker
 from ..db.models import Connection
 from . import acme, angie_config, dns
+from .service import _reload_angie
+
 
 logger = logging.getLogger(__name__)
 
@@ -37,6 +39,8 @@ SEM_LIMIT = int(os.environ.get("WAF_POLLER_CONCURRENCY", "20"))
 EDGE_IPV4 = (os.environ.get("WAF_EDGE_IPV4") or "").strip()
 
 _SEM = asyncio.Semaphore(SEM_LIMIT)
+_ACME_LOCK = asyncio.Lock()
+
 
 
 def _now() -> datetime:
@@ -72,17 +76,23 @@ async def _to_dict(row: Connection) -> dict:
     """Shape the row for angie_config.render — keeps render() pure."""
     return {
         "id": row.id,
+        "tenant_id": row.tenant_id,
         "name": row.name,
         "domain": row.domain,
         "origin_hosts": list(row.origin_hosts or []),
         "origin_port": row.origin_port,
         "origin_tls_mode": row.origin_tls_mode,
         "status": row.status,
+        "status_detail": row.status_detail,
         "http_versions": row.http_versions,
         "compression_algo": row.compression_algo,
+        "modsec_state": row.modsec_state,
+        "geoip_denied_countries": list(row.geoip_denied_countries or []),
+        "crowdsec_active": row.crowdsec_active,
         "ssl_cert_path": row.ssl_cert_path,
         "ssl_key_path": row.ssl_key_path,
     }
+
 
 
 async def _tick_verification(row: Connection) -> None:
@@ -119,7 +129,8 @@ async def _tick_provisioning(row: Connection) -> None:
     # Throttle: if backoff window hasn't elapsed, no-op.
     if row.acme_next_retry_at and row.acme_next_retry_at > _now():
         return
-    result = await asyncio.to_thread(acme.trigger, row.id, row.domain)
+    async with _ACME_LOCK:
+        result = await asyncio.to_thread(acme.trigger, row.id, row.domain, row.tenant_id)
     if result.success:
         row.ssl_cert_path = result.cert_path
         row.ssl_key_path = result.key_path
@@ -141,7 +152,7 @@ async def _tick_provisioning(row: Connection) -> None:
                 "Conn %d: ACME exhausted retries — falling back to self-signed cert",
                 row.id,
             )
-            fb = await asyncio.to_thread(acme.fallback_self_signed, row.id, row.domain)
+            fb = await asyncio.to_thread(acme.fallback_self_signed, row.id, row.domain, row.tenant_id)
             if fb.success:
                 row.ssl_cert_path = fb.cert_path
                 row.ssl_key_path = fb.key_path
@@ -185,6 +196,7 @@ async def _process_one(row_id: int) -> None:
             if row.status != prev_status:
                 try:
                     angie_config.write_config(await _to_dict(row))
+                    _reload_angie()
                 except Exception:
                     logger.exception("Conn %d: failed to write Angie config", row_id)
 

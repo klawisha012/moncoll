@@ -22,7 +22,7 @@ async def get_certificate_status(
     if not conn:
         raise HTTPException(status_code=404, detail="Connection not found")
 
-    status = ssl_service.check_certificate_status(connection_id)
+    status = ssl_service.check_certificate_status(connection_id, tenant_id=tenant.id)
     return status
 
 
@@ -39,7 +39,7 @@ async def request_certificate(
         raise HTTPException(status_code=404, detail="Connection not found")
 
     domains = request.domains or [conn.domain]
-    result = ssl_service.trigger_acme_request(connection_id, domains)
+    result = ssl_service.trigger_acme_request(connection_id, domains, tenant_id=tenant.id)
     return result
 
 
@@ -54,5 +54,5 @@ async def regenerate_certificate(
     if not conn:
         raise HTTPException(status_code=404, detail="Connection not found")
 
-    result = ssl_service.regenerate_certificate(connection_id, [conn.domain])
+    result = ssl_service.regenerate_certificate(connection_id, [conn.domain], tenant_id=tenant.id)
     return result

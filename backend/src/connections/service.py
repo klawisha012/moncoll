@@ -300,6 +300,7 @@ async def probe_connection(
     if row is None:
         return None
 
+    prev_status = row.status
     row.last_checked_at = _now()
 
     if row.status == "pending_verification" and row.verify_token:
@@ -340,6 +341,14 @@ async def probe_connection(
 
     await session.commit()
     await session.refresh(row)
+
+    if row.status != prev_status:
+        try:
+            angie_config.write_config(_to_dict(row))
+            _reload_angie()
+        except Exception:
+            logger.exception("Conn %d: failed to write/reload Angie config in probe", row.id)
+
     return Connection.model_validate(_to_dict(row))
 
 

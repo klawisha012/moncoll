@@ -55,7 +55,7 @@ class AcmeResult:
         self.message = message
 
 
-def trigger(conn_id: int, domain: str) -> AcmeResult:
+def trigger(conn_id: int, domain: str, tenant_id: int | None = None) -> AcmeResult:
     """Single ACME attempt. Does NOT retry — that's the poller's job.
 
     On success: returns the cert/key paths cert_service wrote to disk.
@@ -63,7 +63,7 @@ def trigger(conn_id: int, domain: str) -> AcmeResult:
     increments acme_retry_count and reschedules via schedule_next_retry.
     """
     try:
-        raw = cert_service.trigger_acme_request(conn_id, [domain])
+        raw = cert_service.trigger_acme_request(conn_id, [domain], tenant_id=tenant_id)
     except Exception as exc:  # cert_service may raise on infrastructure errors
         logger.exception("Conn %d: ACME request crashed", conn_id)
         return AcmeResult(success=False, message=f"{type(exc).__name__}: {exc}")
@@ -77,7 +77,7 @@ def trigger(conn_id: int, domain: str) -> AcmeResult:
     return AcmeResult(success=False, message=str(raw.get("message") or "ACME failed"))
 
 
-def fallback_self_signed(conn_id: int, domain: str) -> AcmeResult:
+def fallback_self_signed(conn_id: int, domain: str, tenant_id: int | None = None) -> AcmeResult:
     """Generate a self-signed cert as last resort.
 
     Used by the poller after MAX_RETRIES of ACME have all failed, mirroring
@@ -91,7 +91,7 @@ def fallback_self_signed(conn_id: int, domain: str) -> AcmeResult:
     'active' state for users; the operator gets a clear breadcrumb.
     """
     try:
-        raw = cert_service.generate_self_signed_certificate(conn_id, [domain])
+        raw = cert_service.generate_self_signed_certificate(conn_id, [domain], tenant_id=tenant_id)
     except Exception as exc:
         logger.exception("Conn %d: self-signed fallback crashed", conn_id)
         return AcmeResult(success=False, message=f"{type(exc).__name__}: {exc}")
