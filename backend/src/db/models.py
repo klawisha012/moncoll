@@ -194,6 +194,11 @@ class Connection(Base):
     geoip_denied_countries: Mapped[list[str]] = mapped_column(
         JSON, nullable=False, default=list, server_default="[]"
     )
+    # CrowdSec active status for this connection. When True, blocked_ips.conf
+    # is included in the connection's server blocks.
+    crowdsec_active: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=True, server_default="true"
+    )
     # ACME-managed cert paths; populated once status transitions to 'active'.
     ssl_cert_path: Mapped[str | None] = mapped_column(String(512), nullable=True)
     ssl_key_path: Mapped[str | None] = mapped_column(String(512), nullable=True)

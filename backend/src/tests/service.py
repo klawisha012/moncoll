@@ -50,7 +50,9 @@ def find_test(test_id: str) -> TestCase | None:
 
 
 async def resolve_target(
-    session: AsyncSession, connection_id: int | None
+    session: AsyncSession,
+    connection_id: int | None,
+    tenant_id: int | None = None,
 ) -> tuple[str, ConnectionModel | None]:
     """Pick the URL the test request will be sent to.
 
@@ -59,11 +61,17 @@ async def resolve_target(
     Falls back to ``http://angie/`` (the Angie container on the docker
     network) when no connection is selected — the default vhost still goes
     through the full WAF pipeline.
+
+    ``tenant_id`` enforces tenant scoping: when set, a connection owned by a
+    different tenant is treated as missing (fall-through to the default
+    target). Admins can pass ``None`` to skip the filter; the per-route
+    dependency wiring decides which mode applies.
     """
     if connection_id is not None:
-        result = await session.execute(
-            select(ConnectionModel).where(ConnectionModel.id == connection_id)
-        )
+        stmt = select(ConnectionModel).where(ConnectionModel.id == connection_id)
+        if tenant_id is not None:
+            stmt = stmt.where(ConnectionModel.tenant_id == tenant_id)
+        result = await session.execute(stmt)
         conn = result.scalar_one_or_none()
         if conn is None:
             return _localhost_url(), None
@@ -88,22 +96,15 @@ def _connection_url(conn: ConnectionModel) -> str:
     and possibly fail inside the compose network. Instead we hit Angie
     directly and let the Host header trigger the right vhost.
     """
-    base = _localhost_url()
-    domains = conn.domains or []
-    if domains:
-        # Caller will set Host header via httpx; the URL itself stays internal.
-        # We tack the domain on as the URL host so logs are clearer.
-        return base
-    return base
+    # Domain-only data model: one domain per connection row (see Connection
+    # model). Caller sets Host header via httpx; the URL stays internal.
+    return _localhost_url()
 
 
 def _host_header_for(conn: ConnectionModel | None) -> str | None:
     if conn is None:
         return None
-    domains = conn.domains or []
-    if not domains:
-        return None
-    return str(domains[0])
+    return conn.domain or None
 
 
 def build_request(test: TestCase, target_url: str, marker: str) -> dict[str, Any]:
@@ -119,8 +120,15 @@ def build_request(test: TestCase, target_url: str, marker: str) -> dict[str, Any
     }
 
 
-async def run_test(session: AsyncSession, req: RunRequest) -> RunResult:
-    """Execute one test against the WAF and classify the result."""
+async def run_test(
+    session: AsyncSession, req: RunRequest, tenant_id: int | None = None
+) -> RunResult:
+    """Execute one test against the WAF and classify the result.
+
+    ``tenant_id`` scopes the connection_id lookup: when set, cross-tenant
+    connection IDs fall back to the default target rather than running the
+    test against another tenant's domain.
+    """
     test = find_test(req.test_id)
     if test is None:
         # Caller (router) should have already 400'd, but be defensive.
@@ -131,7 +139,7 @@ async def run_test(session: AsyncSession, req: RunRequest) -> RunResult:
             error=f"unknown test_id: {req.test_id}",
         )
 
-    target_url, conn = await resolve_target(session, req.connection_id)
+    target_url, conn = await resolve_target(session, req.connection_id, tenant_id)
     marker = str(uuid.uuid4())
     request_kwargs = build_request(test, target_url, marker)
 

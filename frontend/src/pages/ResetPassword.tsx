@@ -1,91 +1,97 @@
-import { useState, type FormEvent } from "react";
-import { useNavigate, useSearchParams } from "react-router-dom";
+import { createSignal } from "solid-js";
+import { Show } from "solid-js";
+import { useNavigate, useSearchParams } from "@solidjs/router";
 import { useSettings } from "../context/SettingsContext";
 import { api } from "../api/client";
 
 export default function ResetPassword() {
-  const { t } = useSettings();
+  const settings = useSettings();
   const navigate = useNavigate();
   const [params] = useSearchParams();
-  const token = params.get("token") ?? "";
+  const token = () => params.token ?? "";
 
-  const [password, setPassword] = useState("");
-  const [showPassword, setShowPassword] = useState(false);
-  const [submitting, setSubmitting] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [success, setSuccess] = useState(false);
+  const [password, setPassword] = createSignal("");
+  const [showPassword, setShowPassword] = createSignal(false);
+  const [submitting, setSubmitting] = createSignal(false);
+  const [error, setError] = createSignal<string | null>(null);
+  const [success, setSuccess] = createSignal(false);
 
-  const submit = async (e: FormEvent) => {
+  const submit = async (e: Event) => {
     e.preventDefault();
     setError(null);
     setSubmitting(true);
     try {
-      await api.auth.resetPassword(token, password);
+      await api.auth.resetPassword(token(), password());
       setSuccess(true);
       setTimeout(() => navigate("/login", { replace: true }), 2000);
     } catch (err) {
-      setError(err instanceof Error ? err.message : t("general.error"));
+      setError(() => err instanceof Error ? err.message : settings.t("general.error"));
     } finally {
       setSubmitting(false);
     }
   };
 
   return (
-    <div className="cv-root">
+    <div class="cv-root">
       <style>{styles}</style>
 
-      <section className="cv-manifest">
-        <div className="cv-eyebrow">
-          <span className="cv-n">05</span>
-          <span className="cv-eyebrow-text">{t("auth.reset.eyebrow")}</span>
+      <section class="cv-manifest">
+        <div class="cv-eyebrow">
+          <span class="cv-n">05</span>
+          <span class="cv-eyebrow-text">{settings.t("auth.reset.eyebrow")}</span>
         </div>
-        <h1 className="cv-h1">
-          <span className="cv-stack">{t("auth.reset.heroLine1")}</span>
-          <span className="cv-stack"><span className="cv-ws">{t("auth.reset.heroLine2")}</span></span>
-          <span className="cv-stack"><span className="cv-tilt">{t("auth.reset.heroLine3")}</span></span>
+        <h1 class="cv-h1">
+          <span class="cv-stack">{settings.t("auth.reset.heroLine1")}</span>
+          <span class="cv-stack"><span class="cv-ws">{settings.t("auth.reset.heroLine2")}</span></span>
+          <span class="cv-stack"><span class="cv-tilt">{settings.t("auth.reset.heroLine3")}</span></span>
         </h1>
-        <p className="cv-deck">{t("auth.reset.quote")}</p>
-        <div className="cv-disc" aria-hidden />
+        <p class="cv-deck">{settings.t("auth.reset.quote")}</p>
+        <div class="cv-disc" aria-hidden />
       </section>
 
-      <section className="cv-form-side">
-        <form onSubmit={submit} className="cv-form">
-          <div className="cv-form-head">
-            <span className="cv-kicker">{t("auth.reset.kicker")}</span>
+      <section class="cv-form-side">
+        <form onSubmit={submit} class="cv-form">
+          <div class="cv-form-head">
+            <span class="cv-kicker">{settings.t("auth.reset.kicker")}</span>
           </div>
 
-          {success ? (
-            <div className="cv-success">{t("auth.reset.success")}</div>
-          ) : (
-            <>
-              <div className="cv-field">
-                <label htmlFor="cv-password">{t("auth.reset.newPassword")}</label>
-                <div className="cv-inp">
-                  <span className="cv-tag">#</span>
-                  <input
-                    id="cv-password"
-                    type={showPassword ? "text" : "password"}
-                    value={password}
-                    onChange={(e) => setPassword(e.target.value)}
-                    autoFocus required minLength={8}
-                    autoComplete="new-password"
-                  />
-                  <button type="button" className="cv-reveal"
-                    onClick={() => setShowPassword((v) => !v)} tabIndex={-1}
-                    aria-label={showPassword ? t("auth.hidePassword") : t("auth.showPassword")}>
-                    {showPassword ? t("auth.hidePasswordShort") : t("auth.showPasswordShort")}
-                  </button>
+          <Show
+            when={success()}
+            fallback={
+              <>
+                <div class="cv-field">
+                  <label for="cv-password">{settings.t("auth.reset.newPassword")}</label>
+                  <div class="cv-inp">
+                    <span class="cv-tag">#</span>
+                    <input
+                      id="cv-password"
+                      type={showPassword() ? "text" : "password"}
+                      value={password()}
+                      onInput={(e) => setPassword(e.currentTarget.value)}
+                      autofocus required minLength={8}
+                      autocomplete="new-password"
+                    />
+                    <button type="button" class="cv-reveal"
+                      onClick={() => setShowPassword((v) => !v)} tabIndex={-1}
+                      aria-label={showPassword() ? settings.t("auth.hidePassword") : settings.t("auth.showPassword")}>
+                      {showPassword() ? settings.t("auth.hidePasswordShort") : settings.t("auth.showPasswordShort")}
+                    </button>
+                  </div>
                 </div>
-              </div>
 
-              {error && <div className="cv-error">{error}</div>}
+                <Show when={error()}>
+                  <div class="cv-error">{error()}</div>
+                </Show>
 
-              <button type="submit" className="cv-submit" disabled={submitting || !password || !token}>
-                <span>{submitting ? t("general.loading") : t("auth.reset.submit")}</span>
-                <span className="cv-ar">→</span>
-              </button>
-            </>
-          )}
+                <button type="submit" class="cv-submit" disabled={submitting() || !password() || !token()}>
+                  <span>{submitting() ? settings.t("general.loading") : settings.t("auth.reset.submit")}</span>
+                  <span class="cv-ar">→</span>
+                </button>
+              </>
+            }
+          >
+            <div class="cv-success">{settings.t("auth.reset.success")}</div>
+          </Show>
         </form>
       </section>
     </div>

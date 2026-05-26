@@ -9,9 +9,9 @@
  * .conf, and triggers `angie -s reload` on the backend.
  */
 
-import { useEffect, useMemo, useState } from "react";
-import { useSearchParams } from "react-router-dom";
-import { Save, Shield, Globe } from "lucide-react";
+import { createSignal, createEffect, createMemo, onMount, onCleanup, For, Show } from "solid-js";
+import { useSearchParams } from "@solidjs/router";
+import { Save, Shield, Globe, ShieldAlert } from "lucide-solid";
 import {
   api,
   Connection,
@@ -19,6 +19,7 @@ import {
   SecurityConfig,
 } from "../api/client";
 import { useSettings } from "../context/SettingsContext";
+import { useGlobalFilters } from "../context/GlobalFiltersContext";
 
 // Most-commonly-blocked countries. ISO 3166-1 alpha-2. Keep this list
 // short — the backend accepts any valid ISO code, so we can extend later
@@ -34,20 +35,17 @@ const MODSEC_STATES: ModSecState[] = ["blocking", "detection_only", "off"];
 type Toast = { kind: "success" | "error" | "info"; msg: string };
 
 export default function ConfigEditor() {
-  const { t } = useSettings();
+  const settings = useSettings();
   const [searchParams, setSearchParams] = useSearchParams();
-  const [connections, setConnections] = useState<Connection[] | null>(null);
-  const [security, setSecurity] = useState<SecurityConfig | null>(null);
-  const [initial, setInitial] = useState<SecurityConfig | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
-  const [toast, setToast] = useState<Toast | null>(null);
+  const [connections, setConnections] = createSignal<Connection[] | null>(null);
+  const [security, setSecurity] = createSignal<SecurityConfig | null>(null);
+  const [initial, setInitial] = createSignal<SecurityConfig | null>(null);
+  const [loading, setLoading] = createSignal(true);
+  const [saving, setSaving] = createSignal(false);
+  const [toast, setToast] = createSignal<Toast | null>(null);
 
-  const selectedIdRaw = searchParams.get("conn");
-  const selectedId =
-    selectedIdRaw && Number.isFinite(Number(selectedIdRaw))
-      ? Number(selectedIdRaw)
-      : null;
+  const filters = useGlobalFilters();
+  const selectedId = () => filters.connectionId;
 
   function showToast(kind: Toast["kind"], msg: string) {
     setToast({ kind, msg });
@@ -55,55 +53,72 @@ export default function ConfigEditor() {
   }
 
   // Load the connection list once on mount.
-  useEffect(() => {
+  onMount(() => {
     let cancelled = false;
+    onCleanup(() => {
+      cancelled = true;
+    });
     (async () => {
       try {
         const list = await api.getConnections();
         if (cancelled) return;
         setConnections(list);
-        if (selectedId == null && list.length > 0) {
-          setSearchParams({ conn: String(list[0].id) }, { replace: true });
+
+        // Read URL conn parameter on mount if present
+        const connParam = searchParams.conn;
+        if (connParam && Number.isFinite(Number(connParam))) {
+          filters.setConnectionId(Number(connParam));
+        } else if (filters.connectionId == null && list.length > 0) {
+          // Default to the first enabled connection
+          const activeConns = list.filter((c) => c.enabled);
+          const firstId = activeConns.length > 0 ? activeConns[0].id : list[0].id;
+          filters.setConnectionId(firstId);
         }
       } catch {
-        if (!cancelled) showToast("error", t("config.toast.loadFailed"));
+        if (!cancelled) showToast("error", settings.t("config.toast.loadFailed"));
       } finally {
         if (!cancelled) setLoading(false);
       }
     })();
-    return () => {
-      cancelled = true;
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  });
+
+  // Synchronize URL conn search query parameter with the global connectionId state
+  createEffect(() => {
+    const connParam = searchParams.conn;
+    const currentId = selectedId();
+    if (currentId != null) {
+      if (connParam !== String(currentId)) {
+        setSearchParams({ conn: String(currentId) }, { replace: true });
+      }
+    } else if (connParam != null) {
+      // Clear URL conn param if connectionId is null
+      setSearchParams({ conn: undefined }, { replace: true });
+    }
+  });
 
   // Load the selected connection's security config every time it changes.
-  useEffect(() => {
-    if (selectedId == null) {
+  createEffect(() => {
+    const activeId = selectedId();
+    if (activeId == null) {
       setSecurity(null);
       setInitial(null);
       return;
     }
     let cancelled = false;
+    onCleanup(() => {
+      cancelled = true;
+    });
     (async () => {
       try {
-        const cfg = await api.getConnectionSecurity(selectedId);
+        const cfg = await api.getConnectionSecurity(activeId);
         if (cancelled) return;
         setSecurity(cfg);
         setInitial(cfg);
       } catch {
-        if (!cancelled) showToast("error", t("config.toast.loadFailed"));
+        if (!cancelled) showToast("error", settings.t("config.toast.loadFailed"));
       }
     })();
-    return () => {
-      cancelled = true;
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedId]);
-
-  function selectConnection(id: number) {
-    setSearchParams({ conn: String(id) });
-  }
+  });
 
   function setModsecState(state: ModSecState) {
     setSecurity((p) => (p ? { ...p, modsec_state: state } : p));
@@ -119,166 +134,226 @@ export default function ConfigEditor() {
     });
   }
 
-  const isDirty = useMemo(() => {
-    if (!security || !initial) return false;
-    if (security.modsec_state !== initial.modsec_state) return true;
-    const a = [...security.geoip_denied_countries].sort();
-    const b = [...initial.geoip_denied_countries].sort();
+  const isDirty = createMemo(() => {
+    const sec = security();
+    const init = initial();
+    if (!sec || !init) return false;
+    if (sec.modsec_state !== init.modsec_state) return true;
+    if (sec.crowdsec_active !== init.crowdsec_active) return true;
+    const a = [...sec.geoip_denied_countries].sort();
+    const b = [...init.geoip_denied_countries].sort();
     return a.length !== b.length || a.some((v, i) => v !== b[i]);
-  }, [security, initial]);
+  });
 
   async function handleSave() {
-    if (!security || selectedId == null) return;
+    const activeId = selectedId();
+    const sec = security();
+    if (!sec || activeId == null) return;
     setSaving(true);
     try {
-      const saved = await api.updateConnectionSecurity(selectedId, security);
+      const saved = await api.updateConnectionSecurity(activeId, sec);
       setSecurity(saved);
       setInitial(saved);
-      showToast("success", t("config.toast.saved"));
+      showToast("success", settings.t("config.toast.saved"));
     } catch {
-      showToast("error", t("config.toast.saveFailed"));
+      showToast("error", settings.t("config.toast.saveFailed"));
     } finally {
       setSaving(false);
     }
   }
 
-  if (loading) {
-    return (
-      <div className="loading">
-        <div className="spinner" />
-        {t("config.loading")}
-      </div>
-    );
-  }
-
   return (
-    <div>
-      <div className="page-header">
-        <div>
-          <h1>{t("config.title")}</h1>
-          <p>{t("config.subtitle")}</p>
+    <Show
+      when={!loading()}
+      fallback={
+        <div class="loading">
+          <div class="spinner" />
+          {settings.t("config.loading")}
         </div>
-      </div>
-
-      {connections && connections.length === 0 ? (
-        <div className="card">
-          <p>{t("config.picker.empty")}</p>
-        </div>
-      ) : (
-        <>
-          <div className="card">
-            <div className="form-group" style={{ marginBottom: 0 }}>
-              <label htmlFor="config-conn-picker">
-                {t("config.picker.label")}
-              </label>
-              <select
-                id="config-conn-picker"
-                value={selectedId ?? ""}
-                onChange={(e) => selectConnection(Number(e.target.value))}
-              >
-                {(connections ?? []).map((c) => (
-                  <option key={c.id} value={c.id}>
-                    {c.name} — {c.domain}
-                  </option>
-                ))}
-              </select>
+      }
+    >
+      <Show
+        when={connections() && connections()!.length > 0}
+        fallback={
+          <div>
+            <div class="page-header">
+              <div>
+                <h1>{settings.t("config.title")}</h1>
+                <p>{settings.t("config.subtitle")}</p>
+              </div>
+            </div>
+            <div class="card">
+              <p>{settings.t("config.picker.empty")}</p>
             </div>
           </div>
-
-          {security && (
-            <>
-              <div className="card">
-                <div className="card-header">
-                  <h3>
-                    <Shield
-                      size={16}
-                      style={{ marginRight: 6, verticalAlign: "middle" }}
-                    />
-                    {t("config.modsec.title")}
-                  </h3>
-                </div>
-                <p style={{ marginTop: 0, opacity: 0.75 }}>
-                  {t("config.modsec.description")}
-                </p>
-                <div className="config-radio-group">
-                  {MODSEC_STATES.map((state) => (
-                    <label
-                      key={state}
-                      className={`config-radio-row${
-                        security.modsec_state === state ? " selected" : ""
-                      }`}
-                    >
-                      <input
-                        type="radio"
-                        name="modsec_state"
-                        value={state}
-                        checked={security.modsec_state === state}
-                        onChange={() => setModsecState(state)}
-                      />
-                      <span>
-                        <strong>{t(`config.modsec.state.${state}`)}</strong>
-                        <small style={{ display: "block", opacity: 0.7 }}>
-                          {t(`config.modsec.state.${state}.desc`)}
-                        </small>
-                      </span>
-                    </label>
-                  ))}
+        }
+      >
+        <Show
+          when={selectedId() != null}
+          fallback={
+            <div>
+              <div class="page-header">
+                <div>
+                  <h1>{settings.t("config.title")}</h1>
+                  <p>{settings.t("config.subtitle")}</p>
                 </div>
               </div>
-
-              <div className="card">
-                <div className="card-header">
-                  <h3>
-                    <Globe
-                      size={16}
-                      style={{ marginRight: 6, verticalAlign: "middle" }}
-                    />
-                    {t("config.geoip.title")}
-                  </h3>
-                </div>
-                <p style={{ marginTop: 0, opacity: 0.75 }}>
-                  {t("config.geoip.description")}
+              <div class="card text-center" style={{ padding: "48px 24px", display: "flex", "flex-direction": "column", "align-items": "center" }}>
+                <ShieldAlert size={48} style={{ "margin-bottom": "16px", opacity: 0.6, color: "#f59e0b" }} />
+                <h3 style={{ margin: 0 }}>{settings.t("config.picker.selectDomainTitle")}</h3>
+                <p style={{ opacity: 0.7, "max-width": "460px", margin: "12px auto 0", "line-height": 1.5 }}>
+                  {settings.t("config.picker.selectDomainDesc")}
                 </p>
-                <div className="checkbox-grid">
-                  {COUNTRY_OPTIONS.map((code) => (
-                    <label
-                      key={code}
-                      className="checkbox-row"
-                      onClick={(e) => {
-                        e.preventDefault();
-                        toggleCountry(code);
+              </div>
+            </div>
+          }
+        >
+          <div>
+            <div class="page-header">
+              <div>
+                <h1>{settings.t("config.title")}</h1>
+                <p>{settings.t("config.subtitle")}</p>
+              </div>
+            </div>
+
+            <Show when={security()}>
+              <>
+                <div class="card">
+                  <div class="card-header">
+                    <h3>
+                      <Shield
+                        size={16}
+                        style={{ "margin-right": "6px", "vertical-align": "middle" }}
+                      />
+                      {settings.t("config.modsec.title")}
+                    </h3>
+                  </div>
+                  <p style={{ "margin-top": 0, opacity: 0.75 }}>
+                    {settings.t("config.modsec.description")}
+                  </p>
+                  <div class="config-radio-group">
+                    <For each={MODSEC_STATES}>
+                      {(state) => (
+                        <label
+                          class={`config-radio-row${
+                            security()!.modsec_state === state ? " selected" : ""
+                          }`}
+                        >
+                          <input
+                            type="radio"
+                            name="modsec_state"
+                            value={state}
+                            checked={security()!.modsec_state === state}
+                            onChange={() => setModsecState(state)}
+                          />
+                          <span>
+                            <strong>{settings.t(`config.modsec.state.${state}`)}</strong>
+                            <small style={{ display: "block", opacity: 0.7 }}>
+                              {settings.t(`config.modsec.state.${state}.desc`)}
+                            </small>
+                          </span>
+                        </label>
+                      )}
+                    </For>
+                  </div>
+                </div>
+
+                <div class="card">
+                  <div class="card-header">
+                    <h3>
+                      <ShieldAlert
+                        size={16}
+                        style={{ "margin-right": "6px", "vertical-align": "middle" }}
+                      />
+                      {settings.t("config.crowdsec.title")}
+                    </h3>
+                  </div>
+                  <p style={{ "margin-top": 0, opacity: 0.75 }}>
+                    {settings.t("config.crowdsec.description")}
+                  </p>
+                  <label class="checkbox-row" style={{ "margin-top": "12px" }}>
+                    <input
+                      type="checkbox"
+                      checked={security()!.crowdsec_active}
+                      onChange={(e) => {
+                        setSecurity((p) => p ? { ...p, crowdsec_active: e.currentTarget.checked } : p);
+                      }}
+                    />
+                    <span>{settings.t("config.crowdsec.activeLabel")}</span>
+                  </label>
+                </div>
+
+                <div class="card">
+                  <div class="card-header">
+                    <h3>
+                      <Globe
+                        size={16}
+                        style={{ "margin-right": "6px", "vertical-align": "middle" }}
+                      />
+                      {settings.t("config.geoip.title")}
+                    </h3>
+                  </div>
+                  <p style={{ "margin-top": 0, opacity: 0.75 }}>
+                    {settings.t("config.geoip.description")}
+                  </p>
+                  <div style={{ display: "flex", gap: "8px", "margin-bottom": "16px" }}>
+                    <button
+                      type="button"
+                      class="btn btn-outline btn-sm"
+                      onClick={() => {
+                        setSecurity((p) => p ? { ...p, geoip_denied_countries: [...COUNTRY_OPTIONS].sort() } : p);
                       }}
                     >
-                      <input
-                        type="checkbox"
-                        checked={security.geoip_denied_countries.includes(code)}
-                        readOnly
-                      />
-                      <span>{code}</span>
-                    </label>
-                  ))}
+                      {settings.t("config.geoip.selectAll")}
+                    </button>
+                    <button
+                      type="button"
+                      class="btn btn-outline btn-sm"
+                      onClick={() => {
+                        setSecurity((p) => p ? { ...p, geoip_denied_countries: [] } : p);
+                      }}
+                    >
+                      {settings.t("config.geoip.deselectAll")}
+                    </button>
+                  </div>
+                  <div class="checkbox-grid">
+                    <For each={COUNTRY_OPTIONS}>
+                      {(code) => (
+                        <label class="checkbox-row">
+                          <input
+                            type="checkbox"
+                            checked={security()!.geoip_denied_countries.includes(code)}
+                            onChange={() => toggleCountry(code)}
+                          />
+                          <span>{code}</span>
+                        </label>
+                      )}
+                    </For>
+                  </div>
                 </div>
-              </div>
 
-              <div className="actions-bar" style={{ marginTop: 16 }}>
-                <button
-                  className="btn btn-primary"
-                  onClick={handleSave}
-                  disabled={saving || !isDirty}
-                >
-                  <Save size={16} />
-                  {saving ? t("config.saving") : t("config.save")}
-                </button>
-                {isDirty && (
-                  <span style={{ opacity: 0.7 }}>{t("config.dirty")}</span>
-                )}
-              </div>
-            </>
-          )}
-        </>
-      )}
+                <div class="actions-bar" style={{ "margin-top": "16px" }}>
+                  <button
+                    class="btn btn-primary"
+                    onClick={handleSave}
+                    disabled={saving() || !isDirty()}
+                  >
+                    <Save size={16} />
+                    {saving() ? settings.t("config.saving") : settings.t("config.save")}
+                  </button>
+                  <Show when={isDirty()}>
+                    <span style={{ opacity: 0.7 }}>{settings.t("config.dirty")}</span>
+                  </Show>
+                </div>
+              </>
+            </Show>
 
-      {toast && <div className={`toast toast-${toast.kind}`}>{toast.msg}</div>}
-    </div>
+            <Show when={toast()}>
+              <div class={`toast toast-${toast()!.kind}`}>{toast()!.msg}</div>
+            </Show>
+          </div>
+        </Show>
+      </Show>
+    </Show>
   );
 }

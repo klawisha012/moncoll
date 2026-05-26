@@ -1,10 +1,10 @@
 """ModSecurity management router.
 
-Scope decision (Phase 5.2.b): ModSecurity rules are global filesystem configs
-(loaded once at http scope by Angie). There are no per-tenant rule directories
-yet — that is deferred to Phase 13. Every endpoint therefore requires
-`require_admin`. A logged-in client user hitting any `/api/modsecurity/*`
-route gets 403.
+Scope decision: ModSecurity rules are global filesystem configs (loaded once
+at http scope by Angie). There are no per-tenant rule directories yet — that
+is deferred to Phase 13. The frontend exposes the config editor to clients
+(role="client"), so the backend uses `require_verified`. Per-connection
+ModSec state lives on /api/connections/{id}/security and is tenant-scoped.
 """
 
 import logging
@@ -12,7 +12,7 @@ import logging
 import docker
 from fastapi import APIRouter, Depends, HTTPException, status
 
-from ..auth.dependencies import require_admin
+from ..auth.dependencies import require_verified
 from ..db.models import User
 from . import service as modsecurity_service
 from .exceptions import ConfigNotFoundError, InvalidRuleError
@@ -38,7 +38,7 @@ def get_angie_container():
 
 
 @router.get("/config", response_model=ModSecurityConfigResponse)
-async def get_config(_: User = Depends(require_admin)):
+async def get_config(_: User = Depends(require_verified)):
     try:
         content, file_path = modsecurity_service.config_service.get_config()
         return ModSecurityConfigResponse(content=content, file_path=str(file_path))
@@ -47,7 +47,7 @@ async def get_config(_: User = Depends(require_admin)):
 
 
 @router.get("/rules", response_model=ModSecurityConfigResponse)
-async def get_rules(_: User = Depends(require_admin)):
+async def get_rules(_: User = Depends(require_verified)):
     try:
         content, file_path = modsecurity_service.config_service.get_rules()
         return ModSecurityConfigResponse(content=content, file_path=str(file_path))
@@ -56,24 +56,24 @@ async def get_rules(_: User = Depends(require_admin)):
 
 
 @router.get("/rules/list", response_model=list[RuleItem])
-async def list_rules(_: User = Depends(require_admin)):
+async def list_rules(_: User = Depends(require_verified)):
     return modsecurity_service.config_service.list_rules()
 
 
 @router.put("/config", response_model=ModSecurityConfigResponse)
-async def update_config(update: ModSecurityConfigUpdate, _: User = Depends(require_admin)):
+async def update_config(update: ModSecurityConfigUpdate, _: User = Depends(require_verified)):
     file_path = modsecurity_service.config_service.update_config(update.content)
     return ModSecurityConfigResponse(content=update.content, file_path=str(file_path))
 
 
 @router.put("/rules", response_model=ModSecurityConfigResponse)
-async def update_rules(update: ModSecurityConfigUpdate, _: User = Depends(require_admin)):
+async def update_rules(update: ModSecurityConfigUpdate, _: User = Depends(require_verified)):
     file_path = modsecurity_service.config_service.update_rules(update.content)
     return ModSecurityConfigResponse(content=update.content, file_path=str(file_path))
 
 
 @router.post("/rules", response_model=RuleResponse, status_code=status.HTTP_201_CREATED)
-async def add_rule(rule: RuleCreate, _: User = Depends(require_admin)):
+async def add_rule(rule: RuleCreate, _: User = Depends(require_verified)):
     try:
         rule_id, _ = modsecurity_service.config_service.add_rule(rule.rule)
         return RuleResponse(
@@ -84,7 +84,7 @@ async def add_rule(rule: RuleCreate, _: User = Depends(require_admin)):
 
 
 @router.delete("/rules/{rule_id}", status_code=status.HTTP_204_NO_CONTENT)
-async def delete_rule(rule_id: int, _: User = Depends(require_admin)):
+async def delete_rule(rule_id: int, _: User = Depends(require_verified)):
     success = modsecurity_service.config_service.delete_rule(rule_id)
     if not success:
         raise HTTPException(
@@ -94,7 +94,7 @@ async def delete_rule(rule_id: int, _: User = Depends(require_admin)):
 
 
 @router.post("/reload", response_model=ReloadResponse)
-async def reload_angie(_: User = Depends(require_admin)):
+async def reload_angie(_: User = Depends(require_verified)):
     try:
         container = get_angie_container()
 

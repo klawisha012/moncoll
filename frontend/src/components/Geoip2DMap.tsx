@@ -1,11 +1,6 @@
-import { useMemo, useState } from "react";
-import {
-  ComposableMap,
-  Geographies,
-  Geography,
-  Marker,
-  ZoomableGroup,
-} from "react-simple-maps";
+import { createSignal, onMount, For, Show, createMemo } from "solid-js";
+import { feature } from "topojson-client";
+import { geoEqualEarth, geoPath } from "d3-geo";
 import type { GeoipMapPoint } from "../api/client";
 
 export interface MapMarker extends GeoipMapPoint {
@@ -28,33 +23,101 @@ function colorFor(hits: number, min: number, max: number): string {
   return "#f43f5e";
 }
 
-export default function Geoip2DMap({ data, theme, requestsLabel }: Props) {
-  // Click-to-toggle: открываем карточку по клику, закрываем по клику по тому
-  // же маркеру или по карте. Hover отвергнут — при кластеризации меток курсор
-  // не может попасть на соседний пин, всплывающая карточка перекрывает цели.
-  const [selected, setSelected] = useState<
-    { key: string; m: MapMarker; x: number; y: number } | null
-  >(null);
-  const isLight = theme === "light";
+export default function Geoip2DMap(props: Props) {
+  const [selected, setSelected] = createSignal<{
+    key: string;
+    m: MapMarker;
+    x: number;
+    y: number;
+  } | null>(null);
 
+  const [countries, setCountries] = createSignal<any[]>([]);
+
+  // Simple pan & zoom state
+  const [zoom, setZoom] = createSignal(1);
+  const [pan, setPan] = createSignal([0, 0]);
+  let isDragging = false;
+  let startX = 0;
+  let startY = 0;
+
+  // D3 Projection setup
+  const width = 1200;
+  const height = 620;
+  const projection = geoEqualEarth()
+    .scale(200)
+    .translate([width / 2, height / 2]);
+  const pathGenerator = geoPath().projection(projection);
+
+  onMount(() => {
+    fetch(TOPO_URL)
+      .then((r) => r.json())
+      .then((topo) => {
+        const obj = topo.objects?.countries;
+        if (!obj) return;
+        const fc = feature(topo, obj) as any;
+        setCountries(fc.features);
+      })
+      .catch(() => {
+        // Network failure fallback
+      });
+  });
+
+  const isLight = () => props.theme === "light";
   const keyOf = (m: MapMarker) =>
     `${(m.country_code || "").toUpperCase()}|${m.latitude.toFixed(2)}|${m.longitude.toFixed(2)}|${m.city_name || ""}`;
 
-  const { maxHits, minHits } = useMemo(() => {
-    const hits = data.map((d) => d.hits);
-    return { maxHits: Math.max(...hits, 1), minHits: Math.min(...hits, 1) };
-  }, [data]);
+  const hitsStats = createMemo(() => {
+    const hits = props.data.map((d) => d.hits);
+    return {
+      maxHits: Math.max(...hits, 1),
+      minHits: Math.min(...hits, 1),
+    };
+  });
 
-  const bg = isLight ? "#e8eef6" : "#05070f";
-  const seaFill = isLight ? "#dde6f1" : "#0a1024";
-  const landFill = isLight ? "#cdd6e3" : "#1c2638";
-  const landStroke = isLight ? "#9ba6b8" : "rgba(110, 130, 160, 0.5)";
+  const maxHits = () => hitsStats().maxHits;
+  const minHits = () => hitsStats().minHits;
+
+  const bg = () => (isLight() ? "#e8eef6" : "#05070f");
+  const seaFill = () => (isLight() ? "#dde6f1" : "#0a1024");
+  const landFill = () => (isLight() ? "#cdd6e3" : "#1c2638");
+  const landStroke = () => (isLight() ? "#9ba6b8" : "rgba(110, 130, 160, 0.5)");
 
   const markerRadius = (hits: number) => {
     const minR = 3;
     const maxR = 11;
-    if (maxHits === minHits) return (minR + maxR) / 2;
-    return minR + ((hits - minHits) / (maxHits - minHits)) * (maxR - minR);
+    const maxH = maxHits();
+    const minH = minHits();
+    if (maxH === minH) return (minR + maxR) / 2;
+    return minR + ((hits - minH) / (maxH - minH)) * (maxR - minR);
+  };
+
+  const handleWheel = (e: WheelEvent) => {
+    e.preventDefault();
+    const factor = 1.15;
+    const newZoom = e.deltaY < 0 
+      ? Math.min(8, zoom() * factor) 
+      : Math.max(1, zoom() / factor);
+
+    if (newZoom === 1) {
+      setPan([0, 0]);
+    }
+    setZoom(newZoom);
+  };
+
+  const handleMouseDown = (e: MouseEvent) => {
+    if (zoom() <= 1) return;
+    isDragging = true;
+    startX = e.clientX - pan()[0];
+    startY = e.clientY - pan()[1];
+  };
+
+  const handleMouseMove = (e: MouseEvent) => {
+    if (!isDragging) return;
+    setPan([e.clientX - startX, e.clientY - startY]);
+  };
+
+  const handleMouseUp = () => {
+    isDragging = false;
   };
 
   return (
@@ -63,198 +126,207 @@ export default function Geoip2DMap({ data, theme, requestsLabel }: Props) {
         position: "relative",
         width: "100%",
         height: "100%",
-        background: bg,
+        background: bg(),
         overflow: "hidden",
+        cursor: zoom() > 1 ? (isDragging ? "grabbing" : "grab") : "default",
       }}
-      // Клик по карте (не по пину — пин stopPropagation'ит) закрывает карточку.
       onClick={() => setSelected(null)}
+      onWheel={handleWheel}
+      onMouseDown={handleMouseDown}
+      onMouseMove={handleMouseMove}
+      onMouseUp={handleMouseUp}
+      onMouseLeave={handleMouseUp}
     >
-      <ComposableMap
-        projection="geoEqualEarth"
-        projectionConfig={{ scale: 200 }}
-        width={1200}
-        height={620}
-        style={{ width: "100%", height: "100%", background: seaFill }}
+      <svg
+        viewBox={`0 0 ${width} ${height}`}
+        style={{
+          width: "100%",
+          height: "100%",
+          background: seaFill(),
+          display: "block",
+        }}
       >
-        <ZoomableGroup
-          zoom={1}
-          minZoom={1}
-          maxZoom={8}
-          center={[0, 0]}
-          translateExtent={[[0, 0], [1200, 620]]}
-        >
-          <Geographies geography={TOPO_URL}>
-            {({ geographies }) =>
-              geographies.map((geo) => (
-                <Geography
-                  key={geo.rsmKey}
-                  geography={geo}
-                  fill={landFill}
-                  stroke={landStroke}
-                  strokeWidth={0.4}
+        <g transform={`translate(${pan()[0]}, ${pan()[1]}) scale(${zoom()})`} style={{ "transform-origin": "center" }}>
+          {/* Countries */}
+          <g>
+            <For each={countries()}>
+              {(geo) => (
+                <path
+                  d={pathGenerator(geo) || ""}
+                  fill={landFill()}
+                  stroke={landStroke()}
+                  stroke-width={0.4 / zoom()}
                   style={{
-                    default: { outline: "none" },
-                    hover: { outline: "none", fill: isLight ? "#bfc8d8" : "#26334a" },
-                    pressed: { outline: "none" },
+                    outline: "none",
+                    transition: "fill 0.14s ease-out",
+                  }}
+                  class="country-path"
+                />
+              )}
+            </For>
+          </g>
+
+          {/* Points / Markers */}
+          <For each={props.data}>
+            {(m) => {
+              const xy = projection([m.longitude, m.latitude]);
+              if (!xy) return null;
+              const color = colorFor(m.hits, minHits(), maxHits());
+              const k = keyOf(m);
+              const isActive = () => selected()?.key === k;
+              const r = () => (markerRadius(m.hits) * (isActive() ? 1.25 : 1)) / Math.sqrt(zoom());
+
+              return (
+                <circle
+                  cx={xy[0]}
+                  cy={xy[1]}
+                  r={r()}
+                  fill={color}
+                  fill-opacity={isActive() ? 0.85 : 0.55}
+                  stroke={color}
+                  stroke-width={(isActive() ? 2 : 1.4) / Math.sqrt(zoom())}
+                  style={{ cursor: "pointer", transition: "all 0.14s ease-out" }}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setSelected((prev) =>
+                      prev?.key === k
+                        ? null
+                        : { key: k, m, x: e.clientX, y: e.clientY },
+                    );
                   }}
                 />
-              ))
-            }
-          </Geographies>
-          {data.map((m, i) => {
-            const color = colorFor(m.hits, minHits, maxHits);
-            const k = keyOf(m);
-            const isActive = selected?.key === k;
-            return (
-              <Marker
-                key={i}
-                coordinates={[m.longitude, m.latitude]}
-                onClick={(e: React.MouseEvent<SVGGElement>) => {
-                  e.stopPropagation();
-                  setSelected((prev) =>
-                    prev?.key === k
-                      ? null
-                      : { key: k, m, x: e.clientX, y: e.clientY },
-                  );
+              );
+            }}
+          </For>
+        </g>
+      </svg>
+
+      <Show when={selected()}>
+        {(sel) => {
+          const m = sel().m;
+          const color = colorFor(m.hits, minHits(), maxHits());
+          const latH = m.latitude >= 0 ? "N" : "S";
+          const lonH = m.longitude >= 0 ? "E" : "W";
+          const coords = `${Math.abs(m.latitude).toFixed(2)}°${latH}, ${Math.abs(m.longitude).toFixed(2)}°${lonH}`;
+          const muted = "#6c7384";
+          
+          const labelStyle = {
+            color: muted,
+            "text-transform": "uppercase",
+            "font-size": "9px",
+            "letter-spacing": "0.6px",
+            "min-width": "56px",
+          };
+          const rowStyle = {
+            display: "flex",
+            gap: "6px",
+            "align-items": "baseline",
+            "font-size": "10.5px",
+            "margin-top": "2px",
+          };
+          const valStyle = {
+            color: "#e8ecf4",
+            "font-family": "var(--font-mono, ui-monospace, monospace)",
+          };
+          const sep = {
+            "border-top": "1px solid rgba(255,255,255,0.06)",
+            "margin-top": "5px",
+            "padding-top": "5px",
+          };
+
+          return (
+            <div
+              onClick={(e) => e.stopPropagation()}
+              style={{
+                position: "fixed",
+                left: `${sel().x + 14}px`,
+                top: `${sel().y + 14}px`,
+                "z-index": 6,
+                "pointer-events": "auto",
+                "min-width": "200px",
+                "max-width": "280px",
+                padding: "9px 11px",
+                background: "rgba(11, 15, 30, 0.95)",
+                border: "1px solid rgba(255,255,255,0.18)",
+                "border-left": `3px solid ${color}`,
+                "border-radius": "4px",
+                color: "#e8ecf4",
+                "font-family": "var(--font-sans, system-ui)",
+                "font-size": "11.5px",
+                "line-height": 1.5,
+                "box-shadow": "0 6px 22px rgba(0,0,0,0.55)",
+                "backdrop-filter": "blur(8px)",
+              }}
+            >
+              {/* Header */}
+              <div
+                style={{
+                  display: "flex",
+                  "align-items": "baseline",
+                  gap: "6px",
+                  "padding-bottom": "5px",
+                  "margin-bottom": "5px",
+                  "border-bottom": "1px solid rgba(255,255,255,0.08)",
                 }}
               >
-                <circle
-                  r={markerRadius(m.hits) * (isActive ? 1.25 : 1)}
-                  fill={color}
-                  fillOpacity={isActive ? 0.85 : 0.55}
-                  stroke={color}
-                  strokeWidth={isActive ? 2 : 1.4}
-                  style={{ cursor: "pointer", transition: "all 0.14s ease-out" }}
-                />
-              </Marker>
-            );
-          })}
-        </ZoomableGroup>
-      </ComposableMap>
-
-      {selected && (() => {
-        const m = selected.m;
-        const color = colorFor(m.hits, minHits, maxHits);
-        const latH = m.latitude >= 0 ? "N" : "S";
-        const lonH = m.longitude >= 0 ? "E" : "W";
-        const coords = `${Math.abs(m.latitude).toFixed(2)}°${latH}, ${Math.abs(m.longitude).toFixed(2)}°${lonH}`;
-        const muted = "#6c7384";
-        const labelStyle: React.CSSProperties = {
-          color: muted,
-          textTransform: "uppercase",
-          fontSize: 9,
-          letterSpacing: 0.6,
-          minWidth: 56,
-        };
-        const rowStyle: React.CSSProperties = {
-          display: "flex",
-          gap: 6,
-          alignItems: "baseline",
-          fontSize: 10.5,
-          marginTop: 2,
-        };
-        const valStyle: React.CSSProperties = {
-          color: "#e8ecf4",
-          fontFamily: "var(--font-mono, ui-monospace, monospace)",
-        };
-        const sep: React.CSSProperties = {
-          borderTop: "1px solid rgba(255,255,255,0.06)",
-          marginTop: 5,
-          paddingTop: 5,
-        };
-        return (
-          <div
-            // pointerEvents: auto — карточку можно копировать/выделять,
-            // клики по ней не закрывают её (stopPropagation на самой div).
-            onClick={(e) => e.stopPropagation()}
-            style={{
-              position: "fixed",
-              left: selected.x + 14,
-              top: selected.y + 14,
-              zIndex: 6,
-              pointerEvents: "auto",
-              minWidth: 200,
-              maxWidth: 280,
-              padding: "9px 11px",
-              background: "rgba(11, 15, 30, 0.95)",
-              border: "1px solid rgba(255,255,255,0.18)",
-              borderLeft: `3px solid ${color}`,
-              borderRadius: 4,
-              color: "#e8ecf4",
-              fontFamily: "var(--font-sans, system-ui)",
-              fontSize: 11.5,
-              lineHeight: 1.5,
-              boxShadow: "0 6px 22px rgba(0,0,0,0.55)",
-              backdropFilter: "blur(8px)",
-            }}
-          >
-            {/* Header: country code (big) + city (muted) */}
-            <div
-              style={{
-                display: "flex",
-                alignItems: "baseline",
-                gap: 6,
-                paddingBottom: 5,
-                marginBottom: 5,
-                borderBottom: "1px solid rgba(255,255,255,0.08)",
-              }}
-            >
-              <span style={{ fontWeight: 700, fontSize: 14, letterSpacing: 0.5 }}>
-                {m.country_code || "—"}
-              </span>
-              {m.city_name && (
-                <span style={{ fontSize: 11.5, color: "#c5cad6", fontWeight: 500 }}>
-                  {m.city_name}
+                <span style={{ "font-weight": 700, "font-size": "14px", "letter-spacing": "0.5px" }}>
+                  {m.country_code || "—"}
                 </span>
-              )}
-            </div>
+                <Show when={m.city_name}>
+                  <span style={{ "font-size": "11.5px", color: "#c5cad6", "font-weight": 500 }}>
+                    {m.city_name}
+                  </span>
+                </Show>
+              </div>
 
-            <div style={rowStyle}>
-              <span style={labelStyle}>Coords</span>
-              <span style={valStyle}>{coords}</span>
-            </div>
-
-            {m.topIp && (
               <div style={rowStyle}>
-                <span style={labelStyle}>Top IP</span>
-                <span style={valStyle}>{m.topIp}</span>
+                <span style={labelStyle}>Coords</span>
+                <span style={valStyle}>{coords}</span>
               </div>
-            )}
 
-            {m.topAttacks && m.topAttacks.length > 0 && (
-              <div style={sep}>
-                <div style={{ ...labelStyle, minWidth: 0, marginBottom: 3 }}>Attacks</div>
-                {m.topAttacks.map((a, idx) => (
-                  <div
-                    key={idx}
-                    style={{
-                      fontSize: 10.5,
-                      paddingLeft: 9,
-                      position: "relative",
-                      color,
-                    }}
-                  >
-                    <span style={{ position: "absolute", left: 0, opacity: 0.6 }}>›</span>
-                    {a}
-                  </div>
-                ))}
+              <Show when={m.topIp}>
+                <div style={rowStyle}>
+                  <span style={labelStyle}>Top IP</span>
+                  <span style={valStyle}>{m.topIp}</span>
+                </div>
+              </Show>
+
+              <Show when={m.topAttacks && m.topAttacks.length > 0}>
+                <div style={sep}>
+                  <div style={{ ...labelStyle, "min-width": 0, "margin-bottom": "3px" }}>Attacks</div>
+                  <For each={m.topAttacks}>
+                    {(a) => (
+                      <div
+                        style={{
+                          "font-size": "10.5px",
+                          "padding-left": "9px",
+                          position: "relative",
+                          color,
+                        }}
+                      >
+                        <span style={{ position: "absolute", left: 0, opacity: 0.6 }}>›</span>
+                        {a}
+                      </div>
+                    )}
+                  </For>
+                </div>
+              </Show>
+
+              <div
+                style={{
+                  ...sep,
+                  "font-weight": 600,
+                  "font-size": "11.5px",
+                  color,
+                }}
+              >
+                {m.hits.toLocaleString()}{" "}
+                <span style={{ color: "#9aa3b4", "font-weight": 400 }}>{props.requestsLabel}</span>
               </div>
-            )}
-
-            <div
-              style={{
-                ...sep,
-                fontWeight: 600,
-                fontSize: 11.5,
-                color,
-              }}
-            >
-              {m.hits.toLocaleString()}{" "}
-              <span style={{ color: "#9aa3b4", fontWeight: 400 }}>{requestsLabel}</span>
             </div>
-          </div>
-        );
-      })()}
+          );
+        }}
+      </Show>
     </div>
   );
 }

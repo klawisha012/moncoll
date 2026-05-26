@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { createSignal, createEffect, onCleanup } from "solid-js";
 import { api, type ProvidersResponse } from "../api/client";
 
 /**
@@ -6,27 +6,27 @@ import { api, type ProvidersResponse } from "../api/client";
  *
  * Why: the original single-shot fetch failed silently when the backend was
  * mid-restart (connection refused → .catch(() => null)). The state stayed
- * `null`, the OAuth buttons looked enabled but clicks silently returned
- * because `!providers?.[provider]` was always true. Now we keep retrying
+ * null, the OAuth buttons looked enabled but clicks silently returned
+ * because !providers?.[provider] was always true. Now we keep retrying
  * with backoff and re-poll whenever the tab regains focus, so the buttons
  * become usable as soon as the backend is back.
  */
 const RETRY_DELAYS_MS = [500, 1500, 3000, 6000];
 
-export function useAuthProviders(): ProvidersResponse | null {
-  const [providers, setProviders] = useState<ProvidersResponse | null>(null);
+export function useAuthProviders(): () => ProvidersResponse | null {
+  const [providers, setProviders] = createSignal<ProvidersResponse | null>(null);
 
-  const fetchOnce = useCallback(async () => {
+  const fetchOnce = async () => {
     try {
       const data = await api.auth.getProviders();
-      setProviders(data);
+      setProviders(() => data);
       return true;
     } catch {
       return false;
     }
-  }, []);
+  };
 
-  useEffect(() => {
+  createEffect(() => {
     let cancelled = false;
     let attempt = 0;
     const run = async () => {
@@ -47,11 +47,12 @@ export function useAuthProviders(): ProvidersResponse | null {
       }
     };
     document.addEventListener("visibilitychange", onVisible);
-    return () => {
+
+    onCleanup(() => {
       cancelled = true;
       document.removeEventListener("visibilitychange", onVisible);
-    };
-  }, [fetchOnce]);
+    });
+  });
 
   return providers;
 }

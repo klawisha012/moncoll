@@ -92,25 +92,30 @@ def create_app() -> FastAPI:
     # Admin router — all routes require admin + TOTP via require_admin dep.
     app.include_router(admin_router)
 
-    # Dashboard — viewer-level gate; individual routes enforce tenant scoping
-    # via require_verified (Phase 5.2.c).
+    # Verified-user gate covers every client-facing surface. Tenant scoping is
+    # enforced per-route via `current_tenant` (e.g. connections, certificates)
+    # so this app-level dep only confirms the session is authenticated and the
+    # email is verified.
     viewer = [Depends(require_verified)]
     app.include_router(dashboard_router, dependencies=viewer)
-    # Realtime token endpoint — both roles need it to subscribe to live updates.
     app.include_router(realtime_router, dependencies=viewer)
+    app.include_router(connections_router, dependencies=viewer)
+    app.include_router(certificates_router, dependencies=viewer)
+    # CrowdSec + ModSecurity expose global (not tenant-scoped) configuration.
+    # The frontend gates these pages with `RequireRole role="client"`, so the
+    # backend gate must let verified clients through. Admins still pass since
+    # require_admin → require_verified.
+    app.include_router(modsecurity_router, dependencies=viewer)
+    app.include_router(crowdsec_router, dependencies=viewer)
 
-    # Admin-only routers — viewer role cannot access configuration or security.
+    # Monitoring stays admin-only — Docker stats are platform-wide infra data,
+    # not exposed to clients. Per-route require_admin keeps it belt-and-braces.
     admin = [Depends(require_admin)]
-    # Monitoring: Docker stats are platform-wide; per-route require_admin added
-    # in Phase 5.2.e. App-level admin dep here is a belt-and-suspenders guard.
     app.include_router(monitoring_router, dependencies=admin)
-    app.include_router(modsecurity_router, dependencies=admin)
-    app.include_router(connections_router, dependencies=admin)
-    app.include_router(certificates_router, dependencies=admin)
-    app.include_router(crowdsec_router, dependencies=admin)
-    # Tests router is wired with its own require_admin dep per-route — the
-    # POST /run endpoint needs the User identity for in-process rate-limiting,
-    # which the app-level `dependencies=admin` pattern can't expose.
+
+    # Tests router is wired without app-level deps — POST /run needs the User
+    # identity for in-process rate-limiting plus the Tenant for connection_id
+    # scoping, both injected per-route.
     app.include_router(tests_router)
 
     # Expose Prometheus metrics endpoint (intentionally unauthenticated so the

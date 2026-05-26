@@ -11,7 +11,7 @@ set -e
 # Detect if running inside a container or on the host
 if [ -f /.dockerenv ] || [ -f /run/.containerenv ]; then
     # Running inside a container — use absolute paths as mounted
-    OUTPUT_FILE="/configs/angie/http.d/blocked_ips.conf"
+    OUTPUT_FILE="/configs/angie/http.d/blocked_ips.list"
     # Container names — derive from compose project or use defaults
     COMPOSE_PROJECT="${COMPOSE_PROJECT_NAME:-waf}"
     CROWDSEC_CONTAINER="${COMPOSE_PROJECT}-crowdsec-1"
@@ -19,7 +19,7 @@ if [ -f /.dockerenv ] || [ -f /run/.containerenv ]; then
 else
     # Running on the host — use relative paths
     SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-    OUTPUT_FILE="$SCRIPT_DIR/../configs/angie/http.d/blocked_ips.conf"
+    OUTPUT_FILE="$SCRIPT_DIR/../configs/angie/http.d/blocked_ips.list"
     CROWDSEC_CONTAINER="waf-crowdsec-1"
     ANGIE_CONTAINER="waf-angie-1"
 fi

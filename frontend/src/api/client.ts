@@ -10,6 +10,7 @@ export type ModSecState = "off" | "detection_only" | "blocking";
 export interface SecurityConfig {
   modsec_state: ModSecState;
   geoip_denied_countries: string[];
+  crowdsec_active: boolean;
 }
 
 export type HttpVersion = "h1" | "h2" | "h3";

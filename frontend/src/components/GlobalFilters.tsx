@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { createEffect, onCleanup, For, Show } from "solid-js";
 import { api } from "../api/client";
 import { useAuth } from "../context/AuthContext";
 import { useGlobalFilters, type TimeUnit } from "../context/GlobalFiltersContext";
@@ -12,111 +12,99 @@ const UNITS: { value: TimeUnit; labelKey: string }[] = [
 
 const MAX_HOURS = 8760;
 
-/**
- * Sidebar block (under the brand) that owns the site-wide domain and
- * time-range filters. Pages read from useGlobalFilters().
- *
- * Hidden when the sidebar is collapsed — there's no compact icon for these
- * controls; expanding the sidebar restores them.
- *
- * Only renders for client users — admins see platform-wide data and don't
- * have tenant-scoped connections to pick from.
- */
 export default function GlobalFilters() {
-  const { t } = useSettings();
-  const { user } = useAuth();
-  const {
-    connectionId,
-    setConnectionId,
-    timeValue,
-    setTimeValue,
-    timeUnit,
-    setTimeUnit,
-    connections,
-    setConnections,
-  } = useGlobalFilters();
+  const settings = useSettings();
+  const auth = useAuth();
+  const filters = useGlobalFilters();
 
-  // Load connections once after auth lands. Admins skip — no per-tenant list.
-  useEffect(() => {
-    if (!user) return;
-    if (user.platform_role !== "client") return;
-    if (connections.length > 0) return;
+  createEffect(() => {
+    const usr = auth.user;
+    if (!usr) return;
+    if (usr.platform_role !== "client") return;
+    if (filters.connections.length > 0) return;
+
     let cancelled = false;
     api
       .getConnections()
       .then((cs) => {
-        if (!cancelled) setConnections(cs);
+        if (!cancelled) filters.setConnections(cs);
       })
       .catch(() => {
         // Silent — sidebar still works without a connection list (defaults to "all").
       });
-    return () => {
+
+    onCleanup(() => {
       cancelled = true;
-    };
-  }, [user, connections.length, setConnections]);
+    });
+  });
 
-  // Admins don't need the picker (no tenant-scoped connections).
-  if (user?.platform_role !== "client") return null;
+  const maxValue = () => {
+    const unitMultiplier =
+      filters.timeUnit === "minutes" ? 1 / 60 : filters.timeUnit === "days" ? 24 : 1;
+    return Math.max(1, Math.floor(MAX_HOURS / unitMultiplier));
+  };
 
-  const unitMultiplier =
-    timeUnit === "minutes" ? 1 / 60 : timeUnit === "days" ? 24 : 1;
-  const maxValue = Math.max(1, Math.floor(MAX_HOURS / unitMultiplier));
-
-  const enabledConns = connections.filter((c) => c.enabled);
+  const enabledConns = () => filters.connections.filter((c) => c.enabled);
 
   return (
-    <div className="global-filters">
-      <div className="global-filters-row">
-        <label className="global-filters-label">{t("dashboard.ui.domain")}</label>
-        <select
-          data-testid="global-domain-picker"
-          className="global-filters-select"
-          value={connectionId ?? ""}
-          onChange={(e) =>
-            setConnectionId(e.target.value === "" ? null : Number(e.target.value))
-          }
-        >
-          <option value="">{t("dashboard.ui.allDomains")}</option>
-          {enabledConns.map((c) => (
-            <option key={c.id} value={c.id}>
-              {c.name}
-              {c.domain ? ` (${c.domain})` : ""}
-            </option>
-          ))}
-        </select>
-      </div>
-
-      <div className="global-filters-row">
-        <label className="global-filters-label">
-          {t("dashboard.ui.timeRange")}
-        </label>
-        <div className="global-filters-time-row">
-          <input
-            type="number"
-            data-testid="global-time-value"
-            className="global-filters-input"
-            min={1}
-            max={maxValue}
-            value={timeValue}
-            onChange={(e) => {
-              const v = parseInt(e.target.value, 10);
-              if (!Number.isNaN(v) && v >= 1 && v <= maxValue) setTimeValue(v);
-            }}
-          />
+    <Show when={auth.user?.platform_role === "client"}>
+      <div class="global-filters">
+        <div class="global-filters-row">
+          <label class="global-filters-label">{settings.t("dashboard.ui.domain")}</label>
           <select
-            data-testid="global-time-unit"
-            className="global-filters-select"
-            value={timeUnit}
-            onChange={(e) => setTimeUnit(e.target.value as TimeUnit)}
+            data-testid="global-domain-picker"
+            class="global-filters-select"
+            value={filters.connectionId ?? ""}
+            onChange={(e) =>
+              filters.setConnectionId(e.target.value === "" ? null : Number(e.target.value))
+            }
           >
-            {UNITS.map((u) => (
-              <option key={u.value} value={u.value}>
-                {t(u.labelKey)}
-              </option>
-            ))}
+            <option value="">{settings.t("dashboard.ui.allDomains")}</option>
+            <For each={enabledConns()}>
+              {(c) => (
+                <option value={c.id}>
+                  {c.name}
+                  {c.domain ? ` (${c.domain})` : ""}
+                </option>
+              )}
+            </For>
           </select>
         </div>
+
+        <div class="global-filters-row">
+          <label class="global-filters-label">
+            {settings.t("dashboard.ui.timeRange")}
+          </label>
+          <div class="global-filters-time-row">
+            <input
+              type="number"
+              data-testid="global-time-value"
+              class="global-filters-input"
+              min={1}
+              max={maxValue()}
+              value={filters.timeValue}
+              onChange={(e) => {
+                const v = parseInt(e.target.value, 10);
+                if (!Number.isNaN(v) && v >= 1 && v <= maxValue()) filters.setTimeValue(v);
+              }}
+            />
+            <select
+              data-testid="global-time-unit"
+              class="global-filters-select"
+              value={filters.timeUnit}
+              onChange={(e) => filters.setTimeUnit(e.target.value as TimeUnit)}
+            >
+              <For each={UNITS}>
+                {(u) => (
+                  <option value={u.value}>
+                    {settings.t(u.labelKey)}
+                  </option>
+                )}
+              </For>
+            </select>
+          </div>
+        </div>
       </div>
-    </div>
+    </Show>
   );
 }

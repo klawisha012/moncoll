@@ -201,6 +201,7 @@ def render(conn: dict) -> str:
     compression = _norm_compression(conn.get("compression_algo"))
     modsec_state = conn.get("modsec_state") or "detection_only"
     geoip_denied = list(conn.get("geoip_denied_countries") or [])
+    crowdsec_active = bool(conn.get("crowdsec_active") if conn.get("crowdsec_active") is not None else True)
     cert_path = conn.get("ssl_cert_path")
     key_path = conn.get("ssl_key_path")
     has_cert = bool(cert_path and key_path) and status == "active"
@@ -233,7 +234,8 @@ def render(conn: dict) -> str:
     lines.append("    access_log /var/log/angie/geoip.log with_geoip_json;")
     lines.append("    access_log /var/log/angie/access.log combined;")
     lines.append("")
-    lines.append(blocked_ips_include)
+    if crowdsec_active:
+        lines.append(blocked_ips_include)
     lines.append("")
     lines.extend(_emit_modsec_state(modsec_state))
     lines.append("")
@@ -295,7 +297,8 @@ def render(conn: dict) -> str:
         lines.append("")
         lines.append("    access_log /var/log/angie/geoip.log with_geoip_json;")
         lines.append("    access_log /var/log/angie/access.log combined;")
-        lines.append(blocked_ips_include)
+        if crowdsec_active:
+            lines.append(blocked_ips_include)
         lines.append("")
         # Per-connection ModSecurity state overrides the global http {} default.
         lines.extend(_emit_modsec_state(modsec_state))

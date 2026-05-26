@@ -1,8 +1,9 @@
 """Router-level unit tests for /api/tests/*.
 
-These pin the admin-only access contract and the in-process rate limit. The
-runner itself is stubbed — we are NOT verifying that ModSec sees the request,
-only that the router validates inputs and dispatches correctly.
+Pin the auth contract (verified-user gate + tenant scoping on /run) and the
+in-process rate limit. The runner itself is stubbed — we are NOT verifying
+that ModSec sees the request, only that the router validates inputs and
+dispatches correctly.
 """
 
 from __future__ import annotations
@@ -14,7 +15,7 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from src.auth.dependencies import require_admin
+from src.auth.dependencies import current_tenant, require_verified
 from src.db.session import get_session
 from src.tests import crowdsec_runner
 from src.tests import service as tests_service
@@ -22,9 +23,13 @@ from src.tests.router import _rate_last, router as _tests_router
 from src.tests.schemas import CrowdsecRunResult, RunResult
 
 
-def _fake_admin(user_id: int = 1) -> SimpleNamespace:
-    """Build a duck-typed User stand-in. Router only reads `.id` for rate-limit."""
-    return SimpleNamespace(id=user_id, role="admin", username="root")
+def _fake_user(user_id: int = 1) -> SimpleNamespace:
+    """Duck-typed User stand-in. Router only reads `.id` for rate-limit."""
+    return SimpleNamespace(id=user_id, platform_role="client", username="root")
+
+
+def _fake_tenant(tenant_id: int = 1) -> SimpleNamespace:
+    return SimpleNamespace(id=tenant_id, name="acme")
 
 
 @pytest.fixture
@@ -43,13 +48,11 @@ def _reset_rate_limit():
     _rate_last.clear()
 
 
-# ── admin guard ───────────────────────────────────────────────────────
+# ── auth guard ────────────────────────────────────────────────────────
 
 
-def test_catalog_requires_admin(app: FastAPI):
-    """Without a require_admin override the cookie-based auth chain runs.
-    We stub get_session so the chain doesn't blow up trying to connect to a
-    real DB; the cookie check then 401s as designed."""
+def test_catalog_requires_authenticated_user(app: FastAPI):
+    """Without an override the cookie auth chain runs and 401s on no cookie."""
     app.dependency_overrides[get_session] = lambda: None
     try:
         client = TestClient(app)
@@ -59,8 +62,8 @@ def test_catalog_requires_admin(app: FastAPI):
     assert resp.status_code == 401
 
 
-def test_catalog_returns_tests_when_admin(app: FastAPI):
-    app.dependency_overrides[require_admin] = lambda: _fake_admin()
+def test_catalog_returns_tests_when_verified(app: FastAPI):
+    app.dependency_overrides[require_verified] = lambda: _fake_user()
     try:
         client = TestClient(app)
         resp = client.get("/api/tests/catalog")
@@ -75,7 +78,7 @@ def test_catalog_returns_tests_when_admin(app: FastAPI):
 
 
 def test_crowdsec_catalog_returns_scenarios(app: FastAPI):
-    app.dependency_overrides[require_admin] = lambda: _fake_admin()
+    app.dependency_overrides[require_verified] = lambda: _fake_user()
     try:
         client = TestClient(app)
         resp = client.get("/api/tests/crowdsec/catalog")
@@ -91,7 +94,8 @@ def test_crowdsec_catalog_returns_scenarios(app: FastAPI):
 
 
 def test_run_rejects_unknown_test_id(app: FastAPI):
-    app.dependency_overrides[require_admin] = lambda: _fake_admin()
+    app.dependency_overrides[require_verified] = lambda: _fake_user()
+    app.dependency_overrides[current_tenant] = lambda: _fake_tenant()
     # /run touches get_session before reaching the find_test check, so override
     # the session dep too so the request doesn't try to hit a real DB.
     app.dependency_overrides[get_session] = lambda: None
@@ -106,9 +110,9 @@ def test_run_rejects_unknown_test_id(app: FastAPI):
 
 
 def test_run_dispatches_to_runner_for_known_test(app: FastAPI):
-    """Happy path: valid test_id → service.run_test is awaited and its
-    RunResult is returned verbatim."""
-    app.dependency_overrides[require_admin] = lambda: _fake_admin()
+    """Happy path: valid test_id → service.run_test is awaited with tenant_id."""
+    app.dependency_overrides[require_verified] = lambda: _fake_user()
+    app.dependency_overrides[current_tenant] = lambda: _fake_tenant(tenant_id=42)
     app.dependency_overrides[get_session] = lambda: None
 
     fake_result = RunResult(
@@ -120,7 +124,8 @@ def test_run_dispatches_to_runner_for_known_test(app: FastAPI):
         target_url="http://angie",
     )
 
-    with patch.object(tests_service, "run_test", new=AsyncMock(return_value=fake_result)):
+    async_mock = AsyncMock(return_value=fake_result)
+    with patch.object(tests_service, "run_test", new=async_mock):
         try:
             client = TestClient(app)
             # xss.941100 is in the committed manifest.
@@ -132,13 +137,17 @@ def test_run_dispatches_to_runner_for_known_test(app: FastAPI):
     body = resp.json()
     assert body["status"] == "blocked"
     assert body["blocked_by"] == "941100"
+    # The router must forward tenant_id from current_tenant into the runner so
+    # connection_id resolution stays scoped.
+    assert async_mock.await_args.kwargs.get("tenant_id") == 42
 
 
 # ── rate limit ────────────────────────────────────────────────────────
 
 
 def test_run_rate_limit_429_on_second_immediate_call(app: FastAPI):
-    app.dependency_overrides[require_admin] = lambda: _fake_admin(user_id=7)
+    app.dependency_overrides[require_verified] = lambda: _fake_user(user_id=7)
+    app.dependency_overrides[current_tenant] = lambda: _fake_tenant()
     app.dependency_overrides[get_session] = lambda: None
 
     fake_result = RunResult(
@@ -163,12 +172,13 @@ def test_run_rate_limit_429_on_second_immediate_call(app: FastAPI):
 
 def test_run_rate_limit_is_per_user(app: FastAPI):
     """User A hitting rate limit must not block user B's first request."""
-    user_holder = {"current": _fake_admin(user_id=10)}
+    user_holder = {"current": _fake_user(user_id=10)}
 
-    def _override_admin():
+    def _override_user():
         return user_holder["current"]
 
-    app.dependency_overrides[require_admin] = _override_admin
+    app.dependency_overrides[require_verified] = _override_user
+    app.dependency_overrides[current_tenant] = lambda: _fake_tenant()
     app.dependency_overrides[get_session] = lambda: None
 
     fake_result = RunResult(
@@ -182,11 +192,11 @@ def test_run_rate_limit_is_per_user(app: FastAPI):
         try:
             client = TestClient(app)
             # User A: two back-to-back → second is 429
-            user_holder["current"] = _fake_admin(user_id=10)
+            user_holder["current"] = _fake_user(user_id=10)
             r1 = client.post("/api/tests/run", json={"test_id": "xss.941100"})
             r2 = client.post("/api/tests/run", json={"test_id": "xss.941100"})
             # User B: first request after A's 429 → should still be 200
-            user_holder["current"] = _fake_admin(user_id=11)
+            user_holder["current"] = _fake_user(user_id=11)
             r3 = client.post("/api/tests/run", json={"test_id": "xss.941100"})
         finally:
             app.dependency_overrides.clear()
@@ -200,7 +210,7 @@ def test_run_rate_limit_is_per_user(app: FastAPI):
 
 
 def test_crowdsec_run_rejects_empty_scenario_id(app: FastAPI):
-    app.dependency_overrides[require_admin] = lambda: _fake_admin()
+    app.dependency_overrides[require_verified] = lambda: _fake_user()
     try:
         client = TestClient(app)
         resp = client.post("/api/tests/crowdsec/run", json={"scenario_id": "  "})
@@ -212,7 +222,7 @@ def test_crowdsec_run_rejects_empty_scenario_id(app: FastAPI):
 
 
 def test_crowdsec_run_dispatches_to_runner(app: FastAPI):
-    app.dependency_overrides[require_admin] = lambda: _fake_admin()
+    app.dependency_overrides[require_verified] = lambda: _fake_user()
     fake = CrowdsecRunResult(
         scenario="crowdsecurity/http-probing",
         source_ip="self",

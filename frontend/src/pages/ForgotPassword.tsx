@@ -1,113 +1,121 @@
-import { useCallback, useEffect, useState, type FormEvent } from "react";
-import { Link } from "react-router-dom";
+import { createSignal, onMount } from "solid-js";
+import { Show } from "solid-js";
+import { A } from "@solidjs/router";
 import { useSettings } from "../context/SettingsContext";
 import { api, type ProvidersResponse } from "../api/client";
 import TurnstileWidget from "../components/TurnstileWidget";
 
 export default function ForgotPassword() {
-  const { t } = useSettings();
-  const [email, setEmail] = useState("");
-  const [captchaToken, setCaptchaToken] = useState("");
-  const [submitting, setSubmitting] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [sent, setSent] = useState(false);
-  const [devResetUrl, setDevResetUrl] = useState<string | null>(null);
-  const [providers, setProviders] = useState<ProvidersResponse | null>(null);
+  const settings = useSettings();
+  const [email, setEmail] = createSignal("");
+  const [captchaToken, setCaptchaToken] = createSignal("");
+  const [submitting, setSubmitting] = createSignal(false);
+  const [error, setError] = createSignal<string | null>(null);
+  const [sent, setSent] = createSignal(false);
+  const [devResetUrl, setDevResetUrl] = createSignal<string | null>(null);
+  const [providers, setProviders] = createSignal<ProvidersResponse | null>(null);
 
-  useEffect(() => {
-    api.auth.getProviders().then(setProviders).catch(() => null);
-  }, []);
+  onMount(() => {
+    api.auth.getProviders().then((data) => setProviders(() => data)).catch(() => null);
+  });
 
-  const handleToken = useCallback((token: string) => setCaptchaToken(token), []);
+  const handleToken = (token: string) => setCaptchaToken(token);
 
-  const submit = async (e: FormEvent) => {
+  const submit = async (e: Event) => {
     e.preventDefault();
     setError(null);
     setSubmitting(true);
     try {
-      const resp = await api.auth.forgotPassword(email, captchaToken);
+      const resp = await api.auth.forgotPassword(email(), captchaToken());
       if (resp.dev_reset_url) setDevResetUrl(resp.dev_reset_url);
       setSent(true);
     } catch (err) {
-      setError(err instanceof Error ? err.message : t("general.error"));
+      setError(() => err instanceof Error ? err.message : settings.t("general.error"));
     } finally {
       setSubmitting(false);
     }
   };
 
-  const captchaReady = !providers || !!captchaToken;
-  const canSubmit = email && captchaReady;
+  const captchaReady = () => !providers() || !providers()?.captcha_site_key || !!captchaToken();
+  const canSubmit = () => email() && captchaReady();
 
   return (
-    <div className="cv-root">
+    <div class="cv-root">
       <style>{styles}</style>
 
-      <section className="cv-manifest">
-        <div className="cv-eyebrow">
-          <span className="cv-n">04</span>
-          <span className="cv-eyebrow-text">{t("auth.forgot.eyebrow")}</span>
+      <section class="cv-manifest">
+        <div class="cv-eyebrow">
+          <span class="cv-n">04</span>
+          <span class="cv-eyebrow-text">{settings.t("auth.forgot.eyebrow")}</span>
         </div>
-        <h1 className="cv-h1">
-          <span className="cv-stack">{t("auth.forgot.heroLine1")}</span>
-          <span className="cv-stack"><span className="cv-ws">{t("auth.forgot.heroLine2")}</span></span>
-          <span className="cv-stack"><span className="cv-tilt">{t("auth.forgot.heroLine3")}</span></span>
+        <h1 class="cv-h1">
+          <span class="cv-stack">{settings.t("auth.forgot.heroLine1")}</span>
+          <span class="cv-stack"><span class="cv-ws">{settings.t("auth.forgot.heroLine2")}</span></span>
+          <span class="cv-stack"><span class="cv-tilt">{settings.t("auth.forgot.heroLine3")}</span></span>
         </h1>
-        <p className="cv-deck">{t("auth.forgot.quote")}</p>
-        <div className="cv-disc" aria-hidden />
+        <p class="cv-deck">{settings.t("auth.forgot.quote")}</p>
+        <div class="cv-disc" aria-hidden />
       </section>
 
-      <section className="cv-form-side">
-        {sent ? (
-          <div className="cv-form">
-            <div className="cv-form-head">
-              <span className="cv-kicker">{t("auth.forgot.kicker")}</span>
-            </div>
-            <p className="cv-body">{t("auth.forgot.sentDesc")}</p>
-            {devResetUrl && (
-              <div className="cv-dev-banner">
-                <span className="cv-dev-tag">{t("auth.dev.smtpOff")}</span>
-                <a href={devResetUrl} className="cv-dev-link">{devResetUrl}</a>
+      <section class="cv-form-side">
+        <Show
+          when={sent()}
+          fallback={
+            <form onSubmit={submit} class="cv-form">
+              <div class="cv-form-head">
+                <span class="cv-kicker">{settings.t("auth.forgot.kicker")}</span>
+                <A href="/login" class="cv-switch-link">{settings.t("auth.forgot.backToLogin")}</A>
               </div>
-            )}
-            <Link to="/login" className="cv-submit" style={{ textDecoration: "none", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-              <span>{t("auth.forgot.backToLogin")}</span>
-              <span className="cv-ar">→</span>
-            </Link>
-          </div>
-        ) : (
-          <form onSubmit={submit} className="cv-form">
-            <div className="cv-form-head">
-              <span className="cv-kicker">{t("auth.forgot.kicker")}</span>
-              <Link to="/login" className="cv-switch-link">{t("auth.forgot.backToLogin")}</Link>
-            </div>
 
-            <div className="cv-field">
-              <label htmlFor="cv-email">{t("auth.email")}</label>
-              <div className="cv-inp">
-                <span className="cv-tag">@</span>
-                <input id="cv-email" type="email" value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  autoFocus required autoComplete="email" />
+              <div class="cv-field">
+                <label for="cv-email">{settings.t("auth.email")}</label>
+                <div class="cv-inp">
+                  <span class="cv-tag">@</span>
+                  <input id="cv-email" type="email" value={email()}
+                    onInput={(e) => setEmail(e.currentTarget.value)}
+                    autofocus required autocomplete="email" />
+                </div>
               </div>
-            </div>
 
-            {providers?.captcha_site_key && (
-              <div className="cv-captcha">
-                <TurnstileWidget siteKey={providers.captcha_site_key} onToken={handleToken} />
-                {providers.captcha_dev_mode && (
-                  <span className="cv-captcha-dev-tag">{t("auth.captcha.devMode")}</span>
+              <Show when={providers()?.captcha_site_key}>
+                {(siteKey) => (
+                  <div class="cv-captcha">
+                    <TurnstileWidget siteKey={siteKey()} onToken={handleToken} />
+                    <Show when={providers()?.captcha_dev_mode}>
+                      <span class="cv-captcha-dev-tag">{settings.t("auth.captcha.devMode")}</span>
+                    </Show>
+                  </div>
                 )}
+              </Show>
+
+              <Show when={error()}>
+                <div class="cv-error">{error()}</div>
+              </Show>
+
+              <button type="submit" class="cv-submit" disabled={submitting() || !canSubmit()}>
+                <span>{submitting() ? settings.t("general.loading") : settings.t("auth.forgot.submit")}</span>
+                <span class="cv-ar">→</span>
+              </button>
+            </form>
+          }
+        >
+          <div class="cv-form">
+            <div class="cv-form-head">
+              <span class="cv-kicker">{settings.t("auth.forgot.kicker")}</span>
+            </div>
+            <p class="cv-body">{settings.t("auth.forgot.sentDesc")}</p>
+            <Show when={devResetUrl()}>
+              <div class="cv-dev-banner">
+                <span class="cv-dev-tag">{settings.t("auth.dev.smtpOff")}</span>
+                <a href={devResetUrl() ?? undefined} class="cv-dev-link">{devResetUrl()}</a>
               </div>
-            )}
-
-            {error && <div className="cv-error">{error}</div>}
-
-            <button type="submit" className="cv-submit" disabled={submitting || !canSubmit}>
-              <span>{submitting ? t("general.loading") : t("auth.forgot.submit")}</span>
-              <span className="cv-ar">→</span>
-            </button>
-          </form>
-        )}
+            </Show>
+            <A href="/login" class="cv-submit" style={{ "text-decoration": "none", "display": "flex", "justify-content": "space-between", "align-items": "center" }}>
+              <span>{settings.t("auth.forgot.backToLogin")}</span>
+              <span class="cv-ar">→</span>
+            </A>
+          </div>
+        </Show>
       </section>
     </div>
   );

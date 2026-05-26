@@ -1,41 +1,41 @@
-import { useCallback, useEffect, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { createSignal, onMount, For, Show } from "solid-js";
+import { useNavigate } from "@solidjs/router";
 import { api, type TenantRow } from "../api/client";
 import { useSettings } from "../context/SettingsContext";
 
 export default function Clients() {
-  const { t } = useSettings();
+  const settings = useSettings();
   const navigate = useNavigate();
-  const [rows, setRows] = useState<TenantRow[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [toast, setToast] = useState<{ kind: "ok" | "err"; msg: string } | null>(null);
+  const [rows, setRows] = createSignal<TenantRow[]>([]);
+  const [loading, setLoading] = createSignal(true);
+  const [toast, setToast] = createSignal<{ kind: "ok" | "err"; msg: string } | null>(null);
 
-  const showToast = useCallback((kind: "ok" | "err", msg: string) => {
+  const showToast = (kind: "ok" | "err", msg: string) => {
     setToast({ kind, msg });
     setTimeout(() => setToast(null), 4000);
-  }, []);
+  };
 
-  const load = useCallback(async () => {
+  const load = async () => {
     try {
       const data = await api.admin.listTenants();
       setRows(data);
     } catch (err) {
-      showToast("err", err instanceof Error ? err.message : t("general.error"));
+      showToast("err", err instanceof Error ? err.message : settings.t("general.error"));
     } finally {
       setLoading(false);
     }
-  }, [showToast, t]);
+  };
 
-  useEffect(() => { void load(); }, [load]);
+  onMount(() => { void load(); });
 
   const suspend = async (row: TenantRow) => {
-    if (!confirm(t("clients.confirm.suspend").replace("{name}", row.name))) return;
+    if (!confirm(settings.t("clients.confirm.suspend").replace("{name}", row.name))) return;
     try {
       await api.admin.suspendTenant(row.id);
       showToast("ok", `${row.name} suspended`);
       void load();
     } catch (err) {
-      showToast("err", err instanceof Error ? err.message : t("general.error"));
+      showToast("err", err instanceof Error ? err.message : settings.t("general.error"));
     }
   };
 
@@ -45,19 +45,19 @@ export default function Clients() {
       showToast("ok", `${row.name} unsuspended`);
       void load();
     } catch (err) {
-      showToast("err", err instanceof Error ? err.message : t("general.error"));
+      showToast("err", err instanceof Error ? err.message : settings.t("general.error"));
     }
   };
 
   const deleteTenant = async (row: TenantRow) => {
-    const msg = t("clients.confirm.delete").replace("{name}", row.name);
+    const msg = settings.t("clients.confirm.delete").replace("{name}", row.name);
     if (!confirm(msg)) return;
     try {
       await api.admin.deleteTenant(row.id, row.name);
       showToast("ok", `${row.name} deleted`);
       void load();
     } catch (err) {
-      showToast("err", err instanceof Error ? err.message : t("general.error"));
+      showToast("err", err instanceof Error ? err.message : settings.t("general.error"));
     }
   };
 
@@ -65,87 +65,98 @@ export default function Clients() {
     v ? new Date(v).toLocaleDateString() : "—";
 
   return (
-    <div className="page-content">
+    <div class="page-content">
       <style>{styles}</style>
 
-      {toast && (
-        <div className={`cl-toast cl-toast--${toast.kind}`}>{toast.msg}</div>
-      )}
+      <Show when={toast()}>
+        <div class={`cl-toast cl-toast--${toast()!.kind}`}>{toast()!.msg}</div>
+      </Show>
 
-      <div className="page-header">
+      <div class="page-header">
         <div>
-          <h1 className="page-title">{t("clients.title")}</h1>
-          <p className="page-subtitle">{t("clients.subtitle")}</p>
+          <h1 class="page-title">{settings.t("clients.title")}</h1>
+          <p class="page-subtitle">{settings.t("clients.subtitle")}</p>
         </div>
       </div>
 
-      {loading ? (
-        <div className="cl-loading">{t("clients.loading")}</div>
-      ) : rows.length === 0 ? (
-        <div className="cl-empty">{t("clients.empty")}</div>
-      ) : (
-        <div className="cl-table-wrap">
-          <table className="cl-table">
-            <thead>
-              <tr>
-                <th>{t("clients.col.tenant")}</th>
-                <th>{t("clients.col.owner")}</th>
-                <th>{t("clients.col.users")}</th>
-                <th>{t("clients.col.connections")}</th>
-                <th>{t("clients.col.created")}</th>
-                <th>{t("clients.col.lastActivity")}</th>
-                <th>{t("clients.col.status")}</th>
-                <th>{t("clients.col.actions")}</th>
-              </tr>
-            </thead>
-            <tbody>
-              {rows.map((row) => {
-                const suspended = !!row.suspended_at;
-                return (
-                  <tr key={row.id} className={suspended ? "cl-row--suspended" : ""}>
-                    <td>
-                      <button
-                        type="button"
-                        className="cl-name-btn"
-                        onClick={() => navigate(`/clients/${row.id}`)}
-                      >
-                        {row.display_name || row.name}
-                        <span className="cl-slug">{row.name}</span>
-                      </button>
-                    </td>
-                    <td className="cl-mono">{row.owner_email ?? "—"}</td>
-                    <td className="cl-num">{row.user_count}</td>
-                    <td className="cl-num">{row.connection_count}</td>
-                    <td>{fmt(row.created_at)}</td>
-                    <td>{fmt(row.last_activity)}</td>
-                    <td>
-                      <span className={`cl-badge cl-badge--${suspended ? "suspended" : "active"}`}>
-                        {suspended ? t("clients.status.suspended") : t("clients.status.active")}
-                      </span>
-                    </td>
-                    <td>
-                      <div className="cl-actions">
-                        {suspended ? (
-                          <button type="button" className="cl-btn cl-btn--ok" onClick={() => unsuspend(row)}>
-                            {t("clients.action.unsuspend")}
+      <Show
+        when={!loading()}
+        fallback={<div class="cl-loading">{settings.t("clients.loading")}</div>}
+      >
+        <Show
+          when={rows().length > 0}
+          fallback={<div class="cl-empty">{settings.t("clients.empty")}</div>}
+        >
+          <div class="cl-table-wrap">
+            <table class="cl-table">
+              <thead>
+                <tr>
+                  <th>{settings.t("clients.col.tenant")}</th>
+                  <th>{settings.t("clients.col.owner")}</th>
+                  <th>{settings.t("clients.col.users")}</th>
+                  <th>{settings.t("clients.col.connections")}</th>
+                  <th>{settings.t("clients.col.created")}</th>
+                  <th>{settings.t("clients.col.lastActivity")}</th>
+                  <th>{settings.t("clients.col.status")}</th>
+                  <th>{settings.t("clients.col.actions")}</th>
+                </tr>
+              </thead>
+              <tbody>
+                <For each={rows()}>
+                  {(row) => {
+                    const suspended = () => !!row.suspended_at;
+                    return (
+                      <tr class={suspended() ? "cl-row--suspended" : ""}>
+                        <td>
+                          <button
+                            type="button"
+                            class="cl-name-btn"
+                            onClick={() => navigate(`/clients/${row.id}`)}
+                          >
+                            {row.display_name || row.name}
+                            <span class="cl-slug">{row.name}</span>
                           </button>
-                        ) : (
-                          <button type="button" className="cl-btn cl-btn--warn" onClick={() => suspend(row)}>
-                            {t("clients.action.suspend")}
-                          </button>
-                        )}
-                        <button type="button" className="cl-btn cl-btn--danger" onClick={() => deleteTenant(row)}>
-                          {t("clients.action.delete")}
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
-      )}
+                        </td>
+                        <td class="cl-mono">{row.owner_email ?? "—"}</td>
+                        <td class="cl-num">{row.user_count}</td>
+                        <td class="cl-num">{row.connection_count}</td>
+                        <td>{fmt(row.created_at)}</td>
+                        <td>{fmt(row.last_activity)}</td>
+                        <td>
+                          <span class={`cl-badge cl-badge--${suspended() ? "suspended" : "active"}`}>
+                            {suspended()
+                              ? settings.t("clients.status.suspended")
+                              : settings.t("clients.status.active")}
+                          </span>
+                        </td>
+                        <td>
+                          <div class="cl-actions">
+                            <Show
+                              when={suspended()}
+                              fallback={
+                                <button type="button" class="cl-btn cl-btn--warn" onClick={() => suspend(row)}>
+                                  {settings.t("clients.action.suspend")}
+                                </button>
+                              }
+                            >
+                              <button type="button" class="cl-btn cl-btn--ok" onClick={() => unsuspend(row)}>
+                                {settings.t("clients.action.unsuspend")}
+                              </button>
+                            </Show>
+                            <button type="button" class="cl-btn cl-btn--danger" onClick={() => deleteTenant(row)}>
+                              {settings.t("clients.action.delete")}
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  }}
+                </For>
+              </tbody>
+            </table>
+          </div>
+        </Show>
+      </Show>
     </div>
   );
 }

@@ -68,6 +68,7 @@ def _to_dict(row: ConnectionModel) -> dict:
         "enabled": row.enabled,
         "modsec_state": row.modsec_state,
         "geoip_denied_countries": list(row.geoip_denied_countries or []),
+        "crowdsec_active": row.crowdsec_active,
         "ssl_cert_path": row.ssl_cert_path,
         "ssl_key_path": row.ssl_key_path,
         "created_at": row.created_at,
@@ -348,8 +349,9 @@ async def update_security(
     conn_id: int,
     modsec_state: str,
     geoip_denied_countries: list[str],
+    crowdsec_active: bool,
 ) -> Connection | None:
-    """Update per-connection ModSecurity state + GeoIP denied countries.
+    """Update per-connection ModSecurity state + GeoIP denied countries + CrowdSec.
 
     Tenant-scoped: returns None if the connection doesn't belong to *tenant*
     so callers can 404 without leaking existence. Persists, regenerates the
@@ -369,8 +371,14 @@ async def update_security(
         return None
     row.modsec_state = modsec_state
     row.geoip_denied_countries = list(geoip_denied_countries)
+    row.crowdsec_active = crowdsec_active
     await session.commit()
     await session.refresh(row)
+    try:
+        from ..crowdsec.service import _sync_blocked_ips_conf
+        _sync_blocked_ips_conf()
+    except Exception:
+        logger.exception("Conn %d: failed to sync CrowdSec blocked IPs on update", conn_id)
     try:
         if row.enabled:
             angie_config.write_config(_to_dict(row))

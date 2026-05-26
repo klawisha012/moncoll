@@ -67,6 +67,7 @@ class Connection(BaseModel):
     enabled: bool
     modsec_state: ModSecState
     geoip_denied_countries: list[str]
+    crowdsec_active: bool
     ssl_cert_path: str | None
     ssl_key_path: str | None
     created_at: datetime

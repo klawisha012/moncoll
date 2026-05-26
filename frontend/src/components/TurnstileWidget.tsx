@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { onMount } from "solid-js";
 
 declare global {
   interface Window {
@@ -8,20 +8,18 @@ declare global {
   }
 }
 
-export default function TurnstileWidget({
-  siteKey,
-  onToken,
-}: {
+export default function TurnstileWidget(props: {
   siteKey: string;
   onToken: (token: string) => void;
 }) {
-  const ref = useRef<HTMLDivElement>(null);
+  let ref: HTMLDivElement | undefined;
 
-  useEffect(() => {
+  onMount(() => {
     const renderWidget = () => {
-      if (!ref.current || !window.turnstile) return;
-      window.turnstile.render(ref.current, { sitekey: siteKey, callback: onToken });
+      if (!ref || !window.turnstile) return;
+      window.turnstile.render(ref, { sitekey: props.siteKey, callback: props.onToken });
     };
+
     if (window.turnstile) {
       renderWidget();
     } else {
@@ -31,7 +29,7 @@ export default function TurnstileWidget({
       s.onload = renderWidget;
       document.head.appendChild(s);
     }
-  }, [siteKey, onToken]);
+  });
 
   return <div ref={ref} />;
 }

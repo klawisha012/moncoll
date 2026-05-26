@@ -54,6 +54,8 @@ const en: TranslationDict = {
   "config.loading": "Loading…",
   "config.picker.label": "Connection",
   "config.picker.empty": "No connections yet — add one on the Connections page.",
+  "config.picker.selectDomainTitle": "Select a domain",
+  "config.picker.selectDomainDesc": "WAF settings are configured per-domain. Please select a specific domain from the sidebar menu to view or edit its configuration.",
   "config.modsec.title": "ModSecurity",
   "config.modsec.description":
     "Web Application Firewall rule engine state for this domain.",
@@ -67,6 +69,11 @@ const en: TranslationDict = {
   "config.modsec.state.off.desc": "Disable the WAF for this domain entirely.",
   "config.geoip.title": "Country blocking (GeoIP2)",
   "config.geoip.description": "Requests from these countries are answered with HTTP 403.",
+  "config.geoip.selectAll": "Select All",
+  "config.geoip.deselectAll": "Deselect All",
+  "config.crowdsec.title": "CrowdSec",
+  "config.crowdsec.description": "Enable or disable CrowdSec threat-intelligence IP blocking for this domain.",
+  "config.crowdsec.activeLabel": "Enable CrowdSec protection",
   "config.save": "Save",
   "config.saving": "Saving…",
   "config.dirty": "Unsaved changes",
@@ -769,6 +776,8 @@ const ru: TranslationDict = {
   "config.picker.label": "Подключение",
   "config.picker.empty":
     "Пока нет подключений — добавьте на вкладке «Подключения».",
+  "config.picker.selectDomainTitle": "Выберите домен",
+  "config.picker.selectDomainDesc": "Настройки WAF настраиваются индивидуально для каждого домена. Пожалуйста, выберите конкретный домен в боковом меню слева, чтобы просмотреть или изменить его конфигурацию.",
   "config.modsec.title": "ModSecurity",
   "config.modsec.description": "Состояние движка WAF для этого домена.",
   "config.modsec.state.blocking": "Блокировка",
@@ -782,6 +791,12 @@ const ru: TranslationDict = {
   "config.geoip.title": "Блокировка по странам (GeoIP2)",
   "config.geoip.description":
     "Запросы из этих стран получают HTTP 403.",
+  "config.geoip.selectAll": "Выделить все",
+  "config.geoip.deselectAll": "Убрать все",
+  "config.crowdsec.title": "CrowdSec",
+  "config.crowdsec.description":
+    "Включение или выключение блокировки вредоносных IP-адресов от CrowdSec для этого домена.",
+  "config.crowdsec.activeLabel": "Включить защиту CrowdSec",
   "config.save": "Сохранить",
   "config.saving": "Сохранение…",
   "config.dirty": "Несохранённые изменения",

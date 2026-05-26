@@ -1,16 +1,15 @@
 """CrowdSec management router.
 
-Scope decision (Phase 5.2.a): CrowdSec is a platform-wide anti-bot layer.
-Decisions, scenarios, alerts, and service state are global — they are not
-per-tenant. Every endpoint therefore requires `require_admin`. A logged-in
-client user hitting any `/api/crowdsec/*` route gets 403.
-
-Phase 13 (per-tenant filesystem isolation) is out of scope here.
+Scope decision: CrowdSec is a platform-wide anti-bot layer — decisions,
+scenarios, alerts, and service state are global, not per-tenant. The frontend
+routes /crowdsec as `RequireRole role="client"`, so the backend uses
+`require_verified` (every authenticated client + admin user passes). Per-tenant
+filesystem isolation is deferred to Phase 13.
 """
 
 from fastapi import APIRouter, Body, Depends, Query
 
-from ..auth.dependencies import require_admin
+from ..auth.dependencies import require_verified
 from ..db.models import User
 from . import service as crowdsec_service
 from .schemas import (
@@ -29,7 +28,7 @@ router = APIRouter(prefix="/api/crowdsec", tags=["crowdsec"])
 
 
 @router.get("/status", response_model=CrowdSecStatus)
-async def get_status(_: User = Depends(require_admin)):
+async def get_status(_: User = Depends(require_verified)):
     """Get CrowdSec overall status (version, counts)."""
     return crowdsec_service.get_status()
 
@@ -38,25 +37,25 @@ async def get_status(_: User = Depends(require_admin)):
 
 
 @router.get("/decisions", response_model=list[DecisionItem])
-async def get_decisions(_: User = Depends(require_admin)):
+async def get_decisions(_: User = Depends(require_verified)):
     """List all active decisions (blocks)."""
     return crowdsec_service.get_decisions()
 
 
 @router.post("/decisions")
-async def add_decision(req: DecisionCreate, _: User = Depends(require_admin)):
+async def add_decision(req: DecisionCreate, _: User = Depends(require_verified)):
     """Add a manual block decision for an IP."""
     return crowdsec_service.add_decision(req)
 
 
 @router.delete("/decisions/{ip}")
-async def delete_decision(ip: str, _: User = Depends(require_admin)):
+async def delete_decision(ip: str, _: User = Depends(require_verified)):
     """Remove a decision (unblock an IP)."""
     return crowdsec_service.delete_decision(ip)
 
 
 @router.delete("/decisions")
-async def delete_all_decisions(_: User = Depends(require_admin)):
+async def delete_all_decisions(_: User = Depends(require_verified)):
     """Remove all decisions."""
     return crowdsec_service.delete_all_decisions()
 
@@ -73,7 +72,7 @@ async def get_manual_blocks(
         le=8760,
         description="Optional time window in hours (omit for no filter)",
     ),
-    _: User = Depends(require_admin),
+    _: User = Depends(require_verified),
 ):
     """Get manual block/unblock audit log."""
     return crowdsec_service.get_manual_block_log(limit, hours)
@@ -83,25 +82,25 @@ async def get_manual_blocks(
 
 
 @router.get("/scenarios", response_model=list[ScenarioInfo])
-async def get_scenarios(_: User = Depends(require_admin)):
+async def get_scenarios(_: User = Depends(require_verified)):
     """Get list of available scenarios and their enabled/disabled status."""
     return crowdsec_service.get_scenarios()
 
 
 @router.get("/scenarios/hub")
-async def get_scenario_hub(_: User = Depends(require_admin)):
+async def get_scenario_hub(_: User = Depends(require_verified)):
     """Get list of scenarios available in the hub."""
     return crowdsec_service.get_scenario_hub_items()
 
 
 @router.post("/scenarios/install/{name:path}")
-async def install_scenario(name: str, _: User = Depends(require_admin)):
+async def install_scenario(name: str, _: User = Depends(require_verified)):
     """Install a scenario from the hub."""
     return crowdsec_service.install_scenario(name)
 
 
 @router.delete("/scenarios/remove/{name:path}")
-async def remove_scenario(name: str, _: User = Depends(require_admin)):
+async def remove_scenario(name: str, _: User = Depends(require_verified)):
     """Remove an installed scenario."""
     return crowdsec_service.remove_scenario(name)
 
@@ -110,7 +109,7 @@ async def remove_scenario(name: str, _: User = Depends(require_admin)):
 
 
 @router.get("/service-status")
-async def get_service_status(_: User = Depends(require_admin)):
+async def get_service_status(_: User = Depends(require_verified)):
     """Get whether CrowdSec service container is running."""
     enabled = crowdsec_service.get_crowdsec_service_enabled()
     return {"enabled": enabled}
@@ -118,7 +117,7 @@ async def get_service_status(_: User = Depends(require_admin)):
 
 @router.post("/toggle")
 async def toggle_service(
-    req: ServiceToggleRequest = Body(...), _: User = Depends(require_admin)
+    req: ServiceToggleRequest = Body(...), _: User = Depends(require_verified)
 ):
     """
     Enable or disable the entire CrowdSec service.
@@ -131,7 +130,7 @@ async def toggle_service(
 
 
 @router.post("/scenarios/toggle/{name:path}")
-async def toggle_scenario(name: str, _: User = Depends(require_admin)):
+async def toggle_scenario(name: str, _: User = Depends(require_verified)):
     """Toggle a scenario between enabled and disabled state."""
     # Determine current state by listing scenarios
     scenarios = crowdsec_service.get_scenarios()
@@ -156,7 +155,7 @@ async def get_alerts(
         le=8760,
         description="Optional time window in hours (omit for no filter)",
     ),
-    _: User = Depends(require_admin),
+    _: User = Depends(require_verified),
 ):
     """Get list of CrowdSec alerts."""
     return crowdsec_service.get_alerts(hours)
@@ -166,6 +165,6 @@ async def get_alerts(
 
 
 @router.post("/reload")
-async def reload_crowdsec(_: User = Depends(require_admin)):
+async def reload_crowdsec(_: User = Depends(require_verified)):
     """Reload CrowdSec (hub update + upgrade)."""
     return crowdsec_service.reload_crowdsec()

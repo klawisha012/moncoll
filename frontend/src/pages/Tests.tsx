@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
-import { TestTube, Play, AlertTriangle, ShieldAlert, ShieldOff, Clock, ShieldCheck } from "lucide-react";
+import { createEffect, createMemo, createSignal, onCleanup, onMount, For, Show } from "solid-js";
+import { TestTube, Play, AlertTriangle, ShieldAlert, ShieldOff, Clock, ShieldCheck } from "lucide-solid";
 import { api } from "../api/client";
 import type {
   Connection,
@@ -34,14 +34,8 @@ const FAMILY_ORDER: TestFamily[] = [
   "session_fixation",
   "generic",
   "blocking",
+  "blocking",
 ];
-
-const STATUS_ICON: Record<TestResultStatus, React.ReactNode> = {
-  blocked: <ShieldOff size={14} />,
-  "fired-but-not-blocked": <ShieldAlert size={14} />,
-  passed: <ShieldCheck size={14} />,
-  timeout: <Clock size={14} />,
-};
 
 const STATUS_COLOR: Record<TestResultStatus, string> = {
   blocked: "var(--red)",
@@ -50,24 +44,30 @@ const STATUS_COLOR: Record<TestResultStatus, string> = {
   timeout: "var(--text-muted)",
 };
 
+const getStatusIcon = (status: TestResultStatus) => {
+  if (status === "blocked") return <ShieldOff size={14} />;
+  if (status === "fired-but-not-blocked") return <ShieldAlert size={14} />;
+  if (status === "passed") return <ShieldCheck size={14} />;
+  return <Clock size={14} />;
+};
 
 export default function Tests() {
-  const { t } = useSettings();
-  const [activeSub, setActiveSub] = useState<SubTab>("modsec");
-  const [catalog, setCatalog] = useState<TestCase[] | null>(null);
-  const [catalogError, setCatalogError] = useState<string | null>(null);
+  const settings = useSettings();
+  const [activeSub, setActiveSub] = createSignal<SubTab>("modsec");
+  const [catalog, setCatalog] = createSignal<TestCase[] | null>(null);
+  const [catalogError, setCatalogError] = createSignal<string | null>(null);
 
-  const [connections, setConnections] = useState<Connection[]>([]);
-  const [connectionId, setConnectionId] = useState<number | null>(null);
+  const [connections, setConnections] = createSignal<Connection[]>([]);
+  const [connectionId, setConnectionId] = createSignal<number | null>(null);
 
-  const [runningId, setRunningId] = useState<string | null>(null);
-  const [lastResult, setLastResult] = useState<TestRunResult | null>(null);
-  const [runError, setRunError] = useState<string | null>(null);
-  const [traffic, setTraffic] = useState<TrafficDataPoint[] | null>(null);
-  const [markerTraffic, setMarkerTraffic] = useState<TestTrafficResponse | null>(null);
+  const [runningId, setRunningId] = createSignal<string | null>(null);
+  const [lastResult, setLastResult] = createSignal<TestRunResult | null>(null);
+  const [runError, setRunError] = createSignal<string | null>(null);
+  const [traffic, setTraffic] = createSignal<TrafficDataPoint[] | null>(null);
+  const [markerTraffic, setMarkerTraffic] = createSignal<TestTrafficResponse | null>(null);
 
   // ── Fetchers ────────────────────────────────────────────
-  useEffect(() => {
+  onMount(() => {
     let cancelled = false;
     api
       .getTestsCatalog()
@@ -88,19 +88,20 @@ export default function Tests() {
       .catch(() => {
         // Connections API may fail in dev — fall back to localhost-only.
       });
-    return () => {
+    onCleanup(() => {
       cancelled = true;
-    };
-  }, []);
+    });
+  });
 
   // Refresh traffic chart every 10s — the chart is the proof the test fired.
   // The marker overlay relies on this polling to actually show the spike
   // once Vector flushes the new audit row into ClickHouse.
-  useEffect(() => {
+  createEffect(() => {
+    const connId = connectionId();
     let cancelled = false;
     const run = () =>
       api
-        .getTraffic(1, connectionId)
+        .getTraffic(1, connId)
         .then((res) => {
           if (!cancelled) setTraffic(res);
         })
@@ -109,21 +110,22 @@ export default function Tests() {
         });
     run();
     const id = setInterval(run, 10_000);
-    return () => {
+    onCleanup(() => {
       cancelled = true;
       clearInterval(id);
-    };
-  }, [connectionId]);
+    });
+  });
 
   // After a Run, poll the marker endpoint until rows land (or 8s expires).
-  useEffect(() => {
-    if (!lastResult || !lastResult.marker) return;
+  createEffect(() => {
+    const result = lastResult();
+    if (!result || !result.marker) return;
     let cancelled = false;
     let attempts = 0;
     const tick = async () => {
       attempts += 1;
       try {
-        const data = await api.getTestTrafficByMarker(lastResult.marker);
+        const data = await api.getTestTrafficByMarker(result.marker);
         if (cancelled) return;
         setMarkerTraffic(data);
         if (data.events.length > 0 || attempts >= 8) return;
@@ -134,217 +136,224 @@ export default function Tests() {
       if (!cancelled && attempts < 8) setTimeout(tick, 1000);
     };
     tick();
-    return () => {
+    onCleanup(() => {
       cancelled = true;
-    };
-  }, [lastResult]);
+    });
+  });
 
-  const onRun = useCallback(
-    async (test: TestCase) => {
-      if (runningId) return;
-      setRunningId(test.id);
-      setRunError(null);
-      setMarkerTraffic(null);
-      try {
-        const res = await api.runTest({
-          test_id: test.id,
-          connection_id: connectionId,
-        });
-        setLastResult(res);
-      } catch (e) {
-        const msg = e instanceof Error ? e.message : String(e);
-        if (msg.includes("rate limit")) {
-          setRunError(t("tests.rateLimit"));
-        } else if (msg.includes("unknown test_id")) {
-          setRunError(t("tests.unknownTest"));
-        } else {
-          setRunError(t("tests.runError").replace("{msg}", msg));
-        }
-      } finally {
-        setRunningId(null);
+  const onRun = async (test: TestCase) => {
+    if (runningId()) return;
+    setRunningId(test.id);
+    setRunError(null);
+    setMarkerTraffic(null);
+    try {
+      const res = await api.runTest({
+        test_id: test.id,
+        connection_id: connectionId(),
+      });
+      setLastResult(res);
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      if (msg.includes("rate limit")) {
+        setRunError(settings.t("tests.rateLimit"));
+      } else if (msg.includes("unknown test_id")) {
+        setRunError(settings.t("tests.unknownTest"));
+      } else {
+        setRunError(settings.t("tests.runError").replace("{msg}", msg));
       }
-    },
-    [runningId, connectionId, t],
-  );
+    } finally {
+      setRunningId(null);
+    }
+  };
 
   // Group catalog by family — render families in fixed order.
-  const grouped = useMemo(() => {
+  const grouped = createMemo(() => {
     const map = new Map<TestFamily, TestCase[]>();
-    if (!catalog) return map;
-    for (const test of catalog) {
+    const cat = catalog();
+    if (!cat) return map;
+    for (const test of cat) {
       const existing = map.get(test.family) ?? [];
       existing.push(test);
       map.set(test.family, existing);
     }
     return map;
-  }, [catalog]);
+  });
 
-  const markerTimes = useMemo(() => markerTraffic?.timestamps ?? [], [markerTraffic]);
+  const markerTimes = createMemo(() => markerTraffic()?.timestamps ?? []);
 
-  // ── Render ──────────────────────────────────────────────
   return (
-    <div className="page">
-      <header className="page-header">
-        <div className="page-title-row">
-          <h1 className="page-title">
-            <TestTube size={22} style={{ marginRight: 10, verticalAlign: "-3px" }} />
-            {t("tests.title")}
+    <div class="page">
+      <header class="page-header">
+        <div class="page-title-row">
+          <h1 class="page-title">
+            <TestTube size={22} style={{ "margin-right": "10px", "vertical-align": "-3px" }} />
+            {settings.t("tests.title")}
           </h1>
         </div>
-        <p className="page-subtitle">{t("tests.subtitle")}</p>
+        <p class="page-subtitle">{settings.t("tests.subtitle")}</p>
       </header>
 
       {/* Warning banner */}
       <div
-        className="card"
+        class="card"
         style={{
           padding: "12px 14px",
-          marginBottom: 16,
+          "margin-bottom": "16px",
           display: "flex",
-          alignItems: "flex-start",
-          gap: 10,
-          borderLeft: "6px solid var(--amber, #f59e0b)",
+          "align-items": "flex-start",
+          gap: "10px",
+          "border-left": "6px solid var(--amber, #f59e0b)",
         }}
       >
-        <AlertTriangle size={18} style={{ color: "var(--amber, #f59e0b)", flexShrink: 0, marginTop: 2 }} />
-        <div style={{ fontSize: 13, lineHeight: 1.45, color: "var(--text-secondary)" }}>{t("tests.warning")}</div>
+        <AlertTriangle size={18} style={{ color: "var(--amber, #f59e0b)", "flex-shrink": 0, "margin-top": "2px" }} />
+        <div style={{ "font-size": "13px", "line-height": 1.45, color: "var(--text-secondary)" }}>{settings.t("tests.warning")}</div>
       </div>
 
       {/* Sub-tab switcher */}
-      <div style={{ display: "flex", gap: 0, marginBottom: 16, borderBottom: "2px solid var(--ink)" }}>
-        {(["modsec", "crowdsec"] as SubTab[]).map((sub) => (
-          <button
-            key={sub}
-            onClick={() => setActiveSub(sub)}
-            style={{
-              padding: "10px 22px",
-              background: activeSub === sub ? "var(--ink)" : "transparent",
-              color: activeSub === sub ? "var(--cream)" : "var(--text-secondary)",
-              border: "none",
-              borderRadius: 0,
-              cursor: "pointer",
-              fontFamily: "var(--font-cond)",
-              fontSize: 12,
-              fontWeight: 700,
-              letterSpacing: "0.14em",
-              textTransform: "uppercase",
-            }}
-          >
-            {sub === "modsec" ? t("tests.tab.modsec") : t("tests.tab.crowdsec")}
-          </button>
-        ))}
+      <div style={{ display: "flex", gap: "0", "margin-bottom": "16px", "border-bottom": "2px solid var(--ink)" }}>
+        <For each={["modsec", "crowdsec"] as SubTab[]}>
+          {(sub) => {
+            const active = () => activeSub() === sub;
+            return (
+              <button
+                onClick={() => setActiveSub(sub)}
+                style={{
+                  padding: "10px 22px",
+                  background: active() ? "var(--ink)" : "transparent",
+                  color: active() ? "var(--cream)" : "var(--text-secondary)",
+                  border: "none",
+                  "border-radius": "0",
+                  cursor: "pointer",
+                  "font-family": "var(--font-cond)",
+                  "font-size": "12px",
+                  "font-weight": 700,
+                  "letter-spacing": "0.14em",
+                  "text-transform": "uppercase",
+                }}
+              >
+                {sub === "modsec" ? settings.t("tests.tab.modsec") : settings.t("tests.tab.crowdsec")}
+              </button>
+            );
+          }}
+        </For>
       </div>
 
       {/* Target connection picker */}
       <div
-        className="card"
+        class="card"
         style={{
           padding: "14px 16px",
-          marginBottom: 16,
+          "margin-bottom": "16px",
           display: "flex",
-          alignItems: "center",
-          gap: 14,
-          flexWrap: "wrap",
+          "align-items": "center",
+          gap: "14px",
+          "flex-wrap": "wrap",
         }}
       >
         <label
-          htmlFor="tests-target"
+          for="tests-target"
           style={{
-            fontFamily: "var(--font-cond)",
-            fontWeight: 700,
-            fontSize: 12,
-            letterSpacing: "0.12em",
-            textTransform: "uppercase",
+            "font-family": "var(--font-cond)",
+            "font-weight": 700,
+            "font-size": "12px",
+            "letter-spacing": "0.12em",
+            "text-transform": "uppercase",
             color: "var(--text-secondary)",
           }}
         >
-          {t("tests.target")}
+          {settings.t("tests.target")}
         </label>
         <select
           id="tests-target"
-          value={connectionId ?? ""}
-          onChange={(e) => setConnectionId(e.target.value ? Number(e.target.value) : null)}
+          value={connectionId() ?? ""}
+          onChange={(e) => setConnectionId(e.currentTarget.value ? Number(e.currentTarget.value) : null)}
           style={{
             padding: "8px 12px",
             border: "2px solid var(--ink)",
-            borderRadius: 0,
+            "border-radius": "0",
             background: "var(--card-bg)",
             color: "var(--text-primary)",
-            fontFamily: "var(--font-mono)",
-            fontSize: 13,
-            minWidth: 260,
+            "font-family": "var(--font-mono)",
+            "font-size": "13px",
+            "min-width": "260px",
           }}
         >
-          <option value="">{t("tests.target.localhost")}</option>
-          {connections.map((c) => (
-            <option key={c.id} value={c.id}>
-              {c.name} {c.domain ? `(${c.domain})` : ""}
-            </option>
-          ))}
+          <For each={connections()}>
+            {(c) => (
+              <option value={c.id}>
+                {c.name} {c.domain ? `(${c.domain})` : ""}
+              </option>
+            )}
+          </For>
         </select>
-        <span style={{ fontSize: 12, color: "var(--text-muted)", flex: 1, minWidth: 200 }}>{t("tests.target.help")}</span>
+        <span style={{ "font-size": "12px", color: "var(--text-muted)", flex: 1, "min-width": "200px" }}>{settings.t("tests.target.help")}</span>
       </div>
 
       {/* Last result panel */}
-      {lastResult && (
-        <ResultPanel result={lastResult} translate={t} markerEvents={markerTraffic?.events ?? []} />
-      )}
-      {runError && (
+      <Show when={lastResult()}>
+        {(res) => (
+          <ResultPanel result={res()} translate={settings.t} markerEvents={markerTraffic()?.events ?? []} />
+        )}
+      </Show>
+      
+      <Show when={runError()}>
         <div
-          className="card"
+          class="card"
           style={{
             padding: "10px 14px",
-            marginBottom: 16,
+            "margin-bottom": "16px",
             background: "var(--red)",
             color: "var(--cream)",
-            borderColor: "var(--ink)",
-            fontFamily: "var(--font-mono)",
-            fontSize: 13,
+            "border-color": "var(--ink)",
+            "font-family": "var(--font-mono)",
+            "font-size": "13px",
           }}
         >
-          {runError}
+          {runError()}
         </div>
-      )}
+      </Show>
 
       {/* Live impact chart */}
       <div
-        className="card"
-        style={{ marginBottom: 16 }}
+        class="card"
+        style={{ "margin-bottom": "16px" }}
       >
-        <div className="card-header" style={{ display: "flex", alignItems: "center", gap: 10, justifyContent: "space-between" }}>
-          <h2 style={{ fontSize: 15, margin: 0 }}>{t("tests.impact.title")}</h2>
-          <span style={{ fontSize: 11, color: "var(--text-muted)", fontFamily: "var(--font-mono)" }}>{t("tests.impact.help")}</span>
+        <div class="card-header" style={{ display: "flex", "align-items": "center", gap: "10px", "justify-content": "space-between" }}>
+          <h2 style={{ "font-size": "15px", margin: "0" }}>{settings.t("tests.impact.title")}</h2>
+          <span style={{ "font-size": "11px", color: "var(--text-muted)", "font-family": "var(--font-mono)" }}>{settings.t("tests.impact.help")}</span>
         </div>
         <div style={{ padding: "8px 4px" }}>
-          <TrafficChart data={traffic} loading={traffic === null} markerTimes={markerTimes} />
+          <TrafficChart data={traffic()} loading={traffic() === null} markerTimes={markerTimes()} />
         </div>
       </div>
 
       {/* Catalog */}
-      {activeSub === "modsec" && (
+      <Show when={activeSub() === "modsec"}>
         <ModSecCatalog
-          grouped={grouped}
+          grouped={grouped()}
           familyOrder={FAMILY_ORDER}
-          runningId={runningId}
+          runningId={runningId()}
           onRun={onRun}
-          catalogError={catalogError}
-          catalog={catalog}
-          translate={t}
+          catalogError={catalogError()}
+          catalog={catalog()}
+          translate={settings.t}
         />
-      )}
+      </Show>
 
-      {activeSub === "crowdsec" && <CrowdsecCatalog translate={t} />}
+      <Show when={activeSub() === "crowdsec"}>
+        <CrowdsecCatalog translate={settings.t} />
+      </Show>
     </div>
   );
 }
 
-function CrowdsecCatalog({ translate }: { translate: (key: string) => string }) {
-  const [scenarios, setScenarios] = useState<CrowdsecScenario[] | null>(null);
-  const [runningId, setRunningId] = useState<string | null>(null);
-  const [lastResult, setLastResult] = useState<CrowdsecRunResult | null>(null);
-  const [error, setError] = useState<string | null>(null);
+function CrowdsecCatalog(props: { translate: (key: string) => string }) {
+  const [scenarios, setScenarios] = createSignal<CrowdsecScenario[] | null>(null);
+  const [runningId, setRunningId] = createSignal<string | null>(null);
+  const [lastResult, setLastResult] = createSignal<CrowdsecRunResult | null>(null);
+  const [error, setError] = createSignal<string | null>(null);
 
-  useEffect(() => {
+  onMount(() => {
     let cancelled = false;
     api
       .getCrowdsecTestCatalog()
@@ -354,13 +363,13 @@ function CrowdsecCatalog({ translate }: { translate: (key: string) => string }) 
       .catch((e) => {
         if (!cancelled) setError(e instanceof Error ? e.message : String(e));
       });
-    return () => {
+    onCleanup(() => {
       cancelled = true;
-    };
-  }, []);
+    });
+  });
 
   const onRun = async (s: CrowdsecScenario) => {
-    if (runningId) return;
+    if (runningId()) return;
     setRunningId(s.id);
     setError(null);
     try {
@@ -369,283 +378,283 @@ function CrowdsecCatalog({ translate }: { translate: (key: string) => string }) 
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
       if (msg.includes("rate limit")) {
-        setError(translate("tests.rateLimit"));
+        setError(props.translate("tests.rateLimit"));
       } else {
-        setError(translate("tests.runError").replace("{msg}", msg));
+        setError(props.translate("tests.runError").replace("{msg}", msg));
       }
     } finally {
       setRunningId(null);
     }
   };
 
-  if (error && !scenarios) {
-    return (
-      <div className="card" style={{ padding: 18, color: "var(--red)" }}>
-        {error}
-      </div>
-    );
-  }
-  if (scenarios === null) {
-    return (
-      <div className="card" style={{ padding: 32, textAlign: "center", color: "var(--text-muted)" }}>
-        {translate("tests.loading")}
-      </div>
-    );
-  }
-  if (scenarios.length === 0) {
-    return (
-      <div className="card" style={{ padding: 32, textAlign: "center", color: "var(--text-muted)" }}>
-        {translate("tests.crowdsec.empty")}
-      </div>
-    );
-  }
-
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-      {lastResult && (
-        <div
-          className="card"
-          style={{
-            padding: "14px 16px",
-            borderLeft: `6px solid ${lastResult.decisions_after.length > 0 ? "var(--red)" : "var(--text-muted)"}`,
-          }}
-        >
-          <div
-            style={{
-              fontFamily: "var(--font-cond)",
-              fontSize: 12,
-              fontWeight: 700,
-              letterSpacing: "0.12em",
-              textTransform: "uppercase",
-              marginBottom: 8,
-              color: "var(--text-secondary)",
-            }}
-          >
-            {lastResult.scenario}
-          </div>
-          <div style={{ fontSize: 13, color: "var(--text-primary)", marginBottom: 6 }}>
-            {lastResult.bursts_sent} requests sent · {translate("tests.crowdsec.decisions")}:{" "}
-            <b>{lastResult.decisions_after.length}</b>
-          </div>
-          {lastResult.decisions_after.length > 0 && (
-            <div style={{ fontFamily: "var(--font-mono)", fontSize: 12, color: "var(--text-secondary)" }}>
-              {lastResult.decisions_after.join(", ")}
+    <Show
+      when={scenarios() !== null}
+      fallback={
+        <Show
+          when={error()}
+          fallback={
+            <div class="card" style={{ padding: "32px", "text-align": "center", color: "var(--text-muted)" }}>
+              {props.translate("tests.loading")}
             </div>
-          )}
-          <div
-            style={{
-              marginTop: 6,
-              fontSize: 11,
-              color: "var(--text-muted)",
-              fontFamily: "var(--font-mono)",
-            }}
-          >
-            {translate("tests.crowdsec.window")} · target {lastResult.target_url}
-          </div>
-        </div>
-      )}
-      {error && (
-        <div
-          className="card"
-          style={{
-            padding: "10px 14px",
-            background: "var(--red)",
-            color: "var(--cream)",
-            fontFamily: "var(--font-mono)",
-            fontSize: 13,
-          }}
+          }
         >
-          {error}
-        </div>
-      )}
-      <div
-        style={{
-          display: "grid",
-          gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))",
-          gap: 12,
-        }}
+          <div class="card" style={{ padding: "18px", color: "var(--red)" }}>
+            {error()}
+          </div>
+        </Show>
+      }
+    >
+      <Show
+        when={scenarios()!.length > 0}
+        fallback={
+          <div class="card" style={{ padding: "32px", "text-align": "center", color: "var(--text-muted)" }}>
+            {props.translate("tests.crowdsec.empty")}
+          </div>
+        }
       >
-        {scenarios.map((s) => (
-          <div
-            key={s.id}
-            style={{
-              border: "2px solid var(--ink)",
-              background: "var(--card-bg)",
-              padding: "12px 14px",
-              boxShadow: "var(--shadow-offset-sm)",
-              display: "flex",
-              flexDirection: "column",
-              gap: 8,
-            }}
-          >
-            <div style={{ fontFamily: "var(--font-mono)", fontWeight: 700, fontSize: 12 }}>
-              {s.scenario}
-            </div>
-            <div style={{ fontSize: 12, color: "var(--text-secondary)", lineHeight: 1.4 }}>
-              {s.description}
-            </div>
-            <div style={{ fontSize: 11, color: "var(--text-muted)", fontFamily: "var(--font-mono)" }}>
-              burst = {s.burst_size} requests
-            </div>
-            <button
-              onClick={() => onRun(s)}
-              disabled={runningId !== null}
+        <div style={{ display: "flex", "flex-direction": "column", gap: "14px" }}>
+          <Show when={lastResult()}>
+            {(res) => (
+              <div
+                class="card"
+                style={{
+                  padding: "14px 16px",
+                  "border-left": `6px solid ${res().decisions_after.length > 0 ? "var(--red)" : "var(--text-muted)"}`,
+                }}
+              >
+                <div
+                  style={{
+                    "font-family": "var(--font-cond)",
+                    "font-size": "12px",
+                    "font-weight": 700,
+                    "letter-spacing": "0.12em",
+                    "text-transform": "uppercase",
+                    "margin-bottom": "8px",
+                    color: "var(--text-secondary)",
+                  }}
+                >
+                  {res().scenario}
+                </div>
+                <div style={{ "font-size": "13px", color: "var(--text-primary)", "margin-bottom": "6px" }}>
+                  {res().bursts_sent} requests sent · {props.translate("tests.crowdsec.decisions")}:{" "}
+                  <b>{res().decisions_after.length}</b>
+                </div>
+                <Show when={res().decisions_after.length > 0}>
+                  <div style={{ "font-family": "var(--font-mono)", "font-size": "12px", color: "var(--text-secondary)" }}>
+                    {res().decisions_after.join(", ")}
+                  </div>
+                </Show>
+                <div
+                  style={{
+                    "margin-top": "6px",
+                    "font-size": "11px",
+                    color: "var(--text-muted)",
+                    "font-family": "var(--font-mono)",
+                  }}
+                >
+                  {props.translate("tests.crowdsec.window")} · target {res().target_url}
+                </div>
+              </div>
+            )}
+          </Show>
+          
+          <Show when={error()}>
+            <div
+              class="card"
               style={{
-                marginTop: "auto",
-                padding: "6px 10px",
-                background: runningId === s.id ? "var(--red)" : runningId ? "var(--card-bg)" : "var(--ink)",
-                color: runningId ? "var(--cream)" : "var(--cream)",
-                border: "2px solid var(--ink)",
-                fontFamily: "var(--font-cond)",
-                fontWeight: 700,
-                fontSize: 11,
-                letterSpacing: "0.12em",
-                textTransform: "uppercase",
-                cursor: runningId !== null ? "not-allowed" : "pointer",
-                display: "inline-flex",
-                alignItems: "center",
-                justifyContent: "center",
-                gap: 6,
+                padding: "10px 14px",
+                background: "var(--red)",
+                color: "var(--cream)",
+                "font-family": "var(--font-mono)",
+                "font-size": "13px",
               }}
             >
-              <Play size={11} />
-              {runningId === s.id ? translate("tests.running") : translate("tests.run")}
-            </button>
+              {error()}
+            </div>
+          </Show>
+          
+          <div
+            style={{
+              display: "grid",
+              "grid-template-columns": "repeat(auto-fill, minmax(280px, 1fr))",
+              gap: "12px",
+            }}
+          >
+            <For each={scenarios()}>
+              {(s) => (
+                <div
+                  style={{
+                    border: "2px solid var(--ink)",
+                    background: "var(--card-bg)",
+                    padding: "12px 14px",
+                    "box-shadow": "var(--shadow-offset-sm)",
+                    display: "flex",
+                    "flex-direction": "column",
+                    gap: "8px",
+                  }}
+                >
+                  <div style={{ "font-family": "var(--font-mono)", "font-weight": 700, "font-size": "12px" }}>
+                    {s.scenario}
+                  </div>
+                  <div style={{ "font-size": "12px", color: "var(--text-secondary)", "line-height": 1.4 }}>
+                    {s.description}
+                  </div>
+                  <div style={{ "font-size": "11px", color: "var(--text-muted)", "font-family": "var(--font-mono)" }}>
+                    burst = {s.burst_size} requests
+                  </div>
+                  <button
+                    onClick={() => onRun(s)}
+                    disabled={runningId() !== null}
+                    style={{
+                      "margin-top": "auto",
+                      padding: "6px 10px",
+                      background: runningId() === s.id ? "var(--red)" : runningId() ? "var(--card-bg)" : "var(--ink)",
+                      color: "var(--cream)",
+                      border: "2px solid var(--ink)",
+                      "font-family": "var(--font-cond)",
+                      "font-weight": 700,
+                      "font-size": "11px",
+                      "letter-spacing": "0.12em",
+                      "text-transform": "uppercase",
+                      cursor: runningId() !== null ? "not-allowed" : "pointer",
+                      display: "inline-flex",
+                      "align-items": "center",
+                      "justify-content": "center",
+                      gap: "6px",
+                    }}
+                  >
+                    <Play size={11} />
+                    {runningId() === s.id ? props.translate("tests.running") : props.translate("tests.run")}
+                  </button>
+                </div>
+              )}
+            </For>
           </div>
-        ))}
-      </div>
-    </div>
+        </div>
+      </Show>
+    </Show>
   );
 }
 
 // ── Sub-components ─────────────────────────────────────────────
 
-function ResultPanel({
-  result,
-  markerEvents,
-  translate,
-}: {
+function ResultPanel(props: {
   result: TestRunResult;
   markerEvents: { timestamp: string; rule_id: string; severity: string; uri: string }[];
   translate: (key: string) => string;
 }) {
-  const color = STATUS_COLOR[result.status];
+  const color = () => STATUS_COLOR[props.result.status];
   return (
     <div
-      className="card"
+      class="card"
       style={{
         padding: "14px 16px",
-        marginBottom: 16,
-        borderLeft: `6px solid ${color}`,
+        "margin-bottom": "16px",
+        "border-left": `6px solid ${color()}`,
       }}
     >
-      <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 8 }}>
+      <div style={{ display: "flex", "align-items": "center", gap: "12px", "margin-bottom": "8px" }}>
         <span
           style={{
             display: "inline-flex",
-            alignItems: "center",
-            gap: 6,
-            background: color,
+            "align-items": "center",
+            gap: "6px",
+            background: color(),
             color: "var(--cream)",
             padding: "4px 10px",
             border: "2px solid var(--ink)",
-            fontFamily: "var(--font-cond)",
-            fontSize: 11,
-            fontWeight: 700,
-            letterSpacing: "0.14em",
-            textTransform: "uppercase",
+            "font-family": "var(--font-cond)",
+            "font-size": "11px",
+            "font-weight": 700,
+            "letter-spacing": "0.14em",
+            "text-transform": "uppercase",
           }}
         >
-          {STATUS_ICON[result.status]}
-          {translate(`tests.status.${result.status}`)}
+          {getStatusIcon(props.result.status)}
+          {props.translate(`tests.status.${props.result.status}`)}
         </span>
-        {result.blocked_by && (
-          <span style={{ fontFamily: "var(--font-mono)", fontSize: 12, color: "var(--text-secondary)" }}>
-            {injectionLabel(result.blocked_by)}
+        <Show when={props.result.blocked_by}>
+          <span style={{ "font-family": "var(--font-mono)", "font-size": "12px", color: "var(--text-secondary)" }}>
+            {injectionLabel(props.result.blocked_by!)}
           </span>
-        )}
-        {result.http_code !== null && (
-          <span style={{ fontFamily: "var(--font-mono)", fontSize: 12, color: "var(--text-secondary)" }}>
-            HTTP {result.http_code}
+        </Show>
+        <Show when={props.result.http_code !== null}>
+          <span style={{ "font-family": "var(--font-mono)", "font-size": "12px", color: "var(--text-secondary)" }}>
+            HTTP {props.result.http_code}
           </span>
-        )}
-        {result.latency_ms !== null && (
-          <span style={{ fontFamily: "var(--font-mono)", fontSize: 12, color: "var(--text-muted)" }}>
-            {result.latency_ms}ms
+        </Show>
+        <Show when={props.result.latency_ms !== null}>
+          <span style={{ "font-family": "var(--font-mono)", "font-size": "12px", color: "var(--text-muted)" }}>
+            {props.result.latency_ms}ms
           </span>
-        )}
+        </Show>
       </div>
-      <div style={{ fontSize: 12, color: "var(--text-secondary)", marginBottom: 8 }}>
-        {translate(`tests.status.${result.status}.desc`)}
+      <div style={{ "font-size": "12px", color: "var(--text-secondary)", "margin-bottom": "8px" }}>
+        {props.translate(`tests.status.${props.result.status}.desc`)}
       </div>
-      <div style={{ fontFamily: "var(--font-mono)", fontSize: 11, color: "var(--text-muted)" }}>
-        marker={result.marker}
+      <div style={{ "font-family": "var(--font-mono)", "font-size": "11px", color: "var(--text-muted)" }}>
+        marker={props.result.marker}
       </div>
-      {markerEvents.length > 0 && (
-        <div style={{ marginTop: 12 }}>
+      <Show when={props.markerEvents.length > 0}>
+        <div style={{ "margin-top": "12px" }}>
           <div
             style={{
-              fontFamily: "var(--font-cond)",
-              fontSize: 11,
-              letterSpacing: "0.12em",
-              textTransform: "uppercase",
+              "font-family": "var(--font-cond)",
+              "font-size": "11px",
+              "letter-spacing": "0.12em",
+              "text-transform": "uppercase",
               color: "var(--text-secondary)",
-              marginBottom: 6,
-              borderBottom: "1px solid var(--border-subtle)",
-              paddingBottom: 4,
+              "margin-bottom": "6px",
+              "border-bottom": "1px solid var(--border-subtle)",
+              "padding-bottom": "4px",
             }}
           >
-            {translate("tests.events.title")}
+            {props.translate("tests.events.title")}
           </div>
-          <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
+          <table style={{ width: "100%", "border-collapse": "collapse", "font-size": "12px" }}>
             <thead>
-              <tr style={{ textAlign: "left", color: "var(--text-muted)" }}>
-                <th style={thStyle}>{translate("tests.events.col.time")}</th>
-                <th style={thStyle}>{translate("tests.events.col.rule")}</th>
-                <th style={thStyle}>{translate("tests.events.col.severity")}</th>
-                <th style={thStyle}>{translate("tests.events.col.uri")}</th>
+              <tr style={{ "text-align": "left", color: "var(--text-muted)" }}>
+                <th style={thStyle}>{props.translate("tests.events.col.time")}</th>
+                <th style={thStyle}>{props.translate("tests.events.col.rule")}</th>
+                <th style={thStyle}>{props.translate("tests.events.col.severity")}</th>
+                <th style={thStyle}>{props.translate("tests.events.col.uri")}</th>
               </tr>
             </thead>
             <tbody>
-              {markerEvents.slice(0, 20).map((ev, i) => (
-                <tr key={i} style={{ borderTop: "1px solid var(--border-subtle)" }}>
-                  <td style={tdStyle}>{new Date(ev.timestamp).toLocaleTimeString()}</td>
-                  <td style={{ ...tdStyle, fontFamily: "var(--font-mono)" }}>{injectionLabel(ev.rule_id)}</td>
-                  <td style={tdStyle}>{ev.severity}</td>
-                  <td style={{ ...tdStyle, fontFamily: "var(--font-mono)", color: "var(--text-muted)" }}>{ev.uri}</td>
-                </tr>
-              ))}
+              <For each={props.markerEvents.slice(0, 20)}>
+                {(ev) => (
+                  <tr style={{ "border-top": "1px solid var(--border-subtle)" }}>
+                    <td style={tdStyle}>{new Date(ev.timestamp).toLocaleTimeString()}</td>
+                    <td style={{ ...tdStyle, "font-family": "var(--font-mono)" }}>{injectionLabel(ev.rule_id)}</td>
+                    <td style={tdStyle}>{ev.severity}</td>
+                    <td style={{ ...tdStyle, "font-family": "var(--font-mono)", color: "var(--text-muted)" }}>{ev.uri}</td>
+                  </tr>
+                )}
+              </For>
             </tbody>
           </table>
         </div>
-      )}
+      </Show>
     </div>
   );
 }
 
-const thStyle: React.CSSProperties = {
+const thStyle = {
   padding: "4px 6px",
-  fontFamily: "var(--font-cond)",
-  fontWeight: 700,
-  fontSize: 10,
-  letterSpacing: "0.12em",
-  textTransform: "uppercase",
+  "font-family": "var(--font-cond)",
+  "font-weight": 700,
+  "font-size": "10px",
+  "letter-spacing": "0.12em",
+  "text-transform": "uppercase",
 };
 
-const tdStyle: React.CSSProperties = {
+const tdStyle = {
   padding: "5px 6px",
   color: "var(--text-primary)",
 };
 
-function ModSecCatalog({
-  grouped,
-  familyOrder,
-  runningId,
-  onRun,
-  catalogError,
-  catalog,
-  translate,
-}: {
+function ModSecCatalog(props: {
   grouped: Map<TestFamily, TestCase[]>;
   familyOrder: TestFamily[];
   runningId: string | null;
@@ -654,96 +663,98 @@ function ModSecCatalog({
   catalog: TestCase[] | null;
   translate: (key: string) => string;
 }) {
-  if (catalogError) {
-    return (
-      <div className="card" style={{ padding: 18, color: "var(--red)" }}>
-        {catalogError}
-      </div>
-    );
-  }
-  if (catalog === null) {
-    return (
-      <div className="card" style={{ padding: 32, textAlign: "center", color: "var(--text-muted)" }}>
-        Loading…
-      </div>
-    );
-  }
-  if (catalog.length === 0) {
-    return (
-      <div className="card" style={{ padding: 32, textAlign: "center", color: "var(--text-muted)" }}>
-        {translate("tests.empty")}
-      </div>
-    );
-  }
-
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-      {familyOrder.map((family) => {
-        const tests = grouped.get(family);
-        if (!tests || tests.length === 0) return null;
-        return (
-          <details key={family} className="card" open style={{ marginBottom: 0 }}>
-            <summary
-              style={{
-                cursor: "pointer",
-                padding: "12px 14px",
-                fontFamily: "var(--font-cond)",
-                fontWeight: 700,
-                letterSpacing: "0.1em",
-                textTransform: "uppercase",
-                fontSize: 13,
-                borderBottom: "2px solid var(--ink)",
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "space-between",
-              }}
-            >
-              <span>{translate(`tests.family.${family}`)}</span>
-              <span
-                style={{
-                  fontFamily: "var(--font-mono)",
-                  fontSize: 11,
-                  color: "var(--text-muted)",
-                  letterSpacing: 0,
-                  textTransform: "none",
-                }}
-              >
-                {tests.length}
-              </span>
-            </summary>
-            <div
-              style={{
-                display: "grid",
-                gridTemplateColumns: "repeat(auto-fill, minmax(260px, 1fr))",
-                gap: 10,
-                padding: 14,
-              }}
-            >
-              {tests.map((test) => (
-                <TestRunCard
-                  key={test.id}
-                  test={test}
-                  busy={runningId !== null}
-                  onRun={onRun}
-                  runLabel={translate("tests.run")}
-                  runningLabel={translate("tests.running")}
-                />
-              ))}
+    <Show
+      when={props.catalog !== null}
+      fallback={
+        <Show
+          when={props.catalogError}
+          fallback={
+            <div class="card" style={{ padding: "32px", "text-align": "center", color: "var(--text-muted)" }}>
+              Loading…
             </div>
-          </details>
-        );
-      })}
-    </div>
+          }
+        >
+          <div class="card" style={{ padding: "18px", color: "var(--red)" }}>
+            {props.catalogError}
+          </div>
+        </Show>
+      }
+    >
+      <Show
+        when={props.catalog!.length > 0}
+        fallback={
+          <div class="card" style={{ padding: "32px", "text-align": "center", color: "var(--text-muted)" }}>
+            {props.translate("tests.empty")}
+          </div>
+        }
+      >
+        <div style={{ display: "flex", "flex-direction": "column", gap: "14px" }}>
+          <For each={props.familyOrder}>
+            {(family) => {
+              const tests = props.grouped.get(family);
+              if (!tests || tests.length === 0) return null;
+              return (
+                <details class="card" open style={{ "margin-bottom": 0 }}>
+                  <summary
+                    style={{
+                      cursor: "pointer",
+                      padding: "12px 14px",
+                      "font-family": "var(--font-cond)",
+                      "font-weight": 700,
+                      "letter-spacing": "0.1em",
+                      "text-transform": "uppercase",
+                      "font-size": "13px",
+                      "border-bottom": "2px solid var(--ink)",
+                      display: "flex",
+                      "align-items": "center",
+                      "justify-content": "space-between",
+                    }}
+                  >
+                    <span>{props.translate(`tests.family.${family}`)}</span>
+                    <span
+                      style={{
+                        "font-family": "var(--font-mono)",
+                        "font-size": "11px",
+                        color: "var(--text-muted)",
+                        "letter-spacing": 0,
+                        "text-transform": "none",
+                      }}
+                    >
+                      {tests.length}
+                    </span>
+                  </summary>
+                  <div
+                    style={{
+                      display: "grid",
+                      "grid-template-columns": "repeat(auto-fill, minmax(260px, 1fr))",
+                      gap: "10px",
+                      padding: "14px",
+                    }}
+                  >
+                    <For each={tests}>
+                      {(test) => (
+                        <TestRunCard
+                          test={test}
+                          busy={props.runningId !== null}
+                          onRun={props.onRun}
+                          runLabel={props.translate("tests.run")}
+                          runningLabel={props.translate("tests.running")}
+                        />
+                      )}
+                    </For>
+                  </div>
+                </details>
+              );
+            }}
+          </For>
+        </div>
+      </Show>
+    </Show>
   );
 }
 
-function TestRunCard({
-  test,
-  busy,
-  onRun,
-  runLabel,
-  runningLabel,
-}: {
+function TestRunCard(props: {
   test: TestCase;
   busy: boolean;
   onRun: (t: TestCase) => void;
@@ -757,73 +768,73 @@ function TestRunCard({
         background: "var(--card-bg)",
         padding: "10px 12px",
         display: "flex",
-        flexDirection: "column",
-        gap: 8,
-        boxShadow: "var(--shadow-offset-sm)",
+        "flex-direction": "column",
+        gap: "8px",
+        "box-shadow": "var(--shadow-offset-sm)",
       }}
     >
       <div
         style={{
           display: "flex",
-          alignItems: "baseline",
-          gap: 8,
+          "align-items": "baseline",
+          gap: "8px",
         }}
       >
         <span
           style={{
-            fontFamily: "var(--font-cond)",
-            fontSize: 14,
-            fontWeight: 700,
-            letterSpacing: "0.04em",
+            "font-family": "var(--font-cond)",
+            "font-size": "14px",
+            "font-weight": 700,
+            "letter-spacing": "0.04em",
             color: "var(--text-primary)",
           }}
         >
-          {injectionName(test.rule_id)}
+          {injectionName(props.test.rule_id)}
         </span>
         <span
           style={{
-            fontFamily: "var(--font-mono)",
-            fontSize: 11,
+            "font-family": "var(--font-mono)",
+            "font-size": "11px",
             color: "var(--text-muted)",
           }}
         >
-          {test.rule_id}
+          {props.test.rule_id}
         </span>
       </div>
       <div
         style={{
-          fontSize: 11,
+          "font-size": "11px",
           color: "var(--text-muted)",
-          fontFamily: "var(--font-mono)",
-          wordBreak: "break-all",
-          minHeight: 28,
+          "font-family": "var(--font-mono)",
+          "word-break": "break-all",
+          "min-height": "28px",
         }}
       >
-        {test.method} {test.path}
-        {test.query["param"] ? `?param=${truncate(test.query["param"], 32)}` : ""}
+        {props.test.method} {props.test.path}
+        {props.test.query["param"] ? `?param=${truncate(props.test.query["param"], 32)}` : ""}
       </div>
       <button
-        onClick={() => onRun(test)}
-        disabled={busy}
+        onClick={() => props.onRun(props.test)}
+        disabled={props.busy}
         style={{
           padding: "6px 10px",
-          background: busy ? "var(--card-bg)" : "var(--ink)",
-          color: busy ? "var(--text-muted)" : "var(--cream)",
+          background: props.busy ? "var(--card-bg)" : "var(--ink)",
+          color: props.busy ? "var(--text-muted)" : "var(--cream)",
           border: "2px solid var(--ink)",
-          fontFamily: "var(--font-cond)",
-          fontWeight: 700,
-          fontSize: 11,
-          letterSpacing: "0.12em",
-          textTransform: "uppercase",
-          cursor: busy ? "not-allowed" : "pointer",
+          "font-family": "var(--font-cond)",
+          "font-weight": 700,
+          "font-size": "11px",
+          "letter-spacing": "0.12em",
+          "text-transform": "uppercase",
+          cursor: props.busy ? "not-allowed" : "pointer",
           display: "inline-flex",
-          alignItems: "center",
-          justifyContent: "center",
-          gap: 6,
+          "align-items": "center",
+          "justify-content": "center",
+          gap: "6px",
         }}
       >
         <Play size={11} />
-        {busy ? runningLabel : runLabel}
+        {props.busy ? props.runningLabel : props.runLabel}
       </button>
     </div>
   );

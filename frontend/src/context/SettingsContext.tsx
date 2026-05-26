@@ -1,4 +1,4 @@
-import { createContext, useContext, useState, useEffect, useCallback, type ReactNode } from "react";
+import { createContext, useContext, createSignal, createEffect, type JSX } from "solid-js";
 import type { Lang } from "../i18n/translations";
 import { t as translate } from "../i18n/translations";
 
@@ -47,45 +47,57 @@ function applyTheme(theme: Theme) {
   document.documentElement.setAttribute("data-theme", theme);
 }
 
-export function SettingsProvider({ children }: { children: ReactNode }) {
-  const [theme, setThemeState] = useState<Theme>(loadTheme);
-  const [lang, setLangState] = useState<Lang>(loadLang);
+export function SettingsProvider(props: { children: JSX.Element }) {
+  const [theme, setThemeState] = createSignal<Theme>(loadTheme());
+  const [lang, setLangState] = createSignal<Lang>(loadLang());
 
-  // Apply theme on mount and when changed
-  useEffect(() => {
-    applyTheme(theme);
-  }, [theme]);
+  // Apply theme when changed reactively
+  createEffect(() => {
+    applyTheme(theme());
+  });
 
-  const setTheme = useCallback((t: Theme) => {
+  const setTheme = (t: Theme) => {
     setThemeState(t);
     try {
       localStorage.setItem(STORAGE_THEME, t);
     } catch {
       // ignore
     }
-  }, []);
+  };
 
-  const toggleTheme = useCallback(() => {
-    setTheme(theme === "dark" ? "light" : "dark");
-  }, [theme, setTheme]);
+  const toggleTheme = () => {
+    setTheme(theme() === "dark" ? "light" : "dark");
+  };
 
-  const setLang = useCallback((l: Lang) => {
+  const setLang = (l: Lang) => {
     setLangState(l);
     try {
       localStorage.setItem(STORAGE_LANG, l);
     } catch {
       // ignore
     }
-  }, []);
+  };
 
-  const t = useCallback(
-    (key: string, vars?: Record<string, string | number>) => translate(lang, key, vars),
-    [lang],
-  );
+  const t = (key: string, vars?: Record<string, string | number>) => {
+    return translate(lang(), key, vars);
+  };
+
+  const value: SettingsContextValue = {
+    get theme() {
+      return theme();
+    },
+    get lang() {
+      return lang();
+    },
+    setTheme,
+    toggleTheme,
+    setLang,
+    t,
+  };
 
   return (
-    <SettingsContext.Provider value={{ theme, setTheme, toggleTheme, lang, setLang, t }}>
-      {children}
+    <SettingsContext.Provider value={value}>
+      {props.children}
     </SettingsContext.Provider>
   );
 }

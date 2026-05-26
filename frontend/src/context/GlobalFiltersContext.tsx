@@ -1,12 +1,11 @@
 import {
   createContext,
-  useCallback,
   useContext,
-  useEffect,
-  useMemo,
-  useState,
-  type ReactNode,
-} from "react";
+  createSignal,
+  createEffect,
+  createMemo,
+  type JSX,
+} from "solid-js";
 import type { Connection } from "../api/client";
 
 export type TimeUnit = "minutes" | "hours" | "days";
@@ -63,74 +62,74 @@ interface GlobalFiltersValue {
   setTimeValue: (v: number) => void;
   timeUnit: TimeUnit;
   setTimeUnit: (u: TimeUnit) => void;
-  /** Time window in hours (timeValue * multiplier), clamped to [1/60, MAX_HOURS]. */
   selectedHours: number;
-  /** All enabled connections for the current tenant. Empty until first load completes. */
   connections: Connection[];
   setConnections: (cs: Connection[]) => void;
 }
 
 const Ctx = createContext<GlobalFiltersValue | null>(null);
 
-export function GlobalFiltersProvider({ children }: { children: ReactNode }) {
-  const initial = useMemo(loadPersisted, []);
-  const [connectionId, setConnectionIdState] = useState<number | null>(
+export function GlobalFiltersProvider(props: { children: JSX.Element }) {
+  const initial = loadPersisted();
+  const [connectionId, setConnectionIdState] = createSignal<number | null>(
     initial.connectionId,
   );
-  const [timeValue, setTimeValueState] = useState<number>(initial.timeValue);
-  const [timeUnit, setTimeUnitState] = useState<TimeUnit>(initial.timeUnit);
-  const [connections, setConnections] = useState<Connection[]>([]);
+  const [timeValue, setTimeValueState] = createSignal<number>(initial.timeValue);
+  const [timeUnit, setTimeUnitState] = createSignal<TimeUnit>(initial.timeUnit);
+  const [connections, setConnections] = createSignal<Connection[]>([]);
 
-  useEffect(() => {
+  createEffect(() => {
     try {
-      const snapshot: PersistedShape = { connectionId, timeValue, timeUnit };
+      const snapshot: PersistedShape = {
+        connectionId: connectionId(),
+        timeValue: timeValue(),
+        timeUnit: timeUnit(),
+      };
       localStorage.setItem(STORAGE_KEY, JSON.stringify(snapshot));
     } catch {
       // localStorage blocked — fine, fall back to in-memory.
     }
-  }, [connectionId, timeValue, timeUnit]);
+  });
 
-  const setConnectionId = useCallback((id: number | null) => {
+  const setConnectionId = (id: number | null) => {
     setConnectionIdState(id);
-  }, []);
-  const setTimeValue = useCallback((v: number) => {
+  };
+  const setTimeValue = (v: number) => {
     if (Number.isFinite(v) && v >= 1) setTimeValueState(Math.floor(v));
-  }, []);
-  const setTimeUnit = useCallback((u: TimeUnit) => {
+  };
+  const setTimeUnit = (u: TimeUnit) => {
     setTimeUnitState(u);
-  }, []);
+  };
 
-  const selectedHours = useMemo(() => {
-    const m = TIME_UNIT_MULTIPLIERS[timeUnit] ?? 1;
-    const h = timeValue * m;
+  const selectedHours = createMemo(() => {
+    const m = TIME_UNIT_MULTIPLIERS[timeUnit()] ?? 1;
+    const h = timeValue() * m;
     return Math.min(MAX_HOURS, Math.max(1 / 60, +h.toFixed(4)));
-  }, [timeValue, timeUnit]);
+  });
 
-  const value = useMemo<GlobalFiltersValue>(
-    () => ({
-      connectionId,
-      setConnectionId,
-      timeValue,
-      setTimeValue,
-      timeUnit,
-      setTimeUnit,
-      selectedHours,
-      connections,
-      setConnections,
-    }),
-    [
-      connectionId,
-      setConnectionId,
-      timeValue,
-      setTimeValue,
-      timeUnit,
-      setTimeUnit,
-      selectedHours,
-      connections,
-    ],
-  );
+  const value: GlobalFiltersValue = {
+    get connectionId() {
+      return connectionId();
+    },
+    setConnectionId,
+    get timeValue() {
+      return timeValue();
+    },
+    setTimeValue,
+    get timeUnit() {
+      return timeUnit();
+    },
+    setTimeUnit,
+    get selectedHours() {
+      return selectedHours();
+    },
+    get connections() {
+      return connections();
+    },
+    setConnections,
+  };
 
-  return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
+  return <Ctx.Provider value={value}>{props.children}</Ctx.Provider>;
 }
 
 export function useGlobalFilters(): GlobalFiltersValue {

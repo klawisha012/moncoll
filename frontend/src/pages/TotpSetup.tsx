@@ -1,24 +1,25 @@
-import { useEffect, useState, type FormEvent } from "react";
-import { useNavigate } from "react-router-dom";
+import { createSignal, onMount } from "solid-js";
+import { Show, For } from "solid-js";
+import { useNavigate } from "@solidjs/router";
 import { useSettings } from "../context/SettingsContext";
 import { useAuth } from "../context/AuthContext";
 import { api } from "../api/client";
 
 export default function TotpSetup() {
-  const { t } = useSettings();
-  const { user, refresh } = useAuth();
+  const settings = useSettings();
+  const auth = useAuth();
   const navigate = useNavigate();
 
-  const [qrDataUri, setQrDataUri] = useState("");
-  const [secret, setSecret] = useState("");
-  const [recoveryCodes, setRecoveryCodes] = useState<string[]>([]);
-  const [code, setCode] = useState("");
-  const [loadError, setLoadError] = useState<string | null>(null);
-  const [submitError, setSubmitError] = useState<string | null>(null);
-  const [submitting, setSubmitting] = useState(false);
-  const [confirmed, setConfirmed] = useState(false);
+  const [qrDataUri, setQrDataUri] = createSignal("");
+  const [secret, setSecret] = createSignal("");
+  const [recoveryCodes, setRecoveryCodes] = createSignal<string[]>([]);
+  const [code, setCode] = createSignal("");
+  const [loadError, setLoadError] = createSignal<string | null>(null);
+  const [submitError, setSubmitError] = createSignal<string | null>(null);
+  const [submitting, setSubmitting] = createSignal(false);
+  const [confirmed, setConfirmed] = createSignal(false);
 
-  useEffect(() => {
+  onMount(() => {
     api.auth.totpSetup()
       .then((data) => {
         setQrDataUri(data.qr_code_data_uri);
@@ -28,37 +29,37 @@ export default function TotpSetup() {
         setRecoveryCodes(data.recovery_codes ?? []);
       })
       .catch((err: Error) => setLoadError(err.message));
-  }, []);
+  });
 
-  const confirm = async (e: FormEvent) => {
+  const confirm = async (e: Event) => {
     e.preventDefault();
     setSubmitError(null);
     setSubmitting(true);
     try {
-      await api.auth.totpConfirm(code);
+      await api.auth.totpConfirm(code());
       setConfirmed(true);
-      await refresh();
+      await auth.refresh();
     } catch (err) {
-      setSubmitError(err instanceof Error ? err.message : t("general.error"));
+      setSubmitError(() => err instanceof Error ? err.message : settings.t("general.error"));
     } finally {
       setSubmitting(false);
     }
   };
 
   const proceed = () => {
-    const role = user?.platform_role;
+    const role = auth.user?.platform_role;
     navigate(role === "admin" ? "/monitoring" : "/home", { replace: true });
   };
 
   const downloadCodes = () => {
     const lines = [
       "WAF — recovery codes",
-      `Account: ${user?.email ?? ""}`,
+      `Account: ${auth.user?.email ?? ""}`,
       `Issued:  ${new Date().toISOString()}`,
       "",
       "Each code can be used ONCE. Store this file somewhere safe.",
       "",
-      ...recoveryCodes,
+      ...recoveryCodes(),
       "",
     ];
     const blob = new Blob([lines.join("\n")], { type: "text/plain;charset=utf-8" });
@@ -73,94 +74,98 @@ export default function TotpSetup() {
   };
 
   return (
-    <div className="cv-root">
+    <div class="cv-root">
       <style>{styles}</style>
 
-      <section className="cv-manifest">
-        <div className="cv-eyebrow">
-          <span className="cv-n">06</span>
-          <span className="cv-eyebrow-text">{t("auth.totp.eyebrow")}</span>
+      <section class="cv-manifest">
+        <div class="cv-eyebrow">
+          <span class="cv-n">06</span>
+          <span class="cv-eyebrow-text">{settings.t("auth.totp.eyebrow")}</span>
         </div>
-        <h1 className="cv-h1">
-          <span className="cv-stack">{t("auth.totp.heroLine1")}</span>
-          <span className="cv-stack"><span className="cv-ws">{t("auth.totp.heroLine2")}</span></span>
-          <span className="cv-stack"><span className="cv-tilt">{t("auth.totp.heroLine3")}</span></span>
+        <h1 class="cv-h1">
+          <span class="cv-stack">{settings.t("auth.totp.heroLine1")}</span>
+          <span class="cv-stack"><span class="cv-ws">{settings.t("auth.totp.heroLine2")}</span></span>
+          <span class="cv-stack"><span class="cv-tilt">{settings.t("auth.totp.heroLine3")}</span></span>
         </h1>
-        <p className="cv-deck">{t("auth.totp.quote")}</p>
-        <div className="cv-disc" aria-hidden />
+        <p class="cv-deck">{settings.t("auth.totp.quote")}</p>
+        <div class="cv-disc" aria-hidden />
       </section>
 
-      <section className="cv-form-side">
-        <div className="cv-form">
-          <div className="cv-form-head">
-            <span className="cv-kicker">{t("auth.totp.kicker")}</span>
+      <section class="cv-form-side">
+        <div class="cv-form">
+          <div class="cv-form-head">
+            <span class="cv-kicker">{settings.t("auth.totp.kicker")}</span>
           </div>
 
-          {loadError && <div className="cv-error">{loadError}</div>}
+          <Show when={loadError()}>
+            <div class="cv-error">{loadError()}</div>
+          </Show>
 
-          {!loadError && !confirmed && (
+          <Show when={!loadError() && !confirmed()}>
             <>
-              {qrDataUri && (
-                <div className="cv-qr-block">
-                  <p className="cv-label">{t("auth.totp.scanQr")}</p>
-                  <img src={qrDataUri} alt="TOTP QR code" className="cv-qr-img" />
-                  <p className="cv-label" style={{ marginTop: 12 }}>{t("auth.totp.orEnterSecret")}</p>
-                  <code className="cv-secret">{secret}</code>
+              <Show when={qrDataUri()}>
+                <div class="cv-qr-block">
+                  <p class="cv-label">{settings.t("auth.totp.scanQr")}</p>
+                  <img src={qrDataUri()} alt="TOTP QR code" class="cv-qr-img" />
+                  <p class="cv-label" style={{ "margin-top": "12px" }}>{settings.t("auth.totp.orEnterSecret")}</p>
+                  <code class="cv-secret">{secret()}</code>
                 </div>
-              )}
+              </Show>
 
-              <form onSubmit={confirm} className="cv-inner-form">
-                <div className="cv-field">
-                  <label htmlFor="cv-totp-code">{t("auth.totp.enterCode")}</label>
-                  <div className="cv-inp">
-                    <span className="cv-tag">⊕</span>
+              <form onSubmit={confirm} class="cv-inner-form">
+                <div class="cv-field">
+                  <label for="cv-totp-code">{settings.t("auth.totp.enterCode")}</label>
+                  <div class="cv-inp">
+                    <span class="cv-tag">⊕</span>
                     <input
                       id="cv-totp-code"
-                      type="text" inputMode="numeric" pattern="\d{6}" maxLength={6}
-                      value={code}
-                      onChange={(e) => setCode(e.target.value.replace(/\D/g, ""))}
-                      autoComplete="one-time-code" placeholder="000000"
-                      autoFocus
+                      type="text" inputmode="numeric" pattern="\d{6}" maxLength={6}
+                      value={code()}
+                      onInput={(e) => setCode(e.currentTarget.value.replace(/\D/g, ""))}
+                      autocomplete="one-time-code" placeholder="000000"
+                      autofocus
                     />
                   </div>
                 </div>
 
-                {submitError && <div className="cv-error">{submitError}</div>}
+                <Show when={submitError()}>
+                  <div class="cv-error">{submitError()}</div>
+                </Show>
 
-                <button type="submit" className="cv-submit" disabled={submitting || code.length !== 6}>
-                  <span>{submitting ? t("auth.totp.confirming") : t("auth.totp.confirm")}</span>
-                  <span className="cv-ar">→</span>
+                <button type="submit" class="cv-submit" disabled={submitting() || code().length !== 6}>
+                  <span>{submitting() ? settings.t("auth.totp.confirming") : settings.t("auth.totp.confirm")}</span>
+                  <span class="cv-ar">→</span>
                 </button>
               </form>
             </>
-          )}
+          </Show>
 
-          {confirmed && (
+          <Show when={confirmed()}>
             <>
-              <div className="cv-success-box">
-                <p className="cv-label" style={{ marginBottom: 8 }}>{t("auth.totp.recoveryCodes")}</p>
-                <p className="cv-hint">{t("auth.totp.recoveryCodesDesc")}</p>
-                <div className="cv-recovery-grid">
-                  {recoveryCodes.map((rc) => (
-                    <code key={rc} className="cv-rc">{rc}</code>
-                  ))}
+              <div class="cv-success-box">
+                <p class="cv-label" style={{ "margin-bottom": "8px" }}>{settings.t("auth.totp.recoveryCodes")}</p>
+                <p class="cv-hint">{settings.t("auth.totp.recoveryCodesDesc")}</p>
+                <div class="cv-recovery-grid">
+                  <For each={recoveryCodes()}>
+                    {(rc) => <code class="cv-rc">{rc}</code>}
+                  </For>
                 </div>
                 <button
                   type="button"
-                  className="cv-download"
+                  class="cv-download"
                   onClick={downloadCodes}
-                  disabled={recoveryCodes.length === 0}
+                  disabled={recoveryCodes().length === 0}
                 >
-                  ↓ {t("auth.totp.downloadCodes")}
+                  ↓ {settings.t("auth.totp.downloadCodes")}
                 </button>
               </div>
 
-              <button type="button" className="cv-submit" onClick={proceed}>
-                <span>{t("general.continue")}</span>
-                <span className="cv-ar">→</span>
+              <button type="button" class="cv-submit" onClick={proceed}>
+                <span>{settings.t("general.continue")}</span>
+                <span class="cv-ar">→</span>
               </button>
             </>
-          )}
+          </Show>
         </div>
       </section>
     </div>
@@ -297,3 +302,4 @@ const styles = `
   .cv-h1 { font-size: clamp(48px, 14vw, 84px); }
 }
 `;
+

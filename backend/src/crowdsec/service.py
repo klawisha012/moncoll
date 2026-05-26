@@ -20,7 +20,7 @@ logger = logging.getLogger(__name__)
 
 CROWDSEC_CONTAINER = "waf-crowdsec-1"
 ANGIE_CONTAINER = "waf-angie-1"
-BLOCKED_IPS_CONF = "/var/lib/angie/http.d/blocked_ips.conf"
+BLOCKED_IPS_CONF = "/var/lib/angie/http.d/blocked_ips.list"
 
 # ClickHouse connection from environment
 CLICKHOUSE_ENDPOINT = os.getenv("CLICKHOUSE_ENDPOINT", "http://clickhouse:8123")

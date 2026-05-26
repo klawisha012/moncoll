@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { createEffect, createMemo, createSignal, onCleanup, onMount, For, Show } from "solid-js";
 import {
   api,
   GeoipMapPoint,
@@ -35,21 +35,18 @@ function classifyUnresolvedIp(ip: string): { kind: string; reason: string } {
   return { kind: "Public", reason: "Missing from MaxMind GeoLite2." };
 }
 
-function GeoipMapPanel({
-  data,
-  loading,
-  events,
-  view,
-}: {
+function GeoipMapPanel(props: {
   data: GeoipMapPoint[] | null;
   loading: boolean;
   events: SecurityEvent[] | null;
   view: View;
 }) {
-  const { theme, t } = useSettings();
-  const isLight = theme === "light";
+  const settings = useSettings();
+  const isLight = () => settings.theme === "light";
 
-  const enriched = useMemo<EnrichedGeoPoint[]>(() => {
+  const enriched = createMemo<EnrichedGeoPoint[]>(() => {
+    const data = props.data;
+    const events = props.events;
     if (!data) return [];
     if (!events || events.length === 0) return data;
     const byCountry = new globalThis.Map<string, SecurityEvent[]>();
@@ -85,79 +82,86 @@ function GeoipMapPanel({
       }
       return { ...p, topIp, topAttacks: Array.from(attackSet) };
     });
-  }, [data, events]);
+  });
 
-  const mapBg = isLight ? "#f5f6fa" : "#0b0f1e";
+  const mapBg = () => isLight() ? "#f5f6fa" : "#0b0f1e";
 
-  if (!data || data.length === 0) {
-    if (loading) return <EmptyState loading={true} message="" />;
-    return (
-      <div style={{ width: "100%", height: "100%", background: mapBg, display: "flex", alignItems: "center", justifyContent: "center", color: isLight ? "#1a1d2e" : "#e8ecf4", fontFamily: "var(--font-display)", fontSize: 18, padding: 24, textAlign: "center" }}>
-        {t("dashboard.empty.noGeoData")}
-      </div>
-    );
-  }
-
-  if (view === "3d") {
-    return <GeoipGlobe data={enriched} theme={theme} requestsLabel={t("dashboard.tooltip.requests")} />;
-  }
-
-  return <Geoip2DMap data={enriched} theme={theme} requestsLabel={t("dashboard.tooltip.requests")} />;
+  return (
+    <Show
+      when={props.data && props.data.length > 0}
+      fallback={
+        <Show when={props.loading} fallback={
+          <div style={{ width: "100%", height: "100%", background: mapBg(), display: "flex", "align-items": "center", "justify-content": "center", color: isLight() ? "#1a1d2e" : "#e8ecf4", "font-family": "var(--font-display)", "font-size": "18px", padding: "24px", "text-align": "center" }}>
+            {settings.t("dashboard.empty.noGeoData")}
+          </div>
+        }>
+          <EmptyState loading={true} message="" />
+        </Show>
+      }
+    >
+      <Show when={props.view === "3d"} fallback={
+        <Geoip2DMap data={enriched()} theme={settings.theme} requestsLabel={settings.t("dashboard.tooltip.requests")} />
+      }>
+        <GeoipGlobe data={enriched()} theme={settings.theme} requestsLabel={settings.t("dashboard.tooltip.requests")} />
+      </Show>
+    </Show>
+  );
 }
 
 export default function Home() {
-  const { t } = useSettings();
-  const { connectionId, selectedHours } = useGlobalFilters();
-  const hours = useMemo(() => Math.max(1, Math.round(selectedHours)), [selectedHours]);
-  const [view, setView] = useState<View>("3d");
-  const [data, setData] = useState<GeoipMapPoint[] | null>(null);
-  const [unresolved, setUnresolved] = useState<UnresolvedIp[] | null>(null);
-  const [events, setEvents] = useState<SecurityEvent[] | null>(null);
-  const [loading, setLoading] = useState(true);
-  const cancelledRef = useRef(false);
+  const settings = useSettings();
+  const filters = useGlobalFilters();
+  const hours = createMemo(() => Math.max(1, Math.round(filters.selectedHours)));
+  const [view, setView] = createSignal<View>("3d");
+  const [data, setData] = createSignal<GeoipMapPoint[] | null>(null);
+  const [unresolved, setUnresolved] = createSignal<UnresolvedIp[] | null>(null);
+  const [events, setEvents] = createSignal<SecurityEvent[] | null>(null);
+  const [loading, setLoading] = createSignal(true);
 
-  useEffect(() => {
-    cancelledRef.current = false;
-    let initial = true;
+  createEffect(() => {
+    const h = hours();
+    const connId = filters.connectionId;
+    let cancelled = false;
+
     const fetchAll = async () => {
       try {
         const [m, u, ev] = await Promise.all([
-          api.getGeoipMap(hours, connectionId),
-          api.getGeoipUnresolved(hours, connectionId),
-          api.getEvents(50, "all", hours, connectionId),
+          api.getGeoipMap(h, connId),
+          api.getGeoipUnresolved(h, connId),
+          api.getEvents(50, "all", h, connId),
         ]);
-        if (cancelledRef.current) return;
+        if (cancelled) return;
         setData(m);
         setUnresolved(u);
         setEvents(ev);
       } catch {
         // keep last good data
       } finally {
-        if (initial && !cancelledRef.current) {
+        if (!cancelled) {
           setLoading(false);
-          initial = false;
         }
       }
     };
+    
     fetchAll();
     // Fallback poll: re-fetch snapshot every 60s so the time-windowed view
     // (`hours=24`) stays accurate even after live deltas accumulate. Live
     // updates from Centrifugo arrive every ~500ms (see subscribe below).
     const id = setInterval(fetchAll, 60_000);
-    return () => {
-      cancelledRef.current = true;
+
+    onCleanup(() => {
+      cancelled = true;
       clearInterval(id);
-    };
-  }, [hours, connectionId]);
+    });
+  });
 
   // ── Real-time map deltas via Centrifugo ──
   // Backend aggregates raw geoip events into 500ms-batched deltas and
   // publishes to `dashboard:map`. We merge them into existing state so the
   // map lights up new attacks immediately without waiting for the next
   // fallback poll.
-  useEffect(() => {
+  onMount(() => {
     const unsub = subscribe<GeoipMapDelta>("dashboard:map", (delta) => {
-      if (cancelledRef.current) return;
       setData((prev) => {
         // Index existing points by bucket key (cc|lat|lon|city) for O(1) merge
         const idx = new Map<string, number>();
@@ -186,57 +190,60 @@ export default function Home() {
         return next;
       });
     });
-    return unsub;
-  }, []);
+    onCleanup(() => unsub());
+  });
 
-  const unresolvedList = unresolved ?? [];
-  const unresolvedTotal = unresolvedList.reduce((a, d) => a + d.hits, 0);
+  const unresolvedList = () => unresolved() ?? [];
+  const unresolvedTotal = () => unresolvedList().reduce((a, d) => a + d.hits, 0);
 
   return (
     <>
-      <div className="home-canvas">
-        <GeoipMapPanel data={data} loading={loading} events={events} view={view} />
+      <div class="home-canvas">
+        <GeoipMapPanel data={data()} loading={loading()} events={events()} view={view()} />
       </div>
 
-      <div role="tablist" aria-label={t("dashboard.geoMap.toggle")} className="home-view-toggle">
-        {(["2d", "3d"] as const).map((m) => {
-          const active = view === m;
-          return (
-            <button
-              key={m}
-              type="button"
-              role="tab"
-              aria-selected={active}
-              onClick={() => setView(m)}
-              className={`home-view-tab ${active ? "active" : ""}`}
-            >
-              {m === "2d" ? t("dashboard.geoMap.view2d") : t("dashboard.geoMap.view3d")}
-            </button>
-          );
-        })}
+      <div role="tablist" aria-label={settings.t("dashboard.geoMap.toggle")} class="home-view-toggle">
+        <For each={["2d", "3d"] as const}>
+          {(m) => {
+            const active = () => view() === m;
+            return (
+              <button
+                type="button"
+                role="tab"
+                aria-selected={active()}
+                onClick={() => setView(m)}
+                class={`home-view-tab ${active() ? "active" : ""}`}
+              >
+                {m === "2d" ? settings.t("dashboard.geoMap.view2d") : settings.t("dashboard.geoMap.view3d")}
+              </button>
+            );
+          }}
+        </For>
       </div>
 
-      {unresolvedList.length > 0 && (
-        <aside className="home-settings">
-          <div className="home-settings-section">
-            <label className="home-settings-label">
-              {unresolvedList.length} {t("dashboard.unresolvedIP")}{unresolvedList.length === 1 ? "" : "s"} · {unresolvedTotal.toLocaleString()} {t("dashboard.hit")}{unresolvedTotal === 1 ? "" : "s"}
+      <Show when={unresolvedList().length > 0}>
+        <aside class="home-settings">
+          <div class="home-settings-section">
+            <label class="home-settings-label">
+              {unresolvedList().length} {settings.t("dashboard.unresolvedIP")}{unresolvedList().length === 1 ? "" : "s"} · {unresolvedTotal().toLocaleString()} {settings.t("dashboard.hit")}{unresolvedTotal() === 1 ? "" : "s"}
             </label>
-            <div className="home-settings-unresolved">
-              {unresolvedList.slice(0, 8).map((d) => {
-                const cls = classifyUnresolvedIp(d.ip);
-                return (
-                  <div key={d.ip} title={cls.reason} className="home-settings-unresolved-row">
-                    <span className="home-settings-ip">{d.ip}</span>
-                    <span className="home-settings-tag">{cls.kind}</span>
-                    <span className="home-settings-count">{d.hits.toLocaleString()}</span>
-                  </div>
-                );
-              })}
+            <div class="home-settings-unresolved">
+              <For each={unresolvedList().slice(0, 8)}>
+                {(d) => {
+                  const cls = classifyUnresolvedIp(d.ip);
+                  return (
+                    <div title={cls.reason} class="home-settings-unresolved-row">
+                      <span class="home-settings-ip">{d.ip}</span>
+                      <span class="home-settings-tag">{cls.kind}</span>
+                      <span class="home-settings-count">{d.hits.toLocaleString()}</span>
+                    </div>
+                  );
+                }}
+              </For>
             </div>
           </div>
         </aside>
-      )}
+      </Show>
     </>
   );
 }

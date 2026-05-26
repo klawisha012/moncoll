@@ -1,11 +1,11 @@
-import { useEffect, useState } from "react";
+import { createEffect, createSignal, onCleanup, For, Show } from "solid-js";
 import {
   Activity,
   Cpu,
   HardDrive,
   MemoryStick,
   Server,
-} from "lucide-react";
+} from "lucide-solid";
 import { api, ContainerMetrics } from "../api/client";
 import { useSettings } from "../context/SettingsContext";
 
@@ -17,12 +17,12 @@ function formatBytes(bytes: number): string {
 }
 
 export default function Monitoring() {
-  const { t } = useSettings();
-  const [metrics, setMetrics] = useState<ContainerMetrics[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const settings = useSettings();
+  const [metrics, setMetrics] = createSignal<ContainerMetrics[]>([]);
+  const [loading, setLoading] = createSignal(true);
+  const [error, setError] = createSignal<string | null>(null);
 
-  useEffect(() => {
+  createEffect(() => {
     let cancelled = false;
 
     const fetchMetrics = async () => {
@@ -44,182 +44,189 @@ export default function Monitoring() {
 
     fetchMetrics();
     const interval = setInterval(fetchMetrics, 5000);
-    return () => {
+    onCleanup(() => {
       cancelled = true;
       clearInterval(interval);
-    };
-  }, []);
-
-  if (loading) {
-    return (
-      <div className="loading">
-        <div className="spinner" />
-        {t("monitoring.loading")}
-      </div>
-    );
-  }
-
-  if (error) {
-    return (
-      <div>
-        <div className="page-header">
-          <div>
-            <h1>{t("monitoring.title")}</h1>
-            <p>{t("monitoring.subtitle")}</p>
-          </div>
-        </div>
-        <div
-          className="card"
-          style={{ gridColumn: "1 / -1", textAlign: "center", padding: "48px" }}
-        >
-          <Server
-            size={48}
-            style={{ color: "var(--danger)", marginBottom: "16px" }}
-          />
-          <p style={{ fontWeight: 600, marginBottom: "4px", color: "var(--danger)" }}>
-            {t("monitoring.error.title")}
-          </p>
-          <p className="text-muted">{error}</p>
-        </div>
-      </div>
-    );
-  }
+    });
+  });
 
   return (
-    <div>
-      <div className="page-header">
-        <div>
-          <h1>{t("monitoring.title")}</h1>
-          <p>{t("monitoring.subtitle")}</p>
+    <Show
+      when={!loading()}
+      fallback={
+        <div class="loading">
+          <div class="spinner" />
+          {settings.t("monitoring.loading")}
         </div>
-      </div>
-
-      <div className="metrics-grid">
-        {metrics.length === 0 ? (
-          <div
-            className="card"
-            style={{ gridColumn: "1 / -1", textAlign: "center", padding: "48px" }}
-          >
-            <Server
-              size={48}
-              style={{ color: "var(--text-muted)", marginBottom: "16px" }}
-            />
-            <p style={{ fontWeight: 600, marginBottom: "4px" }}>
-              {t("monitoring.empty.title")}
-            </p>
-            <p className="text-muted">
-              {t("monitoring.empty.subtitle")}
-            </p>
-          </div>
-        ) : (
-          metrics.map((container) => (
-            <div key={container.name} className="card">
-              <div className="card-header">
-                <h3>{container.name}</h3>
-                <Activity size={16} style={{ color: "var(--accent-3)" }} />
-              </div>
-
-              {/* CPU */}
-              <div style={{ marginBottom: "14px" }}>
-                <div
-                  style={{
-                    display: "flex",
-                    justifyContent: "space-between",
-                    alignItems: "center",
-                    marginBottom: "6px",
-                    fontSize: "12.5px",
-                  }}
-                >
-                  <span
-                    style={{
-                      display: "flex",
-                      alignItems: "center",
-                      gap: "6px",
-                      color: "var(--text-secondary)",
-                    }}
-                  >
-                    <Cpu size={14} /> {t("monitoring.cpu")}
-                  </span>
-                  <span style={{ fontWeight: 600 }}>
-                    {(container.cpu ?? 0).toFixed(1)}%
-                  </span>
-                </div>
-                <div className="progress-bar">
-                  <div
-                    className="progress-fill blue"
-                    style={{
-                      width: `${Math.min(container.cpu ?? 0, 100)}%`,
-                    }}
-                  />
-                </div>
-              </div>
-
-              {/* Memory */}
-              <div style={{ marginBottom: "14px" }}>
-                <div
-                  style={{
-                    display: "flex",
-                    justifyContent: "space-between",
-                    alignItems: "center",
-                    marginBottom: "6px",
-                    fontSize: "12.5px",
-                  }}
-                >
-                  <span
-                    style={{
-                      display: "flex",
-                      alignItems: "center",
-                      gap: "6px",
-                      color: "var(--text-secondary)",
-                    }}
-                  >
-                    <MemoryStick size={14} /> {t("monitoring.memory")}
-                  </span>
-                  <span style={{ fontWeight: 600 }}>
-                    {(container.memory ?? 0).toFixed(0)} MB (
-                    {(container.memory_percent ?? 0).toFixed(1)}%)
-                  </span>
-                </div>
-                <div className="progress-bar">
-                  <div
-                    className="progress-fill green"
-                    style={{
-                      width: `${Math.min(container.memory_percent ?? 0, 100)}%`,
-                    }}
-                  />
-                </div>
-              </div>
-
-              {/* Network */}
-              <div
-                style={{
-                  display: "flex",
-                  justifyContent: "space-between",
-                  alignItems: "center",
-                  paddingTop: "12px",
-                  borderTop: "1px solid var(--border-subtle)",
-                  fontSize: "12px",
-                  color: "var(--text-muted)",
-                }}
-              >
-                <span
-                  style={{
-                    display: "flex",
-                    alignItems: "center",
-                    gap: "6px",
-                  }}
-                >
-                  <HardDrive size={14} /> {t("monitoring.network")}
-                </span>
-                <span>
-                  ↓ {formatBytes(container.network_rx ?? 0)}{" "}
-                  ↑ {formatBytes(container.network_tx ?? 0)}
-                </span>
+      }
+    >
+      <Show
+        when={!error()}
+        fallback={
+          <div>
+            <div class="page-header">
+              <div>
+                <h1>{settings.t("monitoring.title")}</h1>
+                <p>{settings.t("monitoring.subtitle")}</p>
               </div>
             </div>
-          ))
-        )}
-      </div>
-    </div>
+            <div
+              class="card"
+              style={{ "grid-column": "1 / -1", "text-align": "center", padding: "48px" }}
+            >
+              <Server
+                size={48}
+                style={{ color: "var(--danger)", "margin-bottom": "16px" }}
+              />
+              <p style={{ "font-weight": 600, "margin-bottom": "4px", color: "var(--danger)" }}>
+                {settings.t("monitoring.error.title")}
+              </p>
+              <p class="text-muted">{error()}</p>
+            </div>
+          </div>
+        }
+      >
+        <div>
+          <div class="page-header">
+            <div>
+              <h1>{settings.t("monitoring.title")}</h1>
+              <p>{settings.t("monitoring.subtitle")}</p>
+            </div>
+          </div>
+
+          <div class="metrics-grid">
+            <Show
+              when={metrics().length > 0}
+              fallback={
+                <div
+                  class="card"
+                  style={{ "grid-column": "1 / -1", "text-align": "center", padding: "48px" }}
+                >
+                  <Server
+                    size={48}
+                    style={{ color: "var(--text-muted)", "margin-bottom": "16px" }}
+                  />
+                  <p style={{ "font-weight": 600, "margin-bottom": "4px" }}>
+                    {settings.t("monitoring.empty.title")}
+                  </p>
+                  <p class="text-muted">
+                    {settings.t("monitoring.empty.subtitle")}
+                  </p>
+                </div>
+              }
+            >
+              <For each={metrics()}>
+                {(container) => (
+                  <div class="card">
+                    <div class="card-header">
+                      <h3>{container.name}</h3>
+                      <Activity size={16} style={{ color: "var(--accent-3)" }} />
+                    </div>
+
+                    {/* CPU */}
+                    <div style={{ "margin-bottom": "14px" }}>
+                      <div
+                        style={{
+                          display: "flex",
+                          "justify-content": "space-between",
+                          "align-items": "center",
+                          "margin-bottom": "6px",
+                          "font-size": "12.5px",
+                        }}
+                      >
+                        <span
+                          style={{
+                            display: "flex",
+                            "align-items": "center",
+                            gap: "6px",
+                            color: "var(--text-secondary)",
+                          }}
+                        >
+                          <Cpu size={14} /> {settings.t("monitoring.cpu")}
+                        </span>
+                        <span style={{ "font-weight": 600 }}>
+                          {(container.cpu ?? 0).toFixed(1)}%
+                        </span>
+                      </div>
+                      <div class="progress-bar">
+                        <div
+                          class="progress-fill blue"
+                          style={{
+                            width: `${Math.min(container.cpu ?? 0, 100)}%`,
+                          }}
+                        />
+                      </div>
+                    </div>
+
+                    {/* Memory */}
+                    <div style={{ "margin-bottom": "14px" }}>
+                      <div
+                        style={{
+                          display: "flex",
+                          "justify-content": "space-between",
+                          "align-items": "center",
+                          "margin-bottom": "6px",
+                          "font-size": "12.5px",
+                        }}
+                      >
+                        <span
+                          style={{
+                            display: "flex",
+                            "align-items": "center",
+                            gap: "6px",
+                            color: "var(--text-secondary)",
+                          }}
+                        >
+                          <MemoryStick size={14} /> {settings.t("monitoring.memory")}
+                        </span>
+                        <span style={{ "font-weight": 600 }}>
+                          {(container.memory ?? 0).toFixed(0)} MB (
+                          {(container.memory_percent ?? 0).toFixed(1)}%)
+                        </span>
+                      </div>
+                      <div class="progress-bar">
+                        <div
+                          class="progress-fill green"
+                          style={{
+                            width: `${Math.min(container.memory_percent ?? 0, 100)}%`,
+                          }}
+                        />
+                      </div>
+                    </div>
+
+                    {/* Network */}
+                    <div
+                      style={{
+                        display: "flex",
+                        "justify-content": "space-between",
+                        "align-items": "center",
+                        "padding-top": "12px",
+                        "border-top": "1px solid var(--border-subtle)",
+                        "font-size": "12px",
+                        color: "var(--text-muted)",
+                      }}
+                    >
+                      <span
+                        style={{
+                          display: "flex",
+                          "align-items": "center",
+                          gap: "6px",
+                        }}
+                      >
+                        <HardDrive size={14} /> {settings.t("monitoring.network")}
+                      </span>
+                      <span>
+                        ↓ {formatBytes(container.network_rx ?? 0)}{" "}
+                        ↑ {formatBytes(container.network_tx ?? 0)}
+                      </span>
+                    </div>
+                  </div>
+                )}
+              </For>
+            </Show>
+          </div>
+        </div>
+      </Show>
+    </Show>
   );
 }

@@ -1,7 +1,9 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from ..auth.dependencies import current_tenant
 from ..connections import service as connection_service
+from ..db.models import Tenant
 from ..db.session import get_session
 from . import service as ssl_service
 from .schemas import CertificateRequest
@@ -13,9 +15,10 @@ certificates_router = APIRouter(prefix="/api/ssl", tags=["ssl"])
 async def get_certificate_status(
     connection_id: int,
     session: AsyncSession = Depends(get_session),
+    tenant: Tenant = Depends(current_tenant),
 ):
-    """Check certificate status for a connection."""
-    conn = await connection_service.get_connection_internal(session, connection_id)
+    """Check certificate status for a connection (caller's tenant only)."""
+    conn = await connection_service.get_connection(session, tenant, connection_id)
     if not conn:
         raise HTTPException(status_code=404, detail="Connection not found")
 
@@ -28,16 +31,14 @@ async def request_certificate(
     connection_id: int,
     request: CertificateRequest,
     session: AsyncSession = Depends(get_session),
+    tenant: Tenant = Depends(current_tenant),
 ):
-    """Request ACME certificate for a connection."""
-    conn = await connection_service.get_connection_internal(session, connection_id)
+    """Request ACME certificate for a connection (caller's tenant only)."""
+    conn = await connection_service.get_connection(session, tenant, connection_id)
     if not conn:
         raise HTTPException(status_code=404, detail="Connection not found")
 
-    domains = request.domains or conn.domains
-    if not domains:
-        raise HTTPException(status_code=400, detail="No domains specified")
-
+    domains = request.domains or [conn.domain]
     result = ssl_service.trigger_acme_request(connection_id, domains)
     return result
 
@@ -46,15 +47,12 @@ async def request_certificate(
 async def regenerate_certificate(
     connection_id: int,
     session: AsyncSession = Depends(get_session),
+    tenant: Tenant = Depends(current_tenant),
 ):
-    """Regenerate certificate for a connection."""
-    conn = await connection_service.get_connection_internal(session, connection_id)
+    """Regenerate certificate for a connection (caller's tenant only)."""
+    conn = await connection_service.get_connection(session, tenant, connection_id)
     if not conn:
         raise HTTPException(status_code=404, detail="Connection not found")
 
-    domains = conn.domains
-    if not domains:
-        raise HTTPException(status_code=400, detail="No domains configured for connection")
-
-    result = ssl_service.regenerate_certificate(connection_id, domains)
+    result = ssl_service.regenerate_certificate(connection_id, [conn.domain])
     return result

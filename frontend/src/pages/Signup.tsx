@@ -1,5 +1,6 @@
-import { useCallback, useEffect, useState, type FormEvent } from "react";
-import { Link, useSearchParams } from "react-router-dom";
+import { createSignal, createEffect } from "solid-js";
+import { Show } from "solid-js";
+import { A, useSearchParams } from "@solidjs/router";
 import { useAuth } from "../context/AuthContext";
 import { useSettings } from "../context/SettingsContext";
 import { useAuthProviders } from "../hooks/useAuthProviders";
@@ -10,230 +11,242 @@ const TENANT_NAME_RE = /^[a-zA-Z0-9][a-zA-Z0-9-]{1,38}[a-zA-Z0-9]$|^[a-zA-Z0-9]{
 
 export default function Signup() {
   const [searchParams] = useSearchParams();
-  const { signup, oauthStart } = useAuth();
-  const { t } = useSettings();
+  const auth = useAuth();
+  const settings = useSettings();
 
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
-  const [tenantName, setTenantName] = useState("");
-  const [displayName, setDisplayName] = useState("");
-  const [showPassword, setShowPassword] = useState(false);
-  const [captchaToken, setCaptchaToken] = useState("");
-  const [submitting, setSubmitting] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [done, setDone] = useState(false);
-  const [devVerifyUrl, setDevVerifyUrl] = useState<string | null>(null);
+  const [email, setEmail] = createSignal("");
+  const [password, setPassword] = createSignal("");
+  const [tenantName, setTenantName] = createSignal("");
+  const [displayName, setDisplayName] = createSignal("");
+  const [showPassword, setShowPassword] = createSignal(false);
+  const [captchaToken, setCaptchaToken] = createSignal("");
+  const [submitting, setSubmitting] = createSignal(false);
+  const [error, setError] = createSignal<string | null>(null);
+  const [done, setDone] = createSignal(false);
+  const [devVerifyUrl, setDevVerifyUrl] = createSignal<string | null>(null);
   const providers = useAuthProviders();
 
   // Surface OAuth callback errors (we redirect here with ?oauth_error=<code>).
-  useEffect(() => {
-    const code = searchParams.get("oauth_error");
-    if (code) setError(t(`auth.oauth.err.${code}`) || code);
-  }, [searchParams, t]);
+  createEffect(() => {
+    const code = searchParams.oauth_error;
+    if (code) {
+      setError(() => settings.t(`auth.oauth.err.${code}`) || code);
+    }
+  });
 
-  const handleToken = useCallback((token: string) => setCaptchaToken(token), []);
+  const handleToken = (token: string) => setCaptchaToken(token);
 
   const oauthSignup = (provider: "google" | "github") => {
-    if (!providers?.[provider]) {
-      setError(t("auth.oauth.notConfigured").replace("{provider}", provider));
+    const p = providers();
+    if (!p || !p[provider]) {
+      setError(() => settings.t("auth.oauth.notConfigured").replace("{provider}", provider));
       return;
     }
     // tenant_name is optional with OAuth — backend auto-derives a slug from
     // the provider profile. If the user typed one, we honour it; otherwise
     // pass undefined and let the backend pick.
-    const wsName = TENANT_NAME_RE.test(tenantName) ? tenantName : undefined;
-    oauthStart(provider, "signup", wsName);
+    const wsName = TENANT_NAME_RE.test(tenantName()) ? tenantName() : undefined;
+    auth.oauthStart(provider, "signup", wsName);
   };
 
-  const submit = async (e: FormEvent) => {
+  const submit = async (e: Event) => {
     e.preventDefault();
-    if (!TENANT_NAME_RE.test(tenantName)) {
-      setError(t("auth.signup.tenantNameHint"));
+    if (!TENANT_NAME_RE.test(tenantName())) {
+      setError(() => settings.t("auth.signup.tenantNameHint"));
       return;
     }
     setError(null);
     setSubmitting(true);
     try {
-      const resp = await signup(email, password, tenantName, captchaToken, displayName || undefined);
+      const resp = await auth.signup(email(), password(), tenantName(), captchaToken(), displayName() || undefined);
       if (resp.dev_verify_url) setDevVerifyUrl(resp.dev_verify_url);
       setDone(true);
     } catch (err) {
-      setError(err instanceof Error ? err.message : t("general.error"));
+      setError(() => err instanceof Error ? err.message : settings.t("general.error"));
     } finally {
       setSubmitting(false);
     }
   };
 
-  const captchaReady = !providers || !!captchaToken;
-  const canSubmit = email && password && tenantName && captchaReady;
+  const captchaReady = () => !providers() || !providers()?.captcha_site_key || !!captchaToken();
+  const canSubmit = () => email() && password() && tenantName() && captchaReady();
 
-  if (done) {
-    return (
-      <div className="cv-root">
-        <style>{styles}</style>
-        <section className="cv-manifest">
-          <div className="cv-eyebrow">
-            <span className="cv-n">✓</span>
-            <span className="cv-eyebrow-text">{t("auth.signup.eyebrow")}</span>
-          </div>
-          <h1 className="cv-h1 cv-h1-sm">
-            <span className="cv-stack">{t("auth.signup.checkEmail")}</span>
-          </h1>
-          <p className="cv-deck">{t("auth.signup.checkEmailDesc").replace("{email}", email)}</p>
-          <div className="cv-disc" aria-hidden />
-        </section>
-        <section className="cv-form-side">
-          <div className="cv-form">
-            <div className="cv-form-head">
-              <span className="cv-kicker">{t("auth.signup.kicker")}</span>
+  return (
+    <Show
+      when={done()}
+      fallback={
+        <div class="cv-root">
+          <style>{styles}</style>
+
+          <section class="cv-manifest">
+            <div class="cv-eyebrow">
+              <span class="cv-n">03</span>
+              <span class="cv-eyebrow-text">{settings.t("auth.signup.eyebrow")}</span>
             </div>
-            <p style={{ fontFamily: "'Inter Tight', sans-serif", fontSize: 15, color: "var(--ink)", lineHeight: 1.6 }}>
-              {t("auth.signup.checkEmailDesc").replace("{email}", email)}
-            </p>
-            {devVerifyUrl && (
-              <div className="cv-dev-banner">
-                <span className="cv-dev-tag">{t("auth.dev.smtpOff")}</span>
-                <a href={devVerifyUrl} className="cv-dev-link">{devVerifyUrl}</a>
+            <h1 class="cv-h1">
+              <span class="cv-stack">{settings.t("auth.signup.heroLine1")}</span>
+              <span class="cv-stack">
+                <span class="cv-ws">{settings.t("auth.signup.heroLine2")}</span>
+              </span>
+              <span class="cv-stack">
+                <span class="cv-tilt">{settings.t("auth.signup.heroLine3")}</span>
+              </span>
+            </h1>
+            <p class="cv-deck">{settings.t("auth.signup.quote")}</p>
+            <div class="cv-disc" aria-hidden />
+          </section>
+
+          <section class="cv-form-side">
+            <form onSubmit={submit} class="cv-form">
+              <div class="cv-form-head">
+                <span class="cv-kicker">{settings.t("auth.signup.kicker")}</span>
+                <A href="/login" class="cv-switch-link">{settings.t("auth.signup.haveAccount")}</A>
               </div>
-            )}
-            <Link to="/login" className="cv-submit" style={{ textDecoration: "none", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-              <span>{t("auth.signup.haveAccount")}</span>
-              <span className="cv-ar">→</span>
-            </Link>
+
+              {/* OAuth buttons — always visible. Disabled with hint when not configured. */}
+              <div class="cv-oauth-row">
+                <button
+                  type="button"
+                  class={`cv-oauth-btn ${providers()?.google ? "" : "cv-oauth-btn-off"}`}
+                  onClick={() => oauthSignup("google")}
+                  disabled={!providers()?.google}
+                  title={
+                    !providers()
+                      ? settings.t("auth.oauth.loading")
+                      : providers()?.google
+                        ? "Google"
+                        : settings.t("auth.oauth.notConfigured").replace("{provider}", "Google")
+                  }
+                >
+                  <span class="cv-oauth-icon">G</span>
+                  Google
+                  <Show when={providers() && !providers()?.google}>
+                    <span class="cv-oauth-off-tag">{settings.t("auth.oauth.offTag")}</span>
+                  </Show>
+                </button>
+                <button
+                  type="button"
+                  class={`cv-oauth-btn ${providers()?.github ? "" : "cv-oauth-btn-off"}`}
+                  onClick={() => oauthSignup("github")}
+                  disabled={!providers()?.github}
+                  title={
+                    !providers()
+                      ? settings.t("auth.oauth.loading")
+                      : providers()?.github
+                        ? "GitHub"
+                        : settings.t("auth.oauth.notConfigured").replace("{provider}", "GitHub")
+                  }
+                >
+                  <span class="cv-oauth-icon"><GithubMark size={14} /></span>
+                  GitHub
+                  <Show when={providers() && !providers()?.github}>
+                    <span class="cv-oauth-off-tag">{settings.t("auth.oauth.offTag")}</span>
+                  </Show>
+                </button>
+              </div>
+              <div class="cv-divider"><span>{settings.t("auth.login.orEmail")}</span></div>
+
+              <div class="cv-field">
+                <label for="cv-email">{settings.t("auth.email")}</label>
+                <div class="cv-inp">
+                  <span class="cv-tag">@</span>
+                  <input id="cv-email" type="email" value={email()}
+                    onInput={(e) => setEmail(e.currentTarget.value)} autofocus required autocomplete="email" />
+                </div>
+              </div>
+
+              <div class="cv-field">
+                <label for="cv-password">{settings.t("auth.password")}</label>
+                <div class="cv-inp">
+                  <span class="cv-tag">#</span>
+                  <input id="cv-password" type={showPassword() ? "text" : "password"} value={password()}
+                    onInput={(e) => setPassword(e.currentTarget.value)} required autocomplete="new-password" />
+                  <button type="button" class="cv-reveal"
+                    onClick={() => setShowPassword((v) => !v)} tabIndex={-1}
+                    aria-label={showPassword() ? settings.t("auth.hidePassword") : settings.t("auth.showPassword")}>
+                    {showPassword() ? settings.t("auth.hidePasswordShort") : settings.t("auth.showPasswordShort")}
+                  </button>
+                </div>
+              </div>
+
+              <div class="cv-field">
+                <label for="cv-tenant">{settings.t("auth.signup.tenantName")}</label>
+                <div class="cv-inp">
+                  <span class="cv-tag">⬡</span>
+                  <input id="cv-tenant" type="text" value={tenantName()}
+                    onInput={(e) => setTenantName(e.currentTarget.value)} required
+                    placeholder={settings.t("auth.signup.tenantNameHint")} />
+                </div>
+              </div>
+
+              <div class="cv-field">
+                <label for="cv-display">{settings.t("auth.signup.displayName")}</label>
+                <div class="cv-inp">
+                  <span class="cv-tag">✎</span>
+                  <input id="cv-display" type="text" value={displayName()}
+                    onInput={(e) => setDisplayName(e.currentTarget.value)} autocomplete="name" />
+                </div>
+              </div>
+
+              <Show when={providers()?.captcha_site_key}>
+                {(siteKey) => (
+                  <div class="cv-captcha">
+                    <TurnstileWidget siteKey={siteKey()} onToken={handleToken} />
+                    <Show when={providers()?.captcha_dev_mode}>
+                      <span class="cv-captcha-dev-tag">{settings.t("auth.captcha.devMode")}</span>
+                    </Show>
+                  </div>
+                )}
+              </Show>
+
+              <Show when={error()}>
+                <div class="cv-error">{error()}</div>
+              </Show>
+
+              <button type="submit" class="cv-submit" disabled={submitting() || !canSubmit()}>
+                <span>{submitting() ? settings.t("general.loading") : settings.t("auth.signup.submit")}</span>
+                <span class="cv-ar">→</span>
+              </button>
+            </form>
+          </section>
+        </div>
+      }
+    >
+      <div class="cv-root">
+        <style>{styles}</style>
+        <section class="cv-manifest">
+          <div class="cv-eyebrow">
+            <span class="cv-n">✓</span>
+            <span class="cv-eyebrow-text">{settings.t("auth.signup.eyebrow")}</span>
+          </div>
+          <h1 class="cv-h1 cv-h1-sm">
+            <span class="cv-stack">{settings.t("auth.signup.checkEmail")}</span>
+          </h1>
+          <p class="cv-deck">{settings.t("auth.signup.checkEmailDesc").replace("{email}", email())}</p>
+          <div class="cv-disc" aria-hidden />
+        </section>
+        <section class="cv-form-side">
+          <div class="cv-form">
+            <div class="cv-form-head">
+              <span class="cv-kicker">{settings.t("auth.signup.kicker")}</span>
+            </div>
+            <p style={{ "font-family": "'Inter Tight', sans-serif", "font-size": "15px", "color": "var(--ink)", "line-height": "1.6" }}>
+              {settings.t("auth.signup.checkEmailDesc").replace("{email}", email())}
+            </p>
+            <Show when={devVerifyUrl()}>
+              <div class="cv-dev-banner">
+                <span class="cv-dev-tag">{settings.t("auth.dev.smtpOff")}</span>
+                <a href={devVerifyUrl() ?? undefined} class="cv-dev-link">{devVerifyUrl()}</a>
+              </div>
+            </Show>
+            <A href="/login" class="cv-submit" style={{ "text-decoration": "none", "display": "flex", "justify-content": "space-between", "align-items": "center" }}>
+              <span>{settings.t("auth.signup.haveAccount")}</span>
+              <span class="cv-ar">→</span>
+            </A>
           </div>
         </section>
       </div>
-    );
-  }
-
-  return (
-    <div className="cv-root">
-      <style>{styles}</style>
-
-      <section className="cv-manifest">
-        <div className="cv-eyebrow">
-          <span className="cv-n">03</span>
-          <span className="cv-eyebrow-text">{t("auth.signup.eyebrow")}</span>
-        </div>
-        <h1 className="cv-h1">
-          <span className="cv-stack">{t("auth.signup.heroLine1")}</span>
-          <span className="cv-stack">
-            <span className="cv-ws">{t("auth.signup.heroLine2")}</span>
-          </span>
-          <span className="cv-stack">
-            <span className="cv-tilt">{t("auth.signup.heroLine3")}</span>
-          </span>
-        </h1>
-        <p className="cv-deck">{t("auth.signup.quote")}</p>
-        <div className="cv-disc" aria-hidden />
-      </section>
-
-      <section className="cv-form-side">
-        <form onSubmit={submit} className="cv-form">
-          <div className="cv-form-head">
-            <span className="cv-kicker">{t("auth.signup.kicker")}</span>
-            <Link to="/login" className="cv-switch-link">{t("auth.signup.haveAccount")}</Link>
-          </div>
-
-          {/* OAuth buttons — always visible. Disabled with hint when not configured. */}
-          <div className="cv-oauth-row">
-            <button
-              type="button"
-              className={`cv-oauth-btn ${providers?.google ? "" : "cv-oauth-btn-off"}`}
-              onClick={() => oauthSignup("google")}
-              disabled={!providers?.google}
-              title={
-                !providers
-                  ? t("auth.oauth.loading")
-                  : providers.google
-                    ? "Google"
-                    : t("auth.oauth.notConfigured").replace("{provider}", "Google")
-              }
-            >
-              <span className="cv-oauth-icon">G</span>
-              Google
-              {providers && !providers.google && <span className="cv-oauth-off-tag">{t("auth.oauth.offTag")}</span>}
-            </button>
-            <button
-              type="button"
-              className={`cv-oauth-btn ${providers?.github ? "" : "cv-oauth-btn-off"}`}
-              onClick={() => oauthSignup("github")}
-              disabled={!providers?.github}
-              title={
-                !providers
-                  ? t("auth.oauth.loading")
-                  : providers.github
-                    ? "GitHub"
-                    : t("auth.oauth.notConfigured").replace("{provider}", "GitHub")
-              }
-            >
-              <span className="cv-oauth-icon"><GithubMark size={14} /></span>
-              GitHub
-              {providers && !providers.github && <span className="cv-oauth-off-tag">{t("auth.oauth.offTag")}</span>}
-            </button>
-          </div>
-          <div className="cv-divider"><span>{t("auth.login.orEmail")}</span></div>
-
-          <div className="cv-field">
-            <label htmlFor="cv-email">{t("auth.email")}</label>
-            <div className="cv-inp">
-              <span className="cv-tag">@</span>
-              <input id="cv-email" type="email" value={email}
-                onChange={(e) => setEmail(e.target.value)} autoFocus required autoComplete="email" />
-            </div>
-          </div>
-
-          <div className="cv-field">
-            <label htmlFor="cv-password">{t("auth.password")}</label>
-            <div className="cv-inp">
-              <span className="cv-tag">#</span>
-              <input id="cv-password" type={showPassword ? "text" : "password"} value={password}
-                onChange={(e) => setPassword(e.target.value)} required autoComplete="new-password" />
-              <button type="button" className="cv-reveal"
-                onClick={() => setShowPassword((v) => !v)} tabIndex={-1}
-                aria-label={showPassword ? t("auth.hidePassword") : t("auth.showPassword")}>
-                {showPassword ? t("auth.hidePasswordShort") : t("auth.showPasswordShort")}
-              </button>
-            </div>
-          </div>
-
-          <div className="cv-field">
-            <label htmlFor="cv-tenant">{t("auth.signup.tenantName")}</label>
-            <div className="cv-inp">
-              <span className="cv-tag">⬡</span>
-              <input id="cv-tenant" type="text" value={tenantName}
-                onChange={(e) => setTenantName(e.target.value)} required
-                placeholder={t("auth.signup.tenantNameHint")} />
-            </div>
-          </div>
-
-          <div className="cv-field">
-            <label htmlFor="cv-display">{t("auth.signup.displayName")}</label>
-            <div className="cv-inp">
-              <span className="cv-tag">✎</span>
-              <input id="cv-display" type="text" value={displayName}
-                onChange={(e) => setDisplayName(e.target.value)} autoComplete="name" />
-            </div>
-          </div>
-
-          {providers?.captcha_site_key && (
-            <div className="cv-captcha">
-              <TurnstileWidget siteKey={providers.captcha_site_key} onToken={handleToken} />
-              {providers.captcha_dev_mode && (
-                <span className="cv-captcha-dev-tag">{t("auth.captcha.devMode")}</span>
-              )}
-            </div>
-          )}
-
-          {error && <div className="cv-error">{error}</div>}
-
-          <button type="submit" className="cv-submit" disabled={submitting || !canSubmit}>
-            <span>{submitting ? t("general.loading") : t("auth.signup.submit")}</span>
-            <span className="cv-ar">→</span>
-          </button>
-        </form>
-      </section>
-    </div>
+    </Show>
   );
 }
 

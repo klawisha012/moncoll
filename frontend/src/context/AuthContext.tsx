@@ -1,11 +1,11 @@
 import {
   createContext,
-  useCallback,
   useContext,
-  useEffect,
-  useState,
-  type ReactNode,
-} from "react";
+  createSignal,
+  onMount,
+  onCleanup,
+  type JSX,
+} from "solid-js";
 import { api, type SignupResponse, type User } from "../api/client";
 
 export type { User };
@@ -38,16 +38,16 @@ export interface AuthContextValue {
 
 const AuthContext = createContext<AuthContextValue | null>(null);
 
-export function AuthProvider({ children }: { children: ReactNode }) {
-  const [user, setUser] = useState<User | null>(null);
-  const [loading, setLoading] = useState(true);
+export function AuthProvider(props: { children: JSX.Element }) {
+  const [user, setUser] = createSignal<User | null>(null);
+  const [loading, setLoading] = createSignal(true);
 
-  const refresh = useCallback(async () => {
+  const refresh = async () => {
     const me = await api.auth.me();
     setUser(me);
-  }, []);
+  };
 
-  useEffect(() => {
+  onMount(() => {
     let cancelled = false;
     (async () => {
       try {
@@ -57,77 +57,81 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         if (!cancelled) setLoading(false);
       }
     })();
-    return () => {
-      cancelled = true;
-    };
-  }, []);
 
-  useEffect(() => {
     const handler = () => setUser(null);
     window.addEventListener("auth:unauthorized", handler);
-    return () => window.removeEventListener("auth:unauthorized", handler);
-  }, []);
 
-  const login = useCallback(
-    async (
-      email: string,
-      password: string,
-      captchaToken: string,
-      totpCode?: string,
-    ) => {
-      const resp = await api.auth.login(email, password, captchaToken, totpCode);
-      if ("user" in resp) {
-        setUser(resp.user);
-      }
-      return resp;
-    },
-    [],
-  );
+    onCleanup(() => {
+      cancelled = true;
+      window.removeEventListener("auth:unauthorized", handler);
+    });
+  });
 
-  const signup = useCallback(
-    async (
-      email: string,
-      password: string,
-      tenantName: string,
-      captchaToken: string,
-      displayName?: string,
-    ) => {
-      return api.auth.signup(email, password, tenantName, captchaToken, displayName);
-    },
-    [],
-  );
+  const login = async (
+    email: string,
+    password: string,
+    captchaToken: string,
+    totpCode?: string,
+  ) => {
+    const resp = await api.auth.login(email, password, captchaToken, totpCode);
+    if ("user" in resp) {
+      setUser(resp.user);
+    }
+    return resp;
+  };
 
-  const oauthStart = useCallback(
-    (provider: "google" | "github", intent: "signup" | "login", tenantName?: string) => {
-      // Backend route is /api/auth/oauth/{provider}/start?intent=...&tenant_name=...
-      const params = new URLSearchParams({ intent });
-      if (tenantName) params.set("tenant_name", tenantName);
-      window.location.href = `/api/auth/oauth/${provider}/start?${params.toString()}`;
-    },
-    [],
-  );
+  const signup = async (
+    email: string,
+    password: string,
+    tenantName: string,
+    captchaToken: string,
+    displayName?: string,
+  ) => {
+    return api.auth.signup(email, password, tenantName, captchaToken, displayName);
+  };
 
-  const logout = useCallback(async () => {
+  const oauthStart = (
+    provider: "google" | "github",
+    intent: "signup" | "login",
+    tenantName?: string,
+  ) => {
+    const params = new URLSearchParams({ intent });
+    if (tenantName) params.set("tenant_name", tenantName);
+    window.location.href = `/api/auth/oauth/${provider}/start?${params.toString()}`;
+  };
+
+  const logout = async () => {
     try {
       await api.auth.logout();
     } finally {
       setUser(null);
     }
-  }, []);
+  };
 
-  const changePassword = useCallback(
-    async (currentPassword: string, newPassword: string) => {
-      const updated = await api.auth.changePassword(currentPassword, newPassword);
-      if (updated) setUser(updated);
+  const changePassword = async (currentPassword: string, newPassword: string) => {
+    const updated = await api.auth.changePassword(currentPassword, newPassword);
+    if (updated) setUser(updated);
+  };
+
+  // Expose getters so that property access remains reactive inside SolidJS components
+  const value: AuthContextValue = {
+    get user() {
+      return user();
     },
-    [],
-  );
+    get loading() {
+      return loading();
+    },
+    login,
+    signup,
+    oauthStart,
+    logout,
+    changePassword,
+    refresh,
+  };
 
   return (
-    <AuthContext.Provider
-      value={{ user, loading, login, signup, oauthStart, logout, changePassword, refresh }}
-    >
-      {children}
+    <AuthContext.Provider value={value}>
+      {props.children}
     </AuthContext.Provider>
   );
 }

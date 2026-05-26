@@ -2,13 +2,13 @@
  * Official GitHub Octocat mark (24×24, currentColor).
  * Source: github.com/logos — Mark variant.
  */
-export default function GithubMark({ size = 16 }: { size?: number }) {
+export default function GithubMark(props: { size?: number }) {
   return (
     <svg
       role="img"
       aria-label="GitHub"
-      width={size}
-      height={size}
+      width={props.size ?? 16}
+      height={props.size ?? 16}
       viewBox="0 0 24 24"
       fill="currentColor"
       xmlns="http://www.w3.org/2000/svg"

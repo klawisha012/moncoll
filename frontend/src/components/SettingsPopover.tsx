@@ -1,5 +1,5 @@
-import { useRef, useEffect } from "react";
-import { Cog, Sun, Moon, Globe } from "lucide-react";
+import { createEffect, onCleanup, For, Show } from "solid-js";
+import { Cog, Sun, Moon, Globe } from "lucide-solid";
 import { useSettings } from "../context/SettingsContext";
 import type { Lang } from "../i18n/translations";
 
@@ -8,80 +8,84 @@ interface SettingsPopoverProps {
   onClose: () => void;
 }
 
-export default function SettingsPopover({ open, onClose }: SettingsPopoverProps) {
-  const { theme, toggleTheme, lang, setLang, t } = useSettings();
-  const ref = useRef<HTMLDivElement>(null);
+export default function SettingsPopover(props: { open: boolean; onClose: () => void }) {
+  const settings = useSettings();
+  let ref: HTMLDivElement | undefined;
 
-  // Close on outside click
-  useEffect(() => {
-    if (!open) return;
+  // Handle outside clicks and Escape key to close the popover
+  createEffect(() => {
+    if (!props.open) return;
+
     function handleClick(e: MouseEvent) {
-      if (ref.current && !ref.current.contains(e.target as Node)) {
-        onClose();
+      if (ref && !ref.contains(e.target as Node)) {
+        props.onClose();
       }
     }
-    document.addEventListener("mousedown", handleClick);
-    return () => document.removeEventListener("mousedown", handleClick);
-  }, [open, onClose]);
 
-  // Close on Escape
-  useEffect(() => {
-    if (!open) return;
     function handleKey(e: KeyboardEvent) {
-      if (e.key === "Escape") onClose();
+      if (e.key === "Escape") {
+        props.onClose();
+      }
     }
-    document.addEventListener("keydown", handleKey);
-    return () => document.removeEventListener("keydown", handleKey);
-  }, [open, onClose]);
 
-  if (!open) return null;
+    document.addEventListener("mousedown", handleClick);
+    document.addEventListener("keydown", handleKey);
+
+    onCleanup(() => {
+      document.removeEventListener("mousedown", handleClick);
+      document.removeEventListener("keydown", handleKey);
+    });
+  });
 
   return (
-    <div className="settings-popover" ref={ref}>
-      <div className="settings-popover-header">
-        <Cog size={16} />
-        <span>{t("settings.title")}</span>
-      </div>
-
-      {/* Theme */}
-      <div className="settings-group">
-        <div className="settings-group-label">{t("settings.theme")}</div>
-        <div className="settings-toggle-row">
-          <button
-            className={`settings-toggle-btn ${theme === "dark" ? "active" : ""}`}
-            onClick={toggleTheme}
-            title={t("settings.theme.dark")}
-          >
-            <Moon size={15} />
-            <span>{t("settings.theme.dark")}</span>
-          </button>
-          <button
-            className={`settings-toggle-btn ${theme === "light" ? "active" : ""}`}
-            onClick={toggleTheme}
-            title={t("settings.theme.light")}
-          >
-            <Sun size={15} />
-            <span>{t("settings.theme.light")}</span>
-          </button>
+    <Show when={props.open}>
+      <div class="settings-popover" ref={ref}>
+        <div class="settings-popover-header">
+          <Cog size={16} />
+          <span>{settings.t("settings.title")}</span>
         </div>
-      </div>
 
-      {/* Language */}
-      <div className="settings-group">
-        <div className="settings-group-label">{t("settings.language")}</div>
-        <div className="settings-toggle-row">
-          {(["en", "ru"] as Lang[]).map((l) => (
+        {/* Theme */}
+        <div class="settings-group">
+          <div class="settings-group-label">{settings.t("settings.theme")}</div>
+          <div class="settings-toggle-row">
             <button
-              key={l}
-              className={`settings-toggle-btn ${lang === l ? "active" : ""}`}
-              onClick={() => setLang(l)}
+              class={`settings-toggle-btn ${settings.theme === "dark" ? "active" : ""}`}
+              onClick={settings.toggleTheme}
+              title={settings.t("settings.theme.dark")}
             >
-              <Globe size={15} />
-              <span>{t(`settings.language.${l}`)}</span>
+              <Moon size={15} />
+              <span>{settings.t("settings.theme.dark")}</span>
             </button>
-          ))}
+            <button
+              class={`settings-toggle-btn ${settings.theme === "light" ? "active" : ""}`}
+              onClick={settings.toggleTheme}
+              title={settings.t("settings.theme.light")}
+            >
+              <Sun size={15} />
+              <span>{settings.t("settings.theme.light")}</span>
+            </button>
+          </div>
+        </div>
+
+        {/* Language */}
+        <div class="settings-group">
+          <div class="settings-group-label">{settings.t("settings.language")}</div>
+          <div class="settings-toggle-row">
+            <For each={["en", "ru"] as Lang[]}>
+              {(l) => (
+                <button
+                  class={`settings-toggle-btn ${settings.lang === l ? "active" : ""}`}
+                  onClick={() => settings.setLang(l)}
+                >
+                  <Globe size={15} />
+                  <span>{settings.t(`settings.language.${l}`)}</span>
+                </button>
+              )}
+            </For>
+          </div>
         </div>
       </div>
-    </div>
+    </Show>
   );
 }

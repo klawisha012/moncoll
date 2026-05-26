@@ -9,10 +9,72 @@ import json
 CROWDSEC_CONTAINER = "waf-crowdsec-1"
 ANGIE_CONTAINER = "waf-angie-1"
 ANGIE_URL = "http://localhost"
-API_URL = "http://localhost:8000/api/crowdsec"
+BASE_URL = "http://localhost:8000"
+API_URL = f"{BASE_URL}/api/crowdsec"
+ADMIN_USER = "admin"
+ADMIN_PASS = "admin"
 
 
 # ── Fixtures ────────────────────────────────────────────────
+
+
+@pytest.fixture(scope="module")
+def auth_session() -> requests.Session:
+    """Authenticated session — dynamically signs up a client and verifies them."""
+    import uuid
+    import re
+    import subprocess
+
+    unique_id = uuid.uuid4().hex[:8]
+    email = f"crowdsec-client-{unique_id}@example.com"
+    password = "Password1!"
+    tenant_name = f"tenant{unique_id}"
+
+    s = requests.Session()
+
+    # 1. Signup
+    r = s.post(
+        f"{BASE_URL}/api/auth/signup",
+        json={
+            "email": email,
+            "password": password,
+            "tenant_name": tenant_name,
+            "captcha_token": "e2e-test-bypass",
+        },
+        timeout=15,
+    )
+    if r.status_code != 202:
+        s.close()
+        pytest.skip(f"Signup failed: {r.status_code} - {r.text}")
+
+    # 2. Extract verification token from logs
+    time.sleep(2)
+    try:
+        logs = subprocess.check_output(
+            ["docker", "logs", "--tail", "300", "waf-backend-1"],
+            stderr=subprocess.STDOUT, timeout=15,
+        ).decode(errors="replace")
+        m = re.search(r"/verify-email\?token=([A-Za-z0-9_\-]+)", logs)
+    except Exception as e:
+        s.close()
+        pytest.skip(f"Could not get logs or find token: {e}")
+
+    if not m:
+        s.close()
+        pytest.skip("Verification token not found in backend logs")
+
+    # 3. Verify email
+    r = s.post(
+        f"{BASE_URL}/api/auth/verify-email",
+        json={"token": m.group(1)},
+        timeout=10,
+    )
+    if r.status_code != 200:
+        s.close()
+        pytest.skip(f"Email verification failed: {r.status_code} - {r.text}")
+
+    yield s
+    s.close()
 
 
 @pytest.fixture(scope="function")
@@ -166,10 +228,11 @@ def test_crowdsec_delete_decision(clean_decisions):
 # ── API validation helper ──────────────────────────────────
 
 
-def _api_available(url: str) -> bool:
+def _api_available(url: str, session: requests.Session | None = None) -> bool:
     """Check if the CrowdSec API is deployed on the backend."""
     try:
-        r = requests.get(url, timeout=3)
+        caller = session if session is not None else requests
+        r = caller.get(url, timeout=3)
         return r.status_code != 404
     except (requests.exceptions.ConnectionError, requests.exceptions.Timeout):
         return False
@@ -178,11 +241,11 @@ def _api_available(url: str) -> bool:
 # ── API endpoint tests ─────────────────────────────────────
 
 
-def test_api_crowdsec_status():
+def test_api_crowdsec_status(auth_session):
     """Verify the CrowdSec status API endpoint returns valid data."""
-    if not _api_available(f"{API_URL}/status"):
+    if not _api_available(f"{API_URL}/status", auth_session):
         pytest.skip("CrowdSec API not deployed (backend rebuild required)")
-    response = requests.get(f"{API_URL}/status", timeout=5)
+    response = auth_session.get(f"{API_URL}/status", timeout=5)
     assert response.status_code == 200, f"Status: {response.status_code}"
     data = response.json()
     assert "running" in data, f"Missing 'running' field: {data}"
@@ -191,19 +254,19 @@ def test_api_crowdsec_status():
     assert "alerts_count" in data
 
 
-def test_api_crowdsec_decisions(clean_decisions):
+def test_api_crowdsec_decisions(clean_decisions, auth_session):
     """Verify the CrowdSec decisions API endpoint."""
-    if not _api_available(f"{API_URL}/status"):
+    if not _api_available(f"{API_URL}/status", auth_session):
         pytest.skip("CrowdSec API not deployed (backend rebuild required)")
 
     # List should work
-    response = requests.get(f"{API_URL}/decisions", timeout=5)
+    response = auth_session.get(f"{API_URL}/decisions", timeout=5)
     assert response.status_code == 200
     data = response.json()
     assert isinstance(data, list), f"Expected list, got {type(data)}"
 
     # Add a decision via API
-    response = requests.post(
+    response = auth_session.post(
         f"{API_URL}/decisions",
         json={"ip": "10.77.77.77", "duration": "1h", "reason": "api_test"},
         timeout=5
@@ -213,24 +276,24 @@ def test_api_crowdsec_decisions(clean_decisions):
     assert result.get("success"), f"Add not successful: {result}"
 
     # Verify in list
-    response = requests.get(f"{API_URL}/decisions", timeout=5)
+    response = auth_session.get(f"{API_URL}/decisions", timeout=5)
     data = response.json()
     ips_blocked = [d.get("value", "") for d in data]
     assert "10.77.77.77" in ips_blocked, f"IP not found via API: {ips_blocked}"
 
     # Delete via API
-    response = requests.delete(f"{API_URL}/decisions/10.77.77.77", timeout=5)
+    response = auth_session.delete(f"{API_URL}/decisions/10.77.77.77", timeout=5)
     assert response.status_code == 200, f"Delete failed: {response.text}"
     result = response.json()
     assert result.get("success"), f"Delete not successful: {result}"
 
 
-def test_api_crowdsec_scenarios():
+def test_api_crowdsec_scenarios(auth_session):
     """Verify the CrowdSec scenarios API endpoint."""
-    if not _api_available(f"{API_URL}/status"):
+    if not _api_available(f"{API_URL}/status", auth_session):
         pytest.skip("CrowdSec API not deployed (backend rebuild required)")
 
-    response = requests.get(f"{API_URL}/scenarios", timeout=5)
+    response = auth_session.get(f"{API_URL}/scenarios", timeout=5)
     assert response.status_code == 200
     data = response.json()
     assert isinstance(data, list), f"Expected list, got {type(data)}"
@@ -240,12 +303,12 @@ def test_api_crowdsec_scenarios():
         f"http-scan-404 not found in scenarios via API: {scenario_names}"
 
 
-def test_api_crowdsec_reload():
+def test_api_crowdsec_reload(auth_session):
     """Verify the CrowdSec reload API endpoint."""
-    if not _api_available(f"{API_URL}/status"):
+    if not _api_available(f"{API_URL}/status", auth_session):
         pytest.skip("CrowdSec API not deployed (backend rebuild required)")
 
-    response = requests.post(f"{API_URL}/reload", timeout=30)
+    response = auth_session.post(f"{API_URL}/reload", timeout=30)
     assert response.status_code == 200
     data = response.json()
     assert data.get("success"), f"Reload not successful: {data}"
@@ -277,15 +340,15 @@ def test_crowdsec_blocks_ip_after_404_scan(clean_decisions):
 
 
 def test_blocked_ips_conf_exists():
-    """Verify blocked_ips.conf file exists."""
+    """Verify blocked_ips.list file exists."""
     import os
-    path = "configs/angie/blocked_ips.conf"
+    path = "configs/angie/http.d/blocked_ips.list"
     if not os.path.exists(path):
         pytest.skip(f"{path} does not exist yet")
     with open(path, "r") as f:
         content = f.read()
     if content.strip():
-        assert "deny" in content, f"Invalid format in blocked_ips.conf"
+        assert "deny" in content, f"Invalid format in blocked_ips.list"
 
 
 def test_crowdsec_acquisition_config():
@@ -297,11 +360,11 @@ def test_crowdsec_acquisition_config():
     assert result.returncode == 0, "Failed to get CrowdSec config"
 
 
-def test_crowdsec_hub_items():
+def test_crowdsec_hub_items(auth_session):
     """Verify we can inspect hub scenarios and parsers."""
-    if not _api_available(f"{API_URL}/status"):
+    if not _api_available(f"{API_URL}/status", auth_session):
         pytest.skip("CrowdSec API not deployed (backend rebuild required)")
-    response = requests.get(f"{API_URL}/scenarios/hub", timeout=10)
+    response = auth_session.get(f"{API_URL}/scenarios/hub", timeout=10)
     assert response.status_code == 200
     data = response.json()
     # May be empty or have items depending on hub state

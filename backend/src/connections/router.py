@@ -152,6 +152,7 @@ class SecurityConfig(BaseModel):
 
     modsec_state: ModSecState
     geoip_denied_countries: list[str] = Field(default_factory=list)
+    crowdsec_active: bool = True
 
     @field_validator("geoip_denied_countries")
     @classmethod
@@ -182,6 +183,7 @@ async def get_security(
     return SecurityConfig(
         modsec_state=conn.modsec_state,
         geoip_denied_countries=conn.geoip_denied_countries,
+        crowdsec_active=conn.crowdsec_active,
     )
 
 
@@ -198,10 +200,12 @@ async def update_security(
         connection_id,
         modsec_state=body.modsec_state,
         geoip_denied_countries=body.geoip_denied_countries,
+        crowdsec_active=body.crowdsec_active,
     )
     if conn is None:
         raise HTTPException(status_code=404, detail="Connection not found")
     return SecurityConfig(
         modsec_state=conn.modsec_state,
         geoip_denied_countries=conn.geoip_denied_countries,
+        crowdsec_active=conn.crowdsec_active,
     )

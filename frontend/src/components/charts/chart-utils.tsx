@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback } from "react";
+import { createSignal, Show, For } from "solid-js";
 
 /** Tiny K/M number formatter shared by the SVG charts. */
 export function formatNumber(n: number): string {
@@ -15,37 +15,33 @@ export function formatBytes(n: number): string {
   return `${n} B`;
 }
 
-export function EmptyState({ message, loading }: { message: string; loading: boolean }) {
-  if (loading) {
-    return (
-      <div className="loading-spinner" style={{ padding: "48px 0", fontSize: "13px" }}>
-        Loading…
-      </div>
-    );
-  }
+export function EmptyState(props: { message: string; loading: boolean }) {
   return (
-    <div
-      style={{
-        padding: "48px 0",
-        textAlign: "center",
-        color: "var(--text-muted)",
-        fontSize: "13px",
-      }}
+    <Show
+      when={!props.loading}
+      fallback={
+        <div class="loading-spinner" style={{ padding: "48px 0", "font-size": "13px" }}>
+          Loading…
+        </div>
+      }
     >
-      {message}
-    </div>
+      <div
+        style={{
+          padding: "48px 0",
+          "text-align": "center",
+          color: "var(--text-muted)",
+          "font-size": "13px",
+        }}
+      >
+        {props.message}
+      </div>
+    </Show>
   );
 }
 
 export type TooltipRow = { label: string; value: string; color?: string };
 
-export function ChartTooltip({
-  x,
-  y,
-  containerWidth,
-  title,
-  rows,
-}: {
+export function ChartTooltip(props: {
   x: number;
   y: number;
   containerWidth: number;
@@ -54,71 +50,73 @@ export function ChartTooltip({
 }) {
   // Flip tooltip to the left of the cursor if it would overflow the container.
   const estW = 200;
-  const flip = x + estW + 24 > containerWidth;
-  const dx = flip ? -estW - 12 : 14;
+  const flip = () => props.x + estW + 24 > props.containerWidth;
+  const dx = () => flip() ? -estW - 12 : 14;
+
   return (
     <div
       role="tooltip"
       style={{
         position: "absolute",
-        left: x + dx,
-        top: Math.max(8, y - 8),
+        left: `${props.x + dx()}px`,
+        top: `${Math.max(8, props.y - 8)}px`,
         transform: "translateY(-100%)",
-        pointerEvents: "none",
+        "pointer-events": "none",
         background: "var(--card-bg)",
         border: "2px solid var(--ink)",
-        boxShadow: "var(--shadow-offset-sm)",
+        "box-shadow": "var(--shadow-offset-sm)",
         padding: "8px 10px",
-        minWidth: "150px",
-        maxWidth: `${estW}px`,
-        zIndex: 30,
-        fontFamily: "var(--font-body)",
+        "min-width": "150px",
+        "max-width": `${estW}px`,
+        "z-index": 30,
+        "font-family": "var(--font-body)",
       }}
     >
       <div
         style={{
-          fontFamily: "var(--font-cond)",
-          fontSize: "11px",
-          letterSpacing: "0.08em",
-          textTransform: "uppercase",
+          "font-family": "var(--font-cond)",
+          "font-size": "11px",
+          "letter-spacing": "0.08em",
+          "text-transform": "uppercase",
           color: "var(--text-secondary)",
-          marginBottom: "6px",
-          borderBottom: "1px solid var(--border-subtle)",
-          paddingBottom: "4px",
+          "margin-bottom": "6px",
+          "border-bottom": "1px solid var(--border-subtle)",
+          "padding-bottom": "4px",
         }}
       >
-        {title}
+        {props.title}
       </div>
-      <div style={{ display: "flex", flexDirection: "column", gap: "3px" }}>
-        {rows.map((r, i) => (
-          <div
-            key={i}
-            style={{ display: "flex", alignItems: "center", gap: "8px", fontSize: "12px" }}
-          >
-            {r.color && (
-              <span
-                aria-hidden
-                style={{
-                  width: 9,
-                  height: 9,
-                  background: r.color,
-                  border: "1px solid var(--ink)",
-                  flexShrink: 0,
-                }}
-              />
-            )}
-            <span style={{ color: "var(--text-secondary)", flex: 1 }}>{r.label}</span>
-            <span
-              style={{
-                fontFamily: "var(--font-mono)",
-                fontWeight: 600,
-                color: "var(--text-primary)",
-              }}
+      <div style={{ display: "flex", "flex-direction": "column", gap: "3px" }}>
+        <For each={props.rows}>
+          {(r) => (
+            <div
+              style={{ display: "flex", "align-items": "center", gap: "8px", "font-size": "12px" }}
             >
-              {r.value}
-            </span>
-          </div>
-        ))}
+              <Show when={r.color}>
+                <span
+                  aria-hidden
+                  style={{
+                    width: "9px",
+                    height: "9px",
+                    background: r.color,
+                    border: "1px solid var(--ink)",
+                    "flex-shrink": 0,
+                  }}
+                />
+              </Show>
+              <span style={{ color: "var(--text-secondary)", flex: 1 }}>{r.label}</span>
+              <span
+                style={{
+                  "font-family": "var(--font-mono)",
+                  "font-weight": 600,
+                  color: "var(--text-primary)",
+                }}
+              >
+                {r.value}
+              </span>
+            </div>
+          )}
+        </For>
       </div>
     </div>
   );
@@ -128,44 +126,57 @@ export function useSvgHover(
   viewBoxW: number,
   padLeft: number,
   padRight: number,
-  stepX: number,
-  dataLen: number,
+  stepX: () => number,
+  dataLen: () => number,
 ) {
-  const [hoverIdx, setHoverIdx] = useState<number | null>(null);
-  const [pos, setPos] = useState<{ x: number; y: number; containerW: number } | null>(null);
-  const wrapRef = useRef<HTMLDivElement>(null);
-  const svgRef = useRef<SVGSVGElement>(null);
+  const [hoverIdx, setHoverIdx] = createSignal<number | null>(null);
+  const [pos, setPos] = createSignal<{ x: number; y: number; containerW: number } | null>(null);
+  let wrapRef: HTMLDivElement | undefined;
+  let svgRef: SVGSVGElement | undefined;
 
-  const onMove = useCallback(
-    (e: React.MouseEvent<HTMLDivElement>) => {
-      const svg = svgRef.current;
-      const wrap = wrapRef.current;
-      if (!svg || !wrap || dataLen === 0) return;
-      const rect = svg.getBoundingClientRect();
-      const wrapRect = wrap.getBoundingClientRect();
-      if (rect.width === 0) return;
-      const relX = ((e.clientX - rect.left) / rect.width) * viewBoxW;
-      if (relX < padLeft || relX > viewBoxW - padRight) {
-        setHoverIdx(null);
-        setPos(null);
-        return;
-      }
-      const idx = Math.floor((relX - padLeft) / stepX);
-      const clamped = Math.max(0, Math.min(dataLen - 1, idx));
-      setHoverIdx(clamped);
-      setPos({
-        x: e.clientX - wrapRect.left,
-        y: e.clientY - wrapRect.top,
-        containerW: wrapRect.width,
-      });
-    },
-    [viewBoxW, padLeft, padRight, stepX, dataLen],
-  );
+  const onMove = (e: MouseEvent) => {
+    const svg = svgRef;
+    const wrap = wrapRef;
+    const len = dataLen();
+    if (!svg || !wrap || len === 0) return;
+    const rect = svg.getBoundingClientRect();
+    const wrapRect = wrap.getBoundingClientRect();
+    if (rect.width === 0) return;
+    const relX = ((e.clientX - rect.left) / rect.width) * viewBoxW;
+    if (relX < padLeft || relX > viewBoxW - padRight) {
+      setHoverIdx(null);
+      setPos(null);
+      return;
+    }
+    const idx = Math.floor((relX - padLeft) / stepX());
+    const clamped = Math.max(0, Math.min(len - 1, idx));
+    setHoverIdx(clamped);
+    setPos({
+      x: e.clientX - wrapRect.left,
+      y: e.clientY - wrapRect.top,
+      containerW: wrapRect.width,
+    });
+  };
 
-  const onLeave = useCallback(() => {
+  const onLeave = () => {
     setHoverIdx(null);
     setPos(null);
-  }, []);
+  };
 
-  return { hoverIdx, pos, wrapRef, svgRef, onMove, onLeave };
+  return {
+    get hoverIdx() {
+      return hoverIdx();
+    },
+    get pos() {
+      return pos();
+    },
+    onMove,
+    onLeave,
+    refWrap: (el: HTMLDivElement) => {
+      wrapRef = el;
+    },
+    refSvg: (el: SVGSVGElement) => {
+      svgRef = el;
+    },
+  };
 }

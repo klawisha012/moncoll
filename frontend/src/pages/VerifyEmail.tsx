@@ -1,79 +1,85 @@
-import { useEffect, useState } from "react";
-import { Link, useSearchParams } from "react-router-dom";
+import { createSignal, createEffect } from "solid-js";
+import { Show } from "solid-js";
+import { A, useSearchParams } from "@solidjs/router";
 import { useSettings } from "../context/SettingsContext";
 import { api } from "../api/client";
 
 export default function VerifyEmail() {
-  const { t } = useSettings();
+  const settings = useSettings();
   const [params] = useSearchParams();
-  const token = params.get("token") ?? "";
+  const token = () => params.token ?? "";
 
-  const [status, setStatus] = useState<"loading" | "success" | "error">("loading");
-  const [message, setMessage] = useState("");
+  const [status, setStatus] = createSignal<"loading" | "success" | "error">("loading");
+  const [message, setMessage] = createSignal("");
 
-  useEffect(() => {
-    if (!token) {
+  createEffect(() => {
+    const tok = token();
+    if (!tok) {
       setStatus("error");
       setMessage("Missing token");
       return;
     }
-    api.auth.verifyEmail(token)
+    api.auth.verifyEmail(tok)
       .then(() => setStatus("success"))
       .catch((err: Error) => {
         setStatus("error");
         setMessage(err.message);
       });
-  }, [token]);
+  });
 
-  const isSuccess = status === "success";
-  const title = status === "loading"
-    ? t("auth.verifyEmail.verifying")
-    : isSuccess
-      ? t("auth.verifyEmail.success")
-      : t("auth.verifyEmail.error");
+  const isSuccess = () => status() === "success";
+  const title = () => status() === "loading"
+    ? settings.t("auth.verifyEmail.verifying")
+    : isSuccess()
+      ? settings.t("auth.verifyEmail.success")
+      : settings.t("auth.verifyEmail.error");
 
   return (
-    <div className="cv-root">
+    <div class="cv-root">
       <style>{styles}</style>
-      <section className="cv-manifest">
-        <div className="cv-eyebrow">
-          <span className="cv-n">{isSuccess ? "✓" : status === "loading" ? "…" : "✕"}</span>
-          <span className="cv-eyebrow-text">— Email</span>
+      <section class="cv-manifest">
+        <div class="cv-eyebrow">
+          <span class="cv-n">
+            <Show when={status() === "loading"} fallback={isSuccess() ? "✓" : "✕"}>
+              …
+            </Show>
+          </span>
+          <span class="cv-eyebrow-text">— Email</span>
         </div>
-        <h1 className="cv-h1 cv-h1-sm">
-          <span className="cv-stack">{title}</span>
+        <h1 class="cv-h1 cv-h1-sm">
+          <span class="cv-stack">{title()}</span>
         </h1>
-        {isSuccess && <p className="cv-deck">{t("auth.verifyEmail.successDesc")}</p>}
-        {status === "error" && <p className="cv-deck" style={{ borderLeftColor: "var(--red)" }}>{message}</p>}
-        <div className="cv-disc" aria-hidden />
+        <Show when={isSuccess()}>
+          <p class="cv-deck">{settings.t("auth.verifyEmail.successDesc")}</p>
+        </Show>
+        <Show when={status() === "error"}>
+          <p class="cv-deck" style={{ "border-left-color": "var(--red)" }}>{message()}</p>
+        </Show>
+        <div class="cv-disc" aria-hidden />
       </section>
 
-      <section className="cv-form-side">
-        <div className="cv-form">
-          <div className="cv-form-head">
-            <span className="cv-kicker">№ 07 / email verification</span>
+      <section class="cv-form-side">
+        <div class="cv-form">
+          <div class="cv-form-head">
+            <span class="cv-kicker">№ 07 / email verification</span>
           </div>
-          {status === "loading" && (
-            <p className="cv-body">{t("auth.verifyEmail.verifying")}</p>
-          )}
-          {isSuccess && (
-            <>
-              <p className="cv-body">{t("auth.verifyEmail.successDesc")}</p>
-              <Link to="/login" className="cv-submit" style={{ textDecoration: "none", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                <span>{t("auth.verifyEmail.toLogin")}</span>
-                <span className="cv-ar">→</span>
-              </Link>
-            </>
-          )}
-          {status === "error" && (
-            <>
-              <p className="cv-body cv-body-err">{message || t("auth.verifyEmail.error")}</p>
-              <Link to="/login" className="cv-submit cv-submit-alt" style={{ textDecoration: "none", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                <span>{t("auth.verifyEmail.toLogin")}</span>
-                <span className="cv-ar">→</span>
-              </Link>
-            </>
-          )}
+          <Show when={status() === "loading"}>
+            <p class="cv-body">{settings.t("auth.verifyEmail.verifying")}</p>
+          </Show>
+          <Show when={isSuccess()}>
+            <p class="cv-body">{settings.t("auth.verifyEmail.successDesc")}</p>
+            <A href="/login" class="cv-submit" style={{ "text-decoration": "none", "display": "flex", "justify-content": "space-between", "align-items": "center" }}>
+              <span>{settings.t("auth.verifyEmail.toLogin")}</span>
+              <span class="cv-ar">→</span>
+            </A>
+          </Show>
+          <Show when={status() === "error"}>
+            <p class="cv-body cv-body-err">{message() || settings.t("auth.verifyEmail.error")}</p>
+            <A href="/login" class="cv-submit cv-submit-alt" style={{ "text-decoration": "none", "display": "flex", "justify-content": "space-between", "align-items": "center" }}>
+              <span>{settings.t("auth.verifyEmail.toLogin")}</span>
+              <span class="cv-ar">→</span>
+            </A>
+          </Show>
         </div>
       </section>
     </div>

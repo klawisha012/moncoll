@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import Globe, { type GlobeMethods } from "react-globe.gl";
+import { onMount, onCleanup, createSignal, createEffect, createMemo } from "solid-js";
+import Globe from "globe.gl";
 import { feature } from "topojson-client";
 import { MeshPhongMaterial } from "three";
 import type { Feature, FeatureCollection, Geometry } from "geojson";
@@ -34,7 +34,6 @@ function makeStarfield(numStars: number, w: number, h: number): string {
     const x = Math.floor(Math.random() * w);
     const y = Math.floor(Math.random() * h);
     const roll = Math.random();
-    // Most stars are crisp 2x2 pixels; ~15% are brighter 3x3; ~5% have a halo.
     if (roll > 0.95) {
       ctx.fillStyle = "rgba(255,255,255,0.15)";
       ctx.fillRect(x - 2, y - 2, 6, 6);
@@ -106,9 +105,6 @@ function escapeHtml(s: string): string {
   return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 }
 
-// One-time stylesheet injection — keeps hover/active transitions out of
-// inline-style noise on every marker re-render. id-gate is idempotent
-// across HMR/StrictMode.
 const MARKER_STYLE_ID = "geoip-globe-marker-style";
 function ensureMarkerStyle(): void {
   if (typeof document === "undefined") return;
@@ -116,16 +112,6 @@ function ensureMarkerStyle(): void {
   const style = document.createElement("style");
   style.id = MARKER_STYLE_ID;
   style.textContent = `
-    /* react-globe.gl uses three.js CSS2DRenderer которое навешивает
-       inline transform: translate(-50%,-50%) translate3d(x,y,0) на каждый
-       html-маркер — наш собственный transform на этом же узле молча
-       перетирается. Поэтому ЛЮБОЙ outer-transform тут бесполезен. Делаем
-       wrapper фиксированного размера (14×20 — bbox пина), а пин и
-       карточку позиционируем absolute внутри. Так центр wrapper'а
-       совпадает с lat/lng-точкой (где react-globe.gl его и ставит), а
-       мы вручную смещаем пин так чтобы его кончик попадал в этот центр.
-       Без этого пин «съезжает» при отдалении камеры — фикс-pixel
-       элемент не уменьшается вместе с глобусом. */
     .geoip-marker {
       position: absolute;
       width: 14px;
@@ -140,18 +126,13 @@ function ensureMarkerStyle(): void {
     .geoip-marker-pin {
       position: absolute;
       left: 0;
-      /* bottom: 50% — нижний край SVG (= кончик пина) совпадает с
-         вертикальным центром wrapper'а, который и есть lat/lng. */
       bottom: 50%;
       width: 14px;
       height: 20px;
       filter: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.55));
       transition: transform 0.14s ease-out;
-      /* Hover-scale крутится из точки кончика, не из геометрического
-         центра SVG — иначе пин «прыгает» при наведении. */
       transform-origin: 50% 100%;
     }
-    /* Hover-увеличение пина — hint что метка кликабельна. */
     .geoip-marker:hover .geoip-marker-pin,
     .geoip-marker.active .geoip-marker-pin {
       transform: scale(1.15);
@@ -159,8 +140,6 @@ function ensureMarkerStyle(): void {
     .geoip-marker-card {
       position: absolute;
       left: 50%;
-      /* 50% (центр wrapper'а) + 10px (полная высота пина наверх от
-         кончика) + 6px зазор = bottom-edge карточки. */
       bottom: calc(50% + 26px);
       min-width: 200px;
       max-width: 280px;
@@ -182,9 +161,6 @@ function ensureMarkerStyle(): void {
         visibility 0s linear 0.14s;
       pointer-events: none;
     }
-    /* Card opens on click (.active), not on hover — иначе при плотной
-       кластеризации меток курсор не может попасть на соседний пин,
-       тулапы перекрывают цели. */
     .geoip-marker.active .geoip-marker-card {
       opacity: 1;
       visibility: visible;
@@ -263,16 +239,9 @@ function fmtCoord(lat: number, lon: number): string {
 }
 
 function markerKey(d: GlobeMarker): string {
-  // Stable identifier across data refetches/refresh — совпадает с тем что
-  // backend публикует в дельтах (см. backend/src/realtime/consumer.py).
   return `${(d.country_code || "").toUpperCase()}|${d.latitude.toFixed(2)}|${d.longitude.toFixed(2)}|${d.city_name || ""}`;
 }
 
-// Глобальное состояние активной метки. Глобальное (а не React-state) потому
-// что DOM-элементы маркеров создаются императивно через htmlElement-колбэк
-// react-globe.gl, и при пересоздании (на data refetch) нам нужно вернуть
-// `active` класс именно тому маркеру, который был открыт — пользователь
-// не должен терять выделение на каждом 500ms-тике live-апдейта.
 let _activeMarkerKey: string | null = null;
 let _documentClickRegistered = false;
 
@@ -287,8 +256,6 @@ function setActiveMarker(key: string | null): void {
 function ensureDocumentClick(): void {
   if (_documentClickRegistered || typeof document === "undefined") return;
   _documentClickRegistered = true;
-  // Клик мимо любого маркера → закрываем активную карточку. Любой клик на
-  // самом маркере останавливает propagation и не доходит сюда.
   document.addEventListener("click", (e) => {
     const target = e.target as HTMLElement | null;
     if (!target || !target.closest(".geoip-marker")) {
@@ -311,20 +278,17 @@ function buildMarker(
   el.className = "geoip-marker";
   el.dataset.geoipKey = key;
   el.tabIndex = 0;
-  // Восстановить открытое состояние после react-globe.gl recreate (например
-  // при live-апдейте data из Centrifugo).
   if (_activeMarkerKey === key) el.classList.add("active");
 
   el.addEventListener("click", (e) => {
     e.stopPropagation();
     if (_activeMarkerKey === key) {
-      // toggle off — второй клик по тому же пину закрывает карточку
       setActiveMarker(null);
     } else {
       setActiveMarker(key);
     }
   });
-  // Keyboard-equivalent: Enter/Space на focused пине открывает карточку
+
   el.addEventListener("keydown", (e) => {
     if (e.key === "Enter" || e.key === " ") {
       e.preventDefault();
@@ -347,9 +311,6 @@ function buildMarker(
           .join("")
       : "";
 
-  // Пин рендерится первым (он в потоке wrapper'а), карточка — absolute
-  // выше пина. Раскрытие только по клику (.active), см. CSS.
-  // Border-left на карточке красим severity-цветом — узнаваемая подпись.
   el.innerHTML = `
     <svg class="geoip-marker-pin" viewBox="0 0 14 20">
       <path d="M7 0 C3.13 0 0 3.13 0 7 c0 5.25 7 13 7 13 s7 -7.75 7 -13 c0 -3.87 -3.13 -7 -7 -7 z" fill="${color}" stroke="#0b0f1e" stroke-width="1"/>
@@ -388,78 +349,34 @@ function buildMarker(
   return el;
 }
 
-export default function GeoipGlobe({ data, theme, requestsLabel }: Props) {
-  const globeRef = useRef<GlobeMethods | undefined>(undefined);
-  const containerRef = useRef<HTMLDivElement | null>(null);
-  const [size, setSize] = useState<{ w: number; h: number }>({ w: 800, h: 520 });
-  const [countries, setCountries] = useState<CountryFeature[]>([]);
+export default function GeoipGlobe(props: Props) {
+  let containerRef: HTMLDivElement | undefined;
+  let globeInstance: any;
 
-  useEffect(() => {
-    const el = containerRef.current;
-    if (!el) return;
-    const update = () => {
-      const rect = el.getBoundingClientRect();
-      setSize({ w: Math.max(rect.width, 320), h: Math.max(rect.height, 320) });
-    };
-    update();
-    const ro = new ResizeObserver(update);
-    ro.observe(el);
-    return () => ro.disconnect();
-  }, []);
+  const [size, setSize] = createSignal<{ w: number; h: number }>({ w: 800, h: 520 });
+  const [countries, setCountries] = createSignal<CountryFeature[]>([]);
 
-  useEffect(() => {
-    let cancelled = false;
-    fetch(COUNTRIES_TOPOJSON_URL)
-      .then((r) => r.json())
-      .then((topo) => {
-        if (cancelled) return;
-        const obj = topo.objects?.countries;
-        if (!obj) return;
-        const fc = feature(topo, obj) as unknown as FeatureCollection<Geometry, { name: string }>;
-        setCountries(fc.features as CountryFeature[]);
-      })
-      .catch(() => {
-        // network failure — globe still renders without polygons/labels
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, []);
+  // Starfield generated once
+  const starfieldUrl = createMemo(() => makeStarfield(900, 4096, 2048));
 
-  useEffect(() => {
-    const g = globeRef.current;
-    if (!g) return;
-    const controls = g.controls();
-    if (controls) {
-      controls.autoRotate = true;
-      controls.autoRotateSpeed = 0.3;
-      controls.enableZoom = true;
-      controls.enableDamping = true;
-      controls.dampingFactor = 0.12;
-      controls.rotateSpeed = 0.6;
-      // Cap zoom-out so the polygon/sphere depth-buffer doesn't z-fight.
-      controls.minDistance = 110;
-      controls.maxDistance = 600;
-    }
-    g.pointOfView({ lat: 25, lng: 0, altitude: 2.4 }, 0);
-  }, [size.w]);
-
-  const { maxHits, minHits } = useMemo(() => {
-    const hits = data.map((d) => d.hits);
-    return { maxHits: Math.max(...hits, 1), minHits: Math.min(...hits, 1) };
-  }, [data]);
-
-  // Water tone — pure black so land shows up as a lighter gray cap.
-  const globeMaterial = useMemo(
+  // Water tone material
+  const globeMaterial = createMemo(
     () => new MeshPhongMaterial({ color: 0x000000, emissive: 0x000000, shininess: 6 }),
-    [],
   );
 
-  // Sparse but crisp starfield — generated once at high resolution.
-  const starfieldUrl = useMemo(() => makeStarfield(900, 4096, 2048), []);
+  const hitsStats = createMemo(() => {
+    const hits = props.data.map((d) => d.hits);
+    return {
+      maxHits: Math.max(...hits, 1),
+      minHits: Math.min(...hits, 1),
+    };
+  });
 
-  const labels = useMemo<GlobeLabel[]>(() => {
-    const countryLabels: GlobeLabel[] = countries
+  const maxHits = () => hitsStats().maxHits;
+  const minHits = () => hitsStats().minHits;
+
+  const labels = createMemo<GlobeLabel[]>(() => {
+    const countryLabels: GlobeLabel[] = countries()
       .map((c) => {
         const cent = centroidOf(c.geometry);
         if (!cent) return null;
@@ -467,41 +384,135 @@ export default function GeoipGlobe({ data, theme, requestsLabel }: Props) {
       })
       .filter((x): x is GlobeLabel => x !== null);
     return [...OCEAN_LABELS, ...countryLabels];
-  }, [countries]);
+  });
 
-  // Memoized accessors so react-globe.gl doesn't refresh the scene every render.
-  // Land = light gray cap, water = the black globe sphere underneath.
-  // Altitude is raised slightly + fully opaque cap/side to prevent z-fighting
-  // with the sphere when the camera zooms out (depth-buffer precision drops).
-  const polyCapColor = useCallback(() => "rgb(56, 60, 68)", []);
-  const polySideColor = useCallback(() => "rgb(40, 44, 52)", []);
-  const polyStrokeColor = useCallback(() => "rgba(120, 130, 145, 0.55)", []);
-  const polyAltitude = useCallback(() => 0.016, []);
-  const labelLat = useCallback((d: object) => (d as GlobeLabel).lat, []);
-  const labelLng = useCallback((d: object) => (d as GlobeLabel).lng, []);
-  const labelText = useCallback((d: object) => (d as GlobeLabel).name, []);
-  const labelSizeFn = useCallback(
-    (d: object) => ((d as GlobeLabel).ocean ? 0.7 : 0.45),
-    [],
-  );
-  const labelColorFn = useCallback(
-    (d: object) =>
-      (d as GlobeLabel).ocean ? "rgba(160,185,210,0.45)" : "rgba(220,225,235,0.78)",
-    [],
-  );
-  const labelDotRadiusFn = useCallback(() => 0, []);
-  // Labels must sit above the raised polygons (altitude 0.012) to avoid
-  // clipping/z-fighting; keep some headroom.
-  const labelAltitudeFn = useCallback(() => 0.018, []);
-  const htmlLatFn = useCallback((d: object) => (d as GlobeMarker).latitude, []);
-  const htmlLngFn = useCallback((d: object) => (d as GlobeMarker).longitude, []);
-  const htmlElementFn = useCallback(
-    (d: object) => {
-      const m = d as GlobeMarker;
-      return buildMarker(m, colorFor(m.hits, minHits, maxHits), theme, requestsLabel);
-    },
-    [minHits, maxHits, theme, requestsLabel],
-  );
+  // Poly fills and labels memoized parameters for ThreeJS scene callbacks
+  const polyCapColor = () => "rgb(56, 60, 68)";
+  const polySideColor = () => "rgb(40, 44, 52)";
+  const polyStrokeColor = () => "rgba(120, 130, 145, 0.55)";
+  const polyAltitude = () => 0.016;
+  const labelLat = (d: object) => (d as GlobeLabel).lat;
+  const labelLng = (d: object) => (d as GlobeLabel).lng;
+  const labelText = (d: object) => (d as GlobeLabel).name;
+  const labelSizeFn = (d: object) => ((d as GlobeLabel).ocean ? 0.7 : 0.45);
+  const labelColorFn = (d: object) =>
+    (d as GlobeLabel).ocean ? "rgba(160,185,210,0.45)" : "rgba(220,225,235,0.78)";
+  const labelDotRadiusFn = () => 0;
+  const labelAltitudeFn = () => 0.018;
+  const htmlLatFn = (d: object) => (d as GlobeMarker).latitude;
+  const htmlLngFn = (d: object) => (d as GlobeMarker).longitude;
+  
+  const htmlElementFn = (d: object) => {
+    const m = d as GlobeMarker;
+    return buildMarker(m, colorFor(m.hits, minHits(), maxHits()), props.theme, props.requestsLabel);
+  };
+
+  onMount(() => {
+    const el = containerRef;
+    if (!el) return;
+
+    // Resizing Observer
+    const updateSize = () => {
+      const rect = el.getBoundingClientRect();
+      setSize({ w: Math.max(rect.width, 320), h: Math.max(rect.height, 320) });
+    };
+    updateSize();
+    const ro = new ResizeObserver(updateSize);
+    ro.observe(el);
+
+    // Fetch polygons
+    fetch(COUNTRIES_TOPOJSON_URL)
+      .then((r) => r.json())
+      .then((topo) => {
+        const obj = topo.objects?.countries;
+        if (!obj) return;
+        const fc = feature(topo, obj) as any;
+        setCountries(fc.features);
+      })
+      .catch(() => {
+        // network failure fallback
+      });
+
+    // Initialize vanilla Globe
+    globeInstance = (Globe as any)()(el)
+      .backgroundColor("#000000")
+      .backgroundImageUrl(starfieldUrl())
+      .showAtmosphere(true)
+      .atmosphereColor("lightskyblue")
+      .atmosphereAltitude(0.20)
+      .globeMaterial(globeMaterial())
+      .showGlobe(true)
+      .polygonsTransitionDuration(0)
+      .labelsTransitionDuration(0)
+      .htmlTransitionDuration(0)
+      .htmlAltitude(0.02)
+      .polygonCapColor(polyCapColor)
+      .polygonSideColor(polySideColor)
+      .polygonStrokeColor(polyStrokeColor)
+      .polygonAltitude(polyAltitude)
+      .labelLat(labelLat)
+      .labelLng(labelLng)
+      .labelText(labelText)
+      .labelSize(labelSizeFn)
+      .labelColor(labelColorFn)
+      .labelDotRadius(labelDotRadiusFn)
+      .labelAltitude(labelAltitudeFn)
+      .labelResolution(2)
+      .htmlLat(htmlLatFn)
+      .htmlLng(htmlLngFn)
+      .htmlElement(htmlElementFn);
+
+    const controls = globeInstance.controls();
+    if (controls) {
+      controls.autoRotate = true;
+      controls.autoRotateSpeed = 0.3;
+      controls.enableZoom = true;
+      controls.enableDamping = true;
+      controls.dampingFactor = 0.12;
+      controls.rotateSpeed = 0.6;
+      controls.minDistance = 110;
+      controls.maxDistance = 600;
+    }
+
+    globeInstance.pointOfView({ lat: 25, lng: 0, altitude: 2.4 }, 0);
+
+    onCleanup(() => {
+      ro.disconnect();
+      if (globeInstance) {
+        // Clean up ThreeJS scene to prevent memory leaks
+        globeInstance._destructor?.();
+      }
+    });
+  });
+
+  // React to sizing changes
+  createEffect(() => {
+    if (globeInstance) {
+      const s = size();
+      globeInstance.width(s.w).height(s.h);
+    }
+  });
+
+  // React to data changes
+  createEffect(() => {
+    if (globeInstance) {
+      globeInstance.polygonsData(countries());
+    }
+  });
+
+  // React to labels changes
+  createEffect(() => {
+    if (globeInstance) {
+      globeInstance.labelsData(labels());
+    }
+  });
+
+  // React to active marker updates
+  createEffect(() => {
+    if (globeInstance) {
+      globeInstance.htmlElementsData(props.data);
+    }
+  });
 
   return (
     <div
@@ -512,41 +523,6 @@ export default function GeoipGlobe({ data, theme, requestsLabel }: Props) {
         background: "#000",
         overflow: "hidden",
       }}
-    >
-      <Globe
-        ref={globeRef}
-        width={size.w}
-        height={size.h}
-        backgroundColor="#000000"
-        backgroundImageUrl={starfieldUrl}
-        showAtmosphere={true}
-        atmosphereColor="lightskyblue"
-        atmosphereAltitude={0.20}
-        globeMaterial={globeMaterial}
-        showGlobe={true}
-        polygonsData={countries}
-        polygonCapColor={polyCapColor}
-        polygonSideColor={polySideColor}
-        polygonStrokeColor={polyStrokeColor}
-        polygonAltitude={polyAltitude}
-        polygonsTransitionDuration={0}
-        labelsData={labels}
-        labelLat={labelLat}
-        labelLng={labelLng}
-        labelText={labelText}
-        labelSize={labelSizeFn}
-        labelColor={labelColorFn}
-        labelDotRadius={labelDotRadiusFn}
-        labelAltitude={labelAltitudeFn}
-        labelResolution={2}
-        labelsTransitionDuration={0}
-        htmlElementsData={data}
-        htmlLat={htmlLatFn}
-        htmlLng={htmlLngFn}
-        htmlAltitude={0.02}
-        htmlElement={htmlElementFn}
-        htmlTransitionDuration={0}
-      />
-    </div>
+    />
   );
 }

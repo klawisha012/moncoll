@@ -1,12 +1,18 @@
-"""Admin-only Tests router.
+"""Tests router — client-facing WAF probe runner.
 
 Routes:
 - GET  /api/tests/catalog     → catalog manifest
 - POST /api/tests/run         → fire one test, return marker + classification
 
-Admin authentication is applied at the app-include level in
-``backend/src/main.py``. The router itself only adds an in-process rate
-limit (1 req/sec per admin) on the heavy POST endpoint.
+The frontend gates /tests as `RequireRole role="client"`. Per-route
+`require_verified` plus `current_tenant` here let verified clients run probes
+against their own connections only; cross-tenant connection_ids fall back to
+the default WAF target in `resolve_target`. Admins (no tenant_id) get a 403
+on /run since the tenant dependency requires one — that matches the frontend
+which hides /tests from admins.
+
+A 1 req/sec per-user rate limit on /run prevents click-spam from a logged-in
+client.
 """
 
 from __future__ import annotations
@@ -18,8 +24,8 @@ import time
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ..auth.dependencies import require_admin
-from ..db.models import User
+from ..auth.dependencies import current_tenant, require_verified
+from ..db.models import Tenant, User
 from ..db.session import get_session
 from . import crowdsec_runner
 from . import service as test_service
@@ -32,11 +38,11 @@ router = APIRouter(prefix="/api/tests", tags=["tests"])
 
 
 # ── In-process rate limit ─────────────────────────────────────────────
-# 1 request per second per admin user. The frontend already disables Run
-# while polling, so this primarily protects against double-click double-fire
-# and accidental scripted abuse from a logged-in admin. A multi-worker
-# uvicorn deploy would bypass this; that's documented in the design doc and
-# acceptable for pre-product. Redis-backed version is a v2.
+# 1 request per second per user. The frontend already disables Run while
+# polling, so this primarily protects against double-click double-fire
+# and accidental scripted abuse. A multi-worker uvicorn deploy would bypass
+# this; that's documented in the design doc and acceptable for pre-product.
+# Redis-backed version is a v2.
 _RATE_LIMIT_INTERVAL_S = 1.0
 _rate_lock = threading.Lock()
 _rate_last: dict[int, float] = {}
@@ -59,7 +65,7 @@ def _rate_limit(user: User) -> User:
 
 
 @router.get("/catalog", response_model=Catalog)
-async def get_catalog(_: User = Depends(require_admin)) -> Catalog:
+async def get_catalog(_: User = Depends(require_verified)) -> Catalog:
     """Return the build-time test catalog. Returns empty catalog if missing."""
     return load_catalog()
 
@@ -68,12 +74,15 @@ async def get_catalog(_: User = Depends(require_admin)) -> Catalog:
 async def run_test_endpoint(
     body: RunRequest,
     session: AsyncSession = Depends(get_session),
-    user: User = Depends(require_admin),
+    user: User = Depends(require_verified),
+    tenant: Tenant = Depends(current_tenant),
 ) -> RunResult:
     """Run one test from the catalog and classify the result.
 
     Returns synchronously — the runner fires the HTTP attack, polls the WAF
-    audit log for up to 5s, then returns a 4-status classification.
+    audit log for up to 5s, then returns a 4-status classification. The
+    `connection_id` in `body` is filtered by the caller's tenant; a foreign
+    connection_id silently falls back to the default WAF target.
     """
     _rate_limit(user)
 
@@ -84,14 +93,14 @@ async def run_test_endpoint(
             detail=f"unknown test_id: {body.test_id}",
         )
 
-    return await test_service.run_test(session, body)
+    return await test_service.run_test(session, body, tenant_id=tenant.id)
 
 
 # ── CrowdSec subcatalog ──────────────────────────────────────────────
 
 
 @router.get("/crowdsec/catalog")
-async def get_crowdsec_catalog(_: User = Depends(require_admin)) -> dict:
+async def get_crowdsec_catalog(_: User = Depends(require_verified)) -> dict:
     """Return the CrowdSec scenario subcatalog."""
     return {"scenarios": crowdsec_runner.list_scenarios()}
 
@@ -99,7 +108,7 @@ async def get_crowdsec_catalog(_: User = Depends(require_admin)) -> dict:
 @router.post("/crowdsec/run", response_model=CrowdsecRunResult)
 async def run_crowdsec_scenario(
     body: dict,
-    user: User = Depends(require_admin),
+    user: User = Depends(require_verified),
 ) -> CrowdsecRunResult:
     """Fire a CrowdSec scenario burst and return the decisions delta."""
     _rate_limit(user)

@@ -1,107 +1,126 @@
-import { useEffect, useState } from "react";
-import { Link, useParams } from "react-router-dom";
+import { createSignal, createEffect, For, Show } from "solid-js";
+import { A, useParams } from "@solidjs/router";
 import { api, type TenantDetail } from "../api/client";
 import { useSettings } from "../context/SettingsContext";
 
 export default function ClientDetail() {
-  const { t } = useSettings();
-  const { id } = useParams<{ id: string }>();
-  const [detail, setDetail] = useState<TenantDetail | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const settings = useSettings();
+  const params = useParams<{ id: string }>();
+  const [detail, setDetail] = createSignal<TenantDetail | null>(null);
+  const [loading, setLoading] = createSignal(true);
+  const [error, setError] = createSignal<string | null>(null);
 
-  useEffect(() => {
+  createEffect(() => {
+    const id = params.id;
     if (!id) return;
+    setLoading(true);
+    setError(null);
     api.admin.getTenant(Number(id))
       .then(setDetail)
       .catch((err: Error) => setError(err.message))
       .finally(() => setLoading(false));
-  }, [id]);
+  });
 
   const fmt = (v: string | null | undefined) =>
     v ? new Date(v).toLocaleString() : "—";
 
-  if (loading) return <div className="cd-state">{t("clients.detail.loading")}</div>;
-  if (error || !detail) return <div className="cd-state cd-state--err">{error ?? "Not found"}</div>;
-
-  const { tenant, users, connections } = detail;
-
   return (
-    <div className="page-content">
-      <style>{styles}</style>
+    <Show
+      when={!loading()}
+      fallback={<div class="cd-state">{settings.t("clients.detail.loading")}</div>}
+    >
+      <Show
+        when={!error() && detail()}
+        fallback={<div class="cd-state cd-state--err">{error() ?? "Not found"}</div>}
+      >
+        {(() => {
+          const d = detail()!;
+          return (
+            <div class="page-content">
+              <style>{styles}</style>
 
-      <div className="page-header">
-        <div>
-          <div className="cd-back-row">
-            <Link to="/clients" className="cd-back">{t("clients.back")}</Link>
-          </div>
-          <h1 className="page-title">{tenant.display_name || tenant.name}</h1>
-          <p className="page-subtitle cd-mono">{tenant.name}</p>
-        </div>
-        <div className="cd-meta-chips">
-          {tenant.suspended_at && (
-            <span className="cd-chip cd-chip--suspended">{t("clients.status.suspended")}</span>
-          )}
-          <span className="cd-chip">{t("clients.col.created")}: {fmt(tenant.created_at)}</span>
-        </div>
-      </div>
+              <div class="page-header">
+                <div>
+                  <div class="cd-back-row">
+                    <A href="/clients" class="cd-back">{settings.t("clients.back")}</A>
+                  </div>
+                  <h1 class="page-title">{d.tenant.display_name || d.tenant.name}</h1>
+                  <p class="page-subtitle cd-mono">{d.tenant.name}</p>
+                </div>
+                <div class="cd-meta-chips">
+                  <Show when={d.tenant.suspended_at}>
+                    <span class="cd-chip cd-chip--suspended">{settings.t("clients.status.suspended")}</span>
+                  </Show>
+                  <span class="cd-chip">{settings.t("clients.col.created")}: {fmt(d.tenant.created_at)}</span>
+                </div>
+              </div>
 
-      <div className="cd-sections">
-        {/* Users */}
-        <section className="cd-section">
-          <h2 className="cd-section-title">{t("clients.detail.users")}</h2>
-          {users.length === 0 ? (
-            <p className="cd-empty">—</p>
-          ) : (
-            <table className="cd-table">
-              <thead>
-                <tr>
-                  <th>{t("clients.detail.meta.email")}</th>
-                  <th>{t("clients.detail.meta.role")}</th>
-                  <th>{t("clients.detail.meta.joined")}</th>
-                  <th>TOTP</th>
-                </tr>
-              </thead>
-              <tbody>
-                {users.map((u) => (
-                  <tr key={u.id}>
-                    <td className="cd-mono">{u.email}</td>
-                    <td><span className="cd-role">{u.tenant_role}</span></td>
-                    <td className="cd-mono">{fmt(u.last_login_at)}</td>
-                    <td>{u.totp_enabled ? "✓" : "—"}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          )}
-        </section>
+              <div class="cd-sections">
+                {/* Users */}
+                <section class="cd-section">
+                  <h2 class="cd-section-title">{settings.t("clients.detail.users")}</h2>
+                  <Show
+                    when={d.users.length > 0}
+                    fallback={<p class="cd-empty">—</p>}
+                  >
+                    <table class="cd-table">
+                      <thead>
+                        <tr>
+                          <th>{settings.t("clients.detail.meta.email")}</th>
+                          <th>{settings.t("clients.detail.meta.role")}</th>
+                          <th>{settings.t("clients.detail.meta.joined")}</th>
+                          <th>TOTP</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        <For each={d.users}>
+                          {(u) => (
+                            <tr>
+                              <td class="cd-mono">{u.email}</td>
+                              <td><span class="cd-role">{u.tenant_role}</span></td>
+                              <td class="cd-mono">{fmt(u.last_login_at)}</td>
+                              <td>{u.totp_enabled ? "✓" : "—"}</td>
+                            </tr>
+                          )}
+                        </For>
+                      </tbody>
+                    </table>
+                  </Show>
+                </section>
 
-        {/* Connections */}
-        <section className="cd-section">
-          <h2 className="cd-section-title">{t("clients.detail.connections")}</h2>
-          {connections.length === 0 ? (
-            <p className="cd-empty">—</p>
-          ) : (
-            <table className="cd-table">
-              <thead>
-                <tr>
-                  <th>{t("clients.detail.conn.domain")}</th>
-                  <th>{t("clients.detail.conn.status")}</th>
-                </tr>
-              </thead>
-              <tbody>
-                {connections.map((c) => (
-                  <tr key={c.id}>
-                    <td className="cd-mono">{c.domain}</td>
-                    <td><span className={`cd-status cd-status--${c.status}`}>{c.status}</span></td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          )}
-        </section>
-      </div>
-    </div>
+                {/* Connections */}
+                <section class="cd-section">
+                  <h2 class="cd-section-title">{settings.t("clients.detail.connections")}</h2>
+                  <Show
+                    when={d.connections.length > 0}
+                    fallback={<p class="cd-empty">—</p>}
+                  >
+                    <table class="cd-table">
+                      <thead>
+                        <tr>
+                          <th>{settings.t("clients.detail.conn.domain")}</th>
+                          <th>{settings.t("clients.detail.conn.status")}</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        <For each={d.connections}>
+                          {(c) => (
+                            <tr>
+                              <td class="cd-mono">{c.domain}</td>
+                              <td><span class={`cd-status cd-status--${c.status}`}>{c.status}</span></td>
+                            </tr>
+                          )}
+                        </For>
+                      </tbody>
+                    </table>
+                  </Show>
+                </section>
+              </div>
+            </div>
+          );
+        })()}
+      </Show>
+    </Show>
   );
 }
 

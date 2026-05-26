@@ -1,43 +1,46 @@
-import { useState, type FormEvent, type CSSProperties } from "react";
-import { useNavigate } from "react-router-dom";
-import { Eye, EyeOff, Lock } from "lucide-react";
+import { createSignal, type JSX } from "solid-js";
+import { Show } from "solid-js";
+import { useNavigate } from "@solidjs/router";
+import { Eye, EyeOff, Lock } from "lucide-solid";
 import { useAuth } from "../context/AuthContext";
 import { useSettings } from "../context/SettingsContext";
 
 export default function ChangePassword() {
   const navigate = useNavigate();
-  const { user, changePassword } = useAuth();
-  const { t } = useSettings();
-  const [current, setCurrent] = useState("");
-  const [next, setNext] = useState("");
-  const [confirm, setConfirm] = useState("");
-  const [showCurrent, setShowCurrent] = useState(false);
-  const [showNext, setShowNext] = useState(false);
-  const [showConfirm, setShowConfirm] = useState(false);
-  const [submitting, setSubmitting] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const auth = useAuth();
+  const settings = useSettings();
+
+  const [current, setCurrent] = createSignal("");
+  const [next, setNext] = createSignal("");
+  const [confirm, setConfirm] = createSignal("");
+  const [showCurrent, setShowCurrent] = createSignal(false);
+  const [showNext, setShowNext] = createSignal(false);
+  const [showConfirm, setShowConfirm] = createSignal(false);
+  const [submitting, setSubmitting] = createSignal(false);
+  const [error, setError] = createSignal<string | null>(null);
 
   // must_change_password removed in SaaS schema; forced-change flow handled by backend redirect
   const forced = false;
 
-  const submit = async (e: FormEvent) => {
+  const submit = async (e: Event) => {
+
     e.preventDefault();
     setError(null);
-    if (next.length < 8) {
-      setError(t("auth.changePassword.tooShort"));
+    if (next().length < 8) {
+      setError(() => settings.t("auth.changePassword.tooShort"));
       return;
     }
-    if (next !== confirm) {
-      setError(t("auth.changePassword.mismatch"));
+    if (next() !== confirm()) {
+      setError(() => settings.t("auth.changePassword.mismatch"));
       return;
     }
     setSubmitting(true);
     try {
       // On first login the current password is always the default "admin"
-      await changePassword(forced ? "admin" : current, next);
+      await auth.changePassword(forced ? "admin" : current(), next());
       navigate("/dashboard", { replace: true });
     } catch (err) {
-      setError(err instanceof Error ? err.message : t("general.error"));
+      setError(() => err instanceof Error ? err.message : settings.t("general.error"));
     } finally {
       setSubmitting(false);
     }
@@ -46,80 +49,82 @@ export default function ChangePassword() {
   return (
     <div
       style={{
-        minHeight: "100vh",
-        width: "100%",
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "center",
-        background: "var(--bg-base)",
-        padding: 20,
+        "min-height": "100vh",
+        "width": "100%",
+        "display": "flex",
+        "align-items": "center",
+        "justify-content": "center",
+        "background": "var(--bg-base)",
+        "padding": "20px",
       }}
     >
       <form
         onSubmit={submit}
         style={{
-          width: "100%",
-          maxWidth: 420,
-          background: "var(--bg-elevated)",
-          border: "1px solid var(--border-subtle)",
-          borderRadius: 14,
-          padding: 28,
+          "width": "100%",
+          "max-width": "420px",
+          "background": "var(--bg-elevated)",
+          "border": "1px solid var(--border-subtle)",
+          "border-radius": "14px",
+          "padding": "28px",
         }}
       >
-        <h1 style={{ fontSize: 22, margin: 0, color: "var(--text-primary)" }}>
-          {t("auth.changePassword.title")}
+        <h1 style={{ "font-size": "22px", "margin": 0, "color": "var(--text-primary)" }}>
+          {settings.t("auth.changePassword.title")}
         </h1>
         <p
           style={{
-            fontSize: 13,
-            color: "var(--text-muted)",
-            marginTop: 6,
-            marginBottom: 22,
+            "font-size": "13px",
+            "color": "var(--text-muted)",
+            "margin-top": "6px",
+            "margin-bottom": "22px",
           }}
         >
-          {forced ? t("auth.changePassword.forced") : t("auth.changePassword.subtitle")}
+          <Show when={forced} fallback={settings.t("auth.changePassword.subtitle")}>
+            {settings.t("auth.changePassword.forced")}
+          </Show>
         </p>
 
-        {!forced && (
-          <Field label={t("auth.changePassword.current")} value={current} onChange={setCurrent} show={showCurrent} onToggleShow={() => setShowCurrent((v) => !v)} />
-        )}
-        <Field label={t("auth.changePassword.new")} value={next} onChange={setNext} show={showNext} onToggleShow={() => setShowNext((v) => !v)} />
-        <Field label={t("auth.changePassword.confirm")} value={confirm} onChange={setConfirm} show={showConfirm} onToggleShow={() => setShowConfirm((v) => !v)} />
+        <Show when={!forced}>
+          <Field label={settings.t("auth.changePassword.current")} value={current()} onChange={setCurrent} show={showCurrent()} onToggleShow={() => setShowCurrent((v) => !v)} />
+        </Show>
+        <Field label={settings.t("auth.changePassword.new")} value={next()} onChange={setNext} show={showNext()} onToggleShow={() => setShowNext((v) => !v)} />
+        <Field label={settings.t("auth.changePassword.confirm")} value={confirm()} onChange={setConfirm} show={showConfirm()} onToggleShow={() => setShowConfirm((v) => !v)} />
 
-        {error && (
+        <Show when={error()}>
           <div
             style={{
-              padding: "10px 12px",
-              background: "rgba(239,68,68,0.08)",
-              border: "1px solid rgba(239,68,68,0.25)",
-              borderRadius: 8,
-              color: "#ef4444",
-              fontSize: 13,
-              marginBottom: 14,
+              "padding": "10px 12px",
+              "background": "rgba(239,68,68,0.08)",
+              "border": "1px solid rgba(239,68,68,0.25)",
+              "border-radius": "8px",
+              "color": "#ef4444",
+              "font-size": "13px",
+              "margin-bottom": "14px",
             }}
           >
-            {error}
+            {error()}
           </div>
-        )}
+        </Show>
 
-        <div style={{ display: "flex", gap: 10 }}>
+        <div style={{ "display": "flex", "gap": "10px" }}>
           <button
             type="submit"
-            disabled={submitting || (!forced && !current) || !next || !confirm}
+            disabled={submitting() || (!forced && !current()) || !next() || !confirm()}
             style={{
-              flex: 1,
-              padding: "11px 14px",
-              borderRadius: 8,
-              border: "1px solid var(--accent-primary)",
-              background: "var(--accent-primary)",
-              color: "#fff",
-              fontSize: 14,
-              fontWeight: 600,
-              cursor: submitting ? "not-allowed" : "pointer",
-              opacity: submitting ? 0.6 : 1,
+              "flex": "1",
+              "padding": "11px 14px",
+              "border-radius": "8px",
+              "border": "1px solid var(--accent-primary)",
+              "background": "var(--accent-primary)",
+              "color": "#fff",
+              "font-size": "14px",
+              "font-weight": "600",
+              "cursor": submitting() ? "not-allowed" : "pointer",
+              "opacity": submitting() ? "0.6" : "1",
             }}
           >
-            {submitting ? t("general.saving") : t("general.save")}
+            {submitting() ? settings.t("general.saving") : settings.t("general.save")}
           </button>
         </div>
       </form>
@@ -127,85 +132,81 @@ export default function ChangePassword() {
   );
 }
 
-function Field({
-  label,
-  value,
-  onChange,
-  show,
-  onToggleShow,
-}: {
+function Field(props: {
   label: string;
   value: string;
   onChange: (v: string) => void;
   show: boolean;
   onToggleShow: () => void;
 }) {
-  const { t } = useSettings();
+  const settings = useSettings();
   return (
-    <div style={{ marginBottom: 14 }}>
+    <div style={{ "margin-bottom": "14px" }}>
       <label
         style={{
-          display: "block",
-          fontSize: 12,
-          color: "var(--text-muted)",
-          marginBottom: 6,
-          textTransform: "uppercase",
-          letterSpacing: 0.4,
+          "display": "block",
+          "font-size": "12px",
+          "color": "var(--text-muted)",
+          "margin-bottom": "6px",
+          "text-transform": "uppercase",
+          "letter-spacing": "0.4px",
         }}
       >
-        {label}
+        {props.label}
       </label>
-      <div style={{ position: "relative" }}>
+      <div style={{ "position": "relative" }}>
         <Lock
           size={15}
           style={{
-            position: "absolute",
-            left: 12,
-            top: "50%",
-            transform: "translateY(-50%)",
-            color: "var(--text-muted)",
+            "position": "absolute",
+            "left": "12px",
+            "top": "50%",
+            "transform": "translateY(-50%)",
+            "color": "var(--text-muted)",
           }}
         />
         <input
-          type={show ? "text" : "password"}
-          value={value}
-          onChange={(e) => onChange(e.target.value)}
+          type={props.show ? "text" : "password"}
+          value={props.value}
+          onInput={(e) => props.onChange(e.currentTarget.value)}
           required
-          style={{ ...inputStyle, paddingRight: 40 }}
+          style={{ ...inputStyle, "padding-right": "40px" }}
         />
         <button
           type="button"
-          onClick={onToggleShow}
+          onClick={props.onToggleShow}
           tabIndex={-1}
-          aria-label={show ? t("auth.hidePassword") : t("auth.showPassword")}
+          aria-label={props.show ? settings.t("auth.hidePassword") : settings.t("auth.showPassword")}
           style={{
-            position: "absolute",
-            right: 8,
-            top: "50%",
-            transform: "translateY(-50%)",
-            background: "none",
-            border: "none",
-            color: "var(--text-muted)",
-            cursor: "pointer",
-            padding: 4,
-            display: "flex",
-            alignItems: "center",
+            "position": "absolute",
+            "right": "8px",
+            "top": "50%",
+            "transform": "translateY(-50%)",
+            "background": "none",
+            "border": "none",
+            "color": "var(--text-muted)",
+            "cursor": "pointer",
+            "padding": "4px",
+            "display": "flex",
+            "align-items": "center",
           }}
         >
-          {show ? <EyeOff size={16} /> : <Eye size={16} />}
+          <Show when={props.show} fallback={<Eye size={16} />}>
+            <EyeOff size={16} />
+          </Show>
         </button>
       </div>
     </div>
   );
 }
 
-const inputStyle: CSSProperties = {
-  width: "100%",
-  padding: "10px 12px 10px 36px",
-  borderRadius: 8,
-  border: "1px solid var(--border-subtle)",
-  background: "var(--bg-base)",
-  color: "var(--text-primary)",
-  fontSize: 14,
-  outline: "none",
+const inputStyle: JSX.CSSProperties = {
+  "width": "100%",
+  "padding": "10px 12px 10px 36px",
+  "border-radius": "8px",
+  "border": "1px solid var(--border-subtle)",
+  "background": "var(--bg-base)",
+  "color": "var(--text-primary)",
+  "font-size": "14px",
+  "outline": "none",
 };

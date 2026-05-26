@@ -1,9 +1,13 @@
-"""ModSecurity tenant-scoping tests (Phase 5.2.b).
+"""ModSecurity router role gate.
 
-Decision: ModSecurity rules are global filesystem configs loaded at http scope.
-Per-tenant rule directories are deferred to Phase 13. Every endpoint requires
-`require_admin`. This file asserts that a logged-in client user gets 403 on
-all /api/modsecurity/* routes.
+Scope decision: ModSecurity rules are global filesystem configs (loaded once
+at http scope by Angie). The frontend exposes /config to clients
+(`RequireRole role="client"`), so the backend gate must be `require_verified`,
+not `require_admin`. Per-connection ModSec state lives on
+/api/connections/{id}/security and stays tenant-scoped.
+
+These tests monkey-patch the ModSecurity config service so the assertions
+focus on the auth/role gate, not filesystem availability.
 """
 
 import pytest
@@ -29,15 +33,17 @@ def _app(db_session):
     return app
 
 
-async def _client_token(db_session, monkeypatch):
+async def _client_token(db_session, monkeypatch, *, suffix="ms"):
     monkeypatch.setenv("WAF_PASETO_KEY", "0" * 64)
     from backend.src.auth import security
     security._cached_key = None
 
-    t = await tenants.create_tenant(db_session, name="acme-ms", display_name="Acme")
+    t = await tenants.create_tenant(
+        db_session, name=f"acme-{suffix}", display_name="Acme"
+    )
     u = await auth_service.create_client_user(
         db_session,
-        email="client-ms@example.com",
+        email=f"client-{suffix}@example.com",
         password="hunter22c",
         tenant_id=t.id,
         email_verified=True,
@@ -51,36 +57,41 @@ async def _client_token(db_session, monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_client_cannot_get_modsec_config(db_session, monkeypatch):
-    """Client user → 403 on GET /api/modsecurity/config."""
-    token = await _client_token(db_session, monkeypatch)
+async def test_client_can_get_modsec_config(db_session, monkeypatch):
+    """Verified client → 200 on GET /api/modsecurity/config."""
+    from backend.src.modsecurity import service as modsecurity_service
+
+    monkeypatch.setattr(
+        modsecurity_service.config_service,
+        "get_config",
+        lambda: ("SecRuleEngine On\n", "/etc/modsec/main.conf"),
+    )
+
+    token = await _client_token(db_session, monkeypatch, suffix="ms-cfg")
     async with AsyncClient(
         transport=ASGITransport(app=_app(db_session)), base_url="http://test"
     ) as c:
         r = await c.get("/api/modsecurity/config", cookies={SESSION_COOKIE: token})
-    assert r.status_code == 403
+    assert r.status_code == 200
+    assert "SecRuleEngine" in r.json()["content"]
 
 
 @pytest.mark.asyncio
-async def test_client_cannot_list_modsec_rules(db_session, monkeypatch):
-    """Client user → 403 on GET /api/modsecurity/rules/list."""
-    token = await _client_token(db_session, monkeypatch)
+async def test_client_can_list_modsec_rules(db_session, monkeypatch):
+    """Verified client → 200 on GET /api/modsecurity/rules/list."""
+    from backend.src.modsecurity import service as modsecurity_service
+
+    monkeypatch.setattr(
+        modsecurity_service.config_service, "list_rules", lambda: []
+    )
+
+    token = await _client_token(db_session, monkeypatch, suffix="ms-rules")
     async with AsyncClient(
         transport=ASGITransport(app=_app(db_session)), base_url="http://test"
     ) as c:
         r = await c.get("/api/modsecurity/rules/list", cookies={SESSION_COOKIE: token})
-    assert r.status_code == 403
-
-
-@pytest.mark.asyncio
-async def test_client_cannot_get_modsec_settings(db_session, monkeypatch):
-    """Client user → 403 on GET /api/modsecurity/settings."""
-    token = await _client_token(db_session, monkeypatch)
-    async with AsyncClient(
-        transport=ASGITransport(app=_app(db_session)), base_url="http://test"
-    ) as c:
-        r = await c.get("/api/modsecurity/settings", cookies={SESSION_COOKIE: token})
-    assert r.status_code == 403
+    assert r.status_code == 200
+    assert r.json() == []
 
 
 @pytest.mark.asyncio

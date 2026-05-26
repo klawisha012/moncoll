@@ -1,5 +1,6 @@
-import { useCallback, useEffect, useState, type FormEvent } from "react";
-import { Link, useNavigate, useSearchParams } from "react-router-dom";
+import { createSignal, createEffect } from "solid-js";
+import { Show } from "solid-js";
+import { A, useNavigate, useSearchParams } from "@solidjs/router";
 import { useAuth } from "../context/AuthContext";
 import { useSettings } from "../context/SettingsContext";
 import { useAuthProviders } from "../hooks/useAuthProviders";
@@ -9,37 +10,39 @@ import GithubMark from "../components/GithubMark";
 export default function Login() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
-  const { login } = useAuth();
-  const { t } = useSettings();
+  const auth = useAuth();
+  const settings = useSettings();
 
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
-  const [showPassword, setShowPassword] = useState(false);
-  const [captchaToken, setCaptchaToken] = useState("");
+  const [email, setEmail] = createSignal("");
+  const [password, setPassword] = createSignal("");
+  const [showPassword, setShowPassword] = createSignal(false);
+  const [captchaToken, setCaptchaToken] = createSignal("");
   // Bumped to force the Turnstile widget to remount and issue a fresh,
   // single-use token after the previous one was consumed by a backend call
   // that didn't fully complete the login (e.g. totp_required).
-  const [captchaResetKey, setCaptchaResetKey] = useState(0);
-  const [totpCode, setTotpCode] = useState("");
-  const [totpRequired, setTotpRequired] = useState(false);
-  const [submitting, setSubmitting] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [captchaResetKey, setCaptchaResetKey] = createSignal(1);
+  const [totpCode, setTotpCode] = createSignal("");
+  const [totpRequired, setTotpRequired] = createSignal(false);
+  const [submitting, setSubmitting] = createSignal(false);
+  const [error, setError] = createSignal<string | null>(null);
   const providers = useAuthProviders();
 
   // Surface OAuth callback errors (we redirect here with ?oauth_error=<code>).
-  useEffect(() => {
-    const code = searchParams.get("oauth_error");
-    if (code) setError(t(`auth.oauth.err.${code}`) || code);
-  }, [searchParams, t]);
+  createEffect(() => {
+    const code = searchParams.oauth_error;
+    if (code) {
+      setError(() => settings.t(`auth.oauth.err.${code}`) || code);
+    }
+  });
 
-  const handleToken = useCallback((token: string) => setCaptchaToken(token), []);
+  const handleToken = (token: string) => setCaptchaToken(token);
 
-  const submit = async (e: FormEvent) => {
+  const submit = async (e: Event) => {
     e.preventDefault();
     setError(null);
     setSubmitting(true);
     try {
-      const result = await login(email, password, captchaToken, totpRequired ? totpCode : undefined);
+      const result = await auth.login(email(), password(), captchaToken(), totpRequired() ? totpCode() : undefined);
       if ("enrol_required" in result) {
         navigate("/totp-setup", { replace: true });
         return;
@@ -64,180 +67,192 @@ export default function Login() {
       // failure) also consumes the single-use Turnstile token — refresh it.
       setCaptchaToken("");
       setCaptchaResetKey((k) => k + 1);
-      setError(err instanceof Error ? err.message : t("general.error"));
+      setError(() => err instanceof Error ? err.message : settings.t("general.error"));
     } finally {
       setSubmitting(false);
     }
   };
 
   const oauthLogin = (provider: "google" | "github") => {
-    if (!providers?.[provider]) {
-      setError(t("auth.oauth.notConfigured").replace("{provider}", provider));
+    const p = providers();
+    if (!p || !p[provider]) {
+      setError(() => settings.t("auth.oauth.notConfigured").replace("{provider}", provider));
       return;
     }
     window.location.href = `/api/auth/oauth/${provider}/start?intent=login`;
   };
 
-  const captchaReady = !providers || !!captchaToken;
-  const canSubmit = email && password && captchaReady && (!totpRequired || totpCode.length === 6);
+  const captchaReady = () => !providers() || !providers()?.captcha_site_key || !!captchaToken();
+  const canSubmit = () => email() && password() && captchaReady() && (!totpRequired() || totpCode().length === 6);
 
   return (
-    <div className="cv-root">
+    <div class="cv-root">
       <style>{styles}</style>
 
-      <section className="cv-manifest">
-        <div className="cv-eyebrow">
-          <span className="cv-n">01</span>
-          <span className="cv-eyebrow-text">{t("auth.login.eyebrow")}</span>
+      <section class="cv-manifest">
+        <div class="cv-eyebrow">
+          <span class="cv-n">01</span>
+          <span class="cv-eyebrow-text">{settings.t("auth.login.eyebrow")}</span>
         </div>
-        <h1 className="cv-h1">
-          <span className="cv-stack">{t("auth.login.heroLine1")}</span>
-          <span className="cv-stack">
-            <span className="cv-ws">{t("auth.login.heroLine2")}</span>
+        <h1 class="cv-h1">
+          <span class="cv-stack">{settings.t("auth.login.heroLine1")}</span>
+          <span class="cv-stack">
+            <span class="cv-ws">{settings.t("auth.login.heroLine2")}</span>
           </span>
-          <span className="cv-stack">
-            <span className="cv-tilt">{t("auth.login.heroLine3")}</span>
+          <span class="cv-stack">
+            <span class="cv-tilt">{settings.t("auth.login.heroLine3")}</span>
           </span>
         </h1>
-        <p className="cv-deck">{t("auth.login.quote")}</p>
-        <div className="cv-disc" aria-hidden />
+        <p class="cv-deck">{settings.t("auth.login.quote")}</p>
+        <div class="cv-disc" aria-hidden />
       </section>
 
-      <section className="cv-form-side">
-        <form onSubmit={submit} className="cv-form">
-          <div className="cv-form-head">
-            <span className="cv-kicker">{t("auth.login.kicker")}</span>
-            <Link to="/signup" className="cv-switch-link">{t("auth.login.noAccount")}</Link>
+      <section class="cv-form-side">
+        <form onSubmit={submit} class="cv-form">
+          <div class="cv-form-head">
+            <span class="cv-kicker">{settings.t("auth.login.kicker")}</span>
+            <A href="/signup" class="cv-switch-link">{settings.t("auth.login.noAccount")}</A>
           </div>
 
           {/* OAuth buttons — always visible; disabled with hint when provider env not configured. */}
-          <div className="cv-oauth-row">
+          <div class="cv-oauth-row">
             <button
               type="button"
-              className={`cv-oauth-btn ${providers?.google ? "" : "cv-oauth-btn-off"}`}
+              class={`cv-oauth-btn ${providers()?.google ? "" : "cv-oauth-btn-off"}`}
               onClick={() => oauthLogin("google")}
-              disabled={!providers?.google}
+              disabled={!providers()?.google}
               title={
-                !providers
-                  ? t("auth.oauth.loading")
-                  : providers.google
+                !providers()
+                  ? settings.t("auth.oauth.loading")
+                  : providers()?.google
                     ? "Google"
-                    : t("auth.oauth.notConfigured").replace("{provider}", "Google")
+                    : settings.t("auth.oauth.notConfigured").replace("{provider}", "Google")
               }
             >
-              <span className="cv-oauth-icon">G</span>
+              <span class="cv-oauth-icon">G</span>
               Google
-              {providers && !providers.google && <span className="cv-oauth-off-tag">{t("auth.oauth.offTag")}</span>}
+              <Show when={providers() && !providers()?.google}>
+                <span class="cv-oauth-off-tag">{settings.t("auth.oauth.offTag")}</span>
+              </Show>
             </button>
             <button
               type="button"
-              className={`cv-oauth-btn ${providers?.github ? "" : "cv-oauth-btn-off"}`}
+              class={`cv-oauth-btn ${providers()?.github ? "" : "cv-oauth-btn-off"}`}
               onClick={() => oauthLogin("github")}
-              disabled={!providers?.github}
+              disabled={!providers()?.github}
               title={
-                !providers
-                  ? t("auth.oauth.loading")
-                  : providers.github
+                !providers()
+                  ? settings.t("auth.oauth.loading")
+                  : providers()?.github
                     ? "GitHub"
-                    : t("auth.oauth.notConfigured").replace("{provider}", "GitHub")
+                    : settings.t("auth.oauth.notConfigured").replace("{provider}", "GitHub")
               }
             >
-              <span className="cv-oauth-icon"><GithubMark size={14} /></span>
+              <span class="cv-oauth-icon"><GithubMark size={14} /></span>
               GitHub
-              {providers && !providers.github && <span className="cv-oauth-off-tag">{t("auth.oauth.offTag")}</span>}
+              <Show when={providers() && !providers()?.github}>
+                <span class="cv-oauth-off-tag">{settings.t("auth.oauth.offTag")}</span>
+              </Show>
             </button>
           </div>
-          <div className="cv-divider"><span>{t("auth.login.orEmail")}</span></div>
+          <div class="cv-divider"><span>{settings.t("auth.login.orEmail")}</span></div>
 
-          <div className="cv-field">
-            <label htmlFor="cv-email">{t("auth.email")}</label>
-            <div className="cv-inp">
-              <span className="cv-tag">@</span>
+          <div class="cv-field">
+            <label for="cv-email">{settings.t("auth.email")}</label>
+            <div class="cv-inp">
+              <span class="cv-tag">@</span>
               <input
                 id="cv-email"
                 type="email"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                autoFocus
+                value={email()}
+                onInput={(e) => setEmail(e.currentTarget.value)}
+                autofocus
                 required
-                autoComplete="email"
+                autocomplete="email"
               />
             </div>
           </div>
 
-          <div className="cv-field">
-            <label htmlFor="cv-password">{t("auth.password")}</label>
-            <div className="cv-inp">
-              <span className="cv-tag">#</span>
+          <div class="cv-field">
+            <label for="cv-password">{settings.t("auth.password")}</label>
+            <div class="cv-inp">
+              <span class="cv-tag">#</span>
               <input
                 id="cv-password"
-                type={showPassword ? "text" : "password"}
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
+                type={showPassword() ? "text" : "password"}
+                value={password()}
+                onInput={(e) => setPassword(e.currentTarget.value)}
                 required
-                autoComplete="current-password"
+                autocomplete="current-password"
               />
               <button
                 type="button"
-                className="cv-reveal"
+                class="cv-reveal"
                 onClick={() => setShowPassword((v) => !v)}
                 tabIndex={-1}
-                aria-label={showPassword ? t("auth.hidePassword") : t("auth.showPassword")}
+                aria-label={showPassword() ? settings.t("auth.hidePassword") : settings.t("auth.showPassword")}
               >
-                {showPassword ? t("auth.hidePasswordShort") : t("auth.showPasswordShort")}
+                {showPassword() ? settings.t("auth.hidePasswordShort") : settings.t("auth.showPasswordShort")}
               </button>
             </div>
           </div>
 
           {/* TOTP field — shown only after server returns totp_required */}
-          {totpRequired && (
-            <div className="cv-field">
-              <label htmlFor="cv-totp">{t("auth.totp.code")}</label>
-              <div className="cv-inp">
-                <span className="cv-tag">⊕</span>
+          <Show when={totpRequired()}>
+            <div class="cv-field">
+              <label for="cv-totp">{settings.t("auth.totp.code")}</label>
+              <div class="cv-inp">
+                <span class="cv-tag">⊕</span>
                 <input
                   id="cv-totp"
                   type="text"
-                  inputMode="numeric"
+                  inputmode="numeric"
                   pattern="\d{6}"
                   maxLength={6}
-                  value={totpCode}
-                  onChange={(e) => setTotpCode(e.target.value.replace(/\D/g, ""))}
-                  autoFocus
-                  autoComplete="one-time-code"
+                  value={totpCode()}
+                  onInput={(e) => setTotpCode(e.currentTarget.value.replace(/\D/g, ""))}
+                  autofocus
+                  autocomplete="one-time-code"
                   placeholder="000000"
                 />
               </div>
             </div>
-          )}
+          </Show>
 
           {/* Turnstile captcha — site key (and dev fallback) supplied by /api/auth/providers */}
-          {providers?.captcha_site_key && (
-            <div className="cv-captcha">
-              <TurnstileWidget
-                key={captchaResetKey}
-                siteKey={providers.captcha_site_key}
-                onToken={handleToken}
-              />
-              {providers.captcha_dev_mode && (
-                <span className="cv-captcha-dev-tag">{t("auth.captcha.devMode")}</span>
-              )}
-            </div>
-          )}
+          <Show when={providers()?.captcha_site_key}>
+            {(siteKey) => (
+              <div class="cv-captcha">
+                <Show when={captchaResetKey()}>
+                  {(key) => (
+                    <TurnstileWidget
+                      siteKey={siteKey()}
+                      onToken={handleToken}
+                    />
+                  )}
+                </Show>
+                <Show when={providers()?.captcha_dev_mode}>
+                  <span class="cv-captcha-dev-tag">{settings.t("auth.captcha.devMode")}</span>
+                </Show>
+              </div>
+            )}
+          </Show>
 
-          {error && <div className="cv-error">{error}</div>}
+          <Show when={error()}>
+            <div class="cv-error">{error()}</div>
+          </Show>
 
           <button
             type="submit"
-            className="cv-submit"
-            disabled={submitting || !canSubmit}
+            class="cv-submit"
+            disabled={submitting() || !canSubmit()}
           >
-            <span>{submitting ? t("general.loading") : t("auth.login.submit")}</span>
-            <span className="cv-ar">→</span>
+            <span>{submitting() ? settings.t("general.loading") : settings.t("auth.login.submit")}</span>
+            <span class="cv-ar">→</span>
           </button>
 
-          <div className="cv-links-row">
-            <Link to="/forgot-password" className="cv-text-link">{t("auth.login.forgotPassword")}</Link>
+          <div class="cv-links-row">
+            <A href="/forgot-password" class="cv-text-link">{settings.t("auth.login.forgotPassword")}</A>
           </div>
         </form>
       </section>
@@ -335,7 +350,7 @@ const styles = `
   background: var(--cream);
   padding: 72px 64px;
   display: flex;
-  flex-direction: column;
+  flex-direction: flex-direction: column;
   justify-content: center;
 }
 
@@ -527,3 +542,4 @@ const styles = `
   .cv-h1 { font-size: clamp(48px, 14vw, 84px); }
 }
 `;
+
