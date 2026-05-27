@@ -18,8 +18,8 @@
 
 Для полной утилизации вашего процессора всегда настраивайте параметр потоков (`-t` или `--threads`):
 
-* `-t, --threads` : Количество потоков. **Всегда устанавливайте равным числу ядер (или логических процессоров) вашего CPU!** (например, `-t 12` для 12-ядерного процессора).
-* `-c, --connections` : Общее число удерживаемых одновременно HTTP-соединений (например, `-c 400`).
+* `-t, --threads` : Количество потоков. **Всегда устанавливайте равным числу ядер (или логических процессоров) вашего CPU!** (в вашей текущей системе обнаружено **32 логических процессора**, поэтому рекомендуется выставлять `-t 32`).
+* `-c, --connections` : Общее число удерживаемых одновременно HTTP-соединений. **Оно обязательно должно быть больше или равно количеству потоков (`-c >= -t`)**, иначе `wrk` завершится с ошибкой `number of connections must be >= threads` (например, для 32 потоков используйте минимум `-c 32`, а лучше `-c 128` или `-c 400`).
 * `-d, --duration` : Длительность теста (например, `-d 30s` или `-d 5m`).
 * `-s, --script` : Путь к Lua-скрипту для кастомизации запросов.
 
@@ -41,30 +41,30 @@
 Сервис `wrk` вынесен в профиль `loadtest`, поэтому он не запускается по умолчанию со всем стеком. Утилита запускается явно.
 
 > [!TIP]
-> Замените `-t 12` в примерах ниже на реальное количество логических ядер вашего процессора.
+> Примеры ниже автоматически преднастроены под вашу 32-поточную систему (`-t 32 -c 128`). Вы можете уменьшать или увеличивать эти значения в зависимости от характера теста.
 
 ### 1. Дымовой тест (Smoke)
-Быстрая проверка доступности WAF (10 секунд, 20 соединений):
+Быстрая проверка доступности WAF (10 секунд, 128 соединений):
 ```bash
-docker compose --profile loadtest run --rm wrk -t 12 -c 20 -d 10s -s /scripts/smoke.lua http://angie/
+docker compose --profile loadtest run --rm wrk -t 32 -c 128 -d 10s -s /scripts/smoke.lua http://angie/
 ```
 
 ### 2. Тестирование с рандомизацией IP (Стресс-тест маршрутизации)
 Имитация 10 000 клиентов из разных подсетей для проверки WAF и CrowdSec под нагрузкой:
 ```bash
-docker compose --profile loadtest run --rm wrk -t 12 -c 1000 -d 60s -s /scripts/random_ips.lua http://angie/
+docker compose --profile loadtest run --rm wrk -t 32 -c 1000 -d 60s -s /scripts/random_ips.lua http://angie/
 ```
 
 ### 3. Тест накладных расходов WAF под атаками (ModSecurity)
 Замеры производительности парсера правил ModSecurity под смесью легитимных и вредоносных POST-запросов:
 ```bash
-docker compose --profile loadtest run --rm wrk -t 12 -c 200 -d 30s -s /scripts/post_attack.lua http://angie/
+docker compose --profile loadtest run --rm wrk -t 32 -c 200 -d 30s -s /scripts/post_attack.lua http://angie/
 ```
 
 ### 4. Тестирование производительности сжатия
 Проверка влияния алгоритмов сжатия (zstd / brotli / gzip) на задержки и CPU-ресурсы:
 ```bash
-docker compose --profile loadtest run --rm wrk -t 12 -c 200 -d 45s -s /scripts/compression.lua http://angie/
+docker compose --profile loadtest run --rm wrk -t 32 -c 200 -d 45s -s /scripts/compression.lua http://angie/
 ```
 
 ---
@@ -75,7 +75,7 @@ docker compose --profile loadtest run --rm wrk -t 12 -c 200 -d 45s -s /scripts/c
 
 ```text
 Running 30s test @ http://angie/
-  12 threads and 400 connections
+  32 threads and 128 connections
   Thread Stats   Avg      Stdev     Max   +/- Stdev
     Latency     8.45ms    3.12ms  42.12ms   78.41%
     Req/Sec     4.12k   412.31     5.82k    72.10%

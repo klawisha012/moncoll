@@ -305,7 +305,7 @@ services:
     restart: unless-stopped
 
   # Инструмент нагрузочного тестирования wrk. Запускается по запросу:
-  #   docker compose run --rm wrk -t 12 -c 400 -d 30s -s /scripts/smoke.lua http://angie/
+  #   docker compose run --rm wrk -t 32 -c 128 -d 30s -s /scripts/smoke.lua http://angie/
   # Скрипты находятся в tests/loadtest/wrk.
   wrk:
     image: skandyla/wrk:latest

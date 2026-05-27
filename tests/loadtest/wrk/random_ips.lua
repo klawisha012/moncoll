@@ -1,9 +1,18 @@
 -- Рандомизация IP-адресов клиентов через заголовки X-Forwarded-For и X-Real-IP
 -- Позволяет обойти простые блокировки по одному IP и симулировать реальный трафик из множества источников
 
+local thread_counter = 0
+
 setup = function(thread)
-    -- Инициализируем генератор случайных чисел для каждого потока
-    math.randomseed(os.time() + thread.addr)
+    thread_counter = thread_counter + 1
+    thread:set("thread_id", thread_counter)
+end
+
+init = function(meta)
+    -- Инициализируем генератор случайных чисел для каждого потока уникальным сидом
+    math.randomseed(os.time() + thread_id)
+    -- Делаем несколько холостых вызовов для прогрева генератора
+    math.random(); math.random(); math.random()
 end
 
 request = function()

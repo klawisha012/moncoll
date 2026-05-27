@@ -3,9 +3,16 @@
 
 local encodings = {"zstd", "br", "gzip", "identity"}
 local counter = 0
+local thread_counter = 0
 
 setup = function(thread)
-    math.randomseed(os.time() + thread.addr)
+    thread_counter = thread_counter + 1
+    thread:set("thread_id", thread_counter)
+end
+
+init = function(meta)
+    math.randomseed(os.time() + thread_id)
+    math.random(); math.random(); math.random()
 end
 
 request = function()
