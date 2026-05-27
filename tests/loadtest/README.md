@@ -1,54 +1,51 @@
-# WAF load testing (k6)
+# Нагрузочное тестирование WAF (k6)
 
-Scripts in this folder drive [k6](https://k6.io) against the running Angie
-front-end so we can measure real-world throughput, latency, and the cost of
-ModSecurity / CrowdSec / compression on the hot path.
+Скрипты в этой папке запускают [k6](https://k6.io) против работающего фронтенда Angie, чтобы мы могли измерить реальную пропускную способность, задержки (latency) и влияние ModSecurity / CrowdSec / сжатия на производительность горячего пути прохождения запросов.
 
-## Running locally (via docker compose)
+## Локальный запуск (через docker compose)
 
 ```bash
-# Smoke (10s, 10 VUs) — wired into CI
+# Дымовой тест (Smoke) (10 секунд, 10 виртуальных пользователей) — встроен в CI
 docker compose --profile loadtest run --rm k6 run /scripts/smoke.js
 
-# Baseline (60s ramp to 200 VUs)
+# Базовый тест (Baseline) (60 секунд, плавный подъем до 200 пользователей)
 docker compose --profile loadtest run --rm k6 run /scripts/baseline.js
 
-# Spike (sudden 1k VUs)
+# Пиковый тест (Spike) (внезапный наплыв 1000 пользователей)
 docker compose --profile loadtest run --rm k6 run /scripts/spike.js
 
-# Soak (20-minute steady state)
+# Нагрузочный тест на выносливость (Soak) (стабильное удержание нагрузки в течение 20 минут)
 docker compose --profile loadtest run --rm k6 run /scripts/soak.js
 
-# Compression-aware sweep — re-runs the baseline with each encoder
+# Тестирование матрицы сжатия (Compression-aware sweep) — перезапуск базового сценария с каждым из алгоритмов сжатия
 docker compose --profile loadtest run --rm k6 run /scripts/compression-matrix.js
 
-# HTTP/2 vs HTTP/3 comparison (targets a TLS connection with --http2 / --http3)
+# Сравнение HTTP/2 и HTTP/3 (запуск TLS-соединения с флагами --http2 / --http3)
 docker compose --profile loadtest run --rm \
   -e TARGET_SCHEME=https -e TARGET_PORT=443 \
   k6 run /scripts/http-versions.js
 ```
 
-The `k6` service runs in compose profile `loadtest` so it does **not** start
-with the rest of the stack — invoke it explicitly when you want to measure.
+Сервис `k6` запускается в профиле compose `loadtest`, поэтому он **не** запускается автоматически при обычном старте стека — вызывайте его явно, когда хотите провести замеры.
 
-## Environment
+## Окружение (Переменные среды)
 
-| Var                  | Default | Notes                                          |
-|----------------------|---------|------------------------------------------------|
-| `TARGET_HOST`        | `angie` | Service / hostname to hit (`angie` over Docker net) |
-| `TARGET_PORT`        | `80`    | `443` for HTTPS                                |
-| `TARGET_SCHEME`      | `http`  | `http` or `https`                              |
-| `TARGET_PATH`        | `/`     | Path under test                                |
-| `K6_VUS`             | (script) | Override VUs per stage                        |
-| `K6_DURATION`        | (script) | Override duration                             |
-| `K6_OUT`             | (empty) | e.g. `experimental-prometheus-rw` or `json=results.json` |
+| Переменная           | По умолчанию | Описание                                                           |
+|----------------------|--------------|--------------------------------------------------------------------|
+| `TARGET_HOST`        | `angie`      | Хост / сервис для тестирования (`angie` во внутренней сети Docker)  |
+| `TARGET_PORT`        | `80`         | Порт (`443` для HTTPS)                                             |
+| `TARGET_SCHEME`      | `http`       | Протокол (`http` или `https`)                                      |
+| `TARGET_PATH`        | `/`          | Путь для тестирования                                              |
+| `K6_VUS`             | (из скрипта) | Переопределение количества виртуальных пользователей (VUs)         |
+| `K6_DURATION`        | (из скрипта) | Переопределение длительности теста                                 |
+| `K6_OUT`             | (пусто)      | Например, `experimental-prometheus-rw` или `json=results.json`     |
 
-## Targets
+## Целевые показатели (Targets / Thresholds)
 
-The default `smoke.js` thresholds are:
+Стандартные пороговые значения для `smoke.js` составляют:
 
-* `http_req_failed`  ≤ 1%
-* `http_req_duration{p(95)}` ≤ 500ms
-* `iterations` ≥ 100
+* `http_req_failed` ≤ 1% (доля упавших запросов)
+* `http_req_duration{p(95)}` ≤ 500ms (95-й процентиль времени ответа)
+* `iterations` ≥ 100 (общее число выполненных итераций)
 
-Tune these in each script as you raise the load envelope.
+Вы можете настраивать эти пороги в каждом конкретном скрипте по мере масштабирования нагрузки.
