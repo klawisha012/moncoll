@@ -143,26 +143,35 @@ async def _tick_provisioning(row: Connection) -> None:
         row.acme_retry_count += 1
         row.status_detail = f"ACME failed: {result.message}"
         if row.acme_retry_count >= acme.MAX_RETRIES:
-            # ACME exhausted — fall back to self-signed cert so the proxy
-            # still works. The operator sees the self-signed status_detail
-            # and can manually re-probe later when the upstream issue is
-            # fixed; the row's acme_retry_count gets reset on any
-            # subsequent successful real-ACME via probe.
-            logger.warning(
-                "Conn %d: ACME exhausted retries — falling back to self-signed cert",
-                row.id,
-            )
-            fb = await asyncio.to_thread(acme.fallback_self_signed, row.id, row.domain, row.tenant_id)
-            if fb.success:
-                row.ssl_cert_path = fb.cert_path
-                row.ssl_key_path = fb.key_path
-                row.status = "active"
-                row.status_detail = fb.message
-                row.acme_next_retry_at = None
-            else:
+            if row.origin_tls_mode == "strict":
                 row.status = "error"
                 row.acme_next_retry_at = None
-                row.status_detail = f"ACME and self-signed both failed: {fb.message}"
+                row.status_detail = f"ACME failed: {result.message} (Strict TLS mode prevents self-signed fallback)"
+                logger.warning(
+                    "Conn %d: ACME exhausted retries — strict TLS mode prevents self-signed fallback",
+                    row.id,
+                )
+            else:
+                # ACME exhausted — fall back to self-signed cert so the proxy
+                # still works. The operator sees the self-signed status_detail
+                # and can manually re-probe later when the upstream issue is
+                # fixed; the row's acme_retry_count gets reset on any
+                # subsequent successful real-ACME via probe.
+                logger.warning(
+                    "Conn %d: ACME exhausted retries — falling back to self-signed cert",
+                    row.id,
+                )
+                fb = await asyncio.to_thread(acme.fallback_self_signed, row.id, row.domain, row.tenant_id)
+                if fb.success:
+                    row.ssl_cert_path = fb.cert_path
+                    row.ssl_key_path = fb.key_path
+                    row.status = "active"
+                    row.status_detail = fb.message
+                    row.acme_next_retry_at = None
+                else:
+                    row.status = "error"
+                    row.acme_next_retry_at = None
+                    row.status_detail = f"ACME and self-signed both failed: {fb.message}"
         else:
             row.status = "pending_dns"
             row.acme_next_retry_at = acme.schedule_next_retry(row.acme_retry_count)

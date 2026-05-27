@@ -212,6 +212,7 @@ function TimelineSeries(props: {
   color: string;
   unit?: "count" | "bytes" | "rps";
   valueLabel?: string;
+  type?: "line" | "bar";
 }) {
   const settings = useSettings();
   const padding = { top: 16, right: 16, bottom: 36, left: 64 };
@@ -223,7 +224,15 @@ function TimelineSeries(props: {
   const safeData = () => props.data ?? [];
   const values = () => safeData().map(props.valueOf);
   const maxVal = () => Math.max(...values(), 1);
-  const stepX = () => chartW / Math.max(safeData().length - 1, 1);
+  const stepX = () => {
+    const len = safeData().length;
+    if (props.type === "bar") return chartW / Math.max(len, 1);
+    return chartW / Math.max(len - 1, 1);
+  };
+  const barW = () => {
+    if (props.type === "bar") return Math.max(3, Math.floor(stepX()) - 2);
+    return 0;
+  };
 
   const hover = useSvgHover(
     width,
@@ -237,7 +246,7 @@ function TimelineSeries(props: {
     const list = safeData();
     const max = maxVal();
     return list.map((d, i) => {
-      const x = padding.left + i * stepX();
+      const x = padding.left + i * stepX() + (props.type === "bar" ? stepX() / 2 : 0);
       const y = padding.top + chartH - (props.valueOf(d) / max) * chartH;
       return [x, y] as const;
     });
@@ -256,7 +265,7 @@ function TimelineSeries(props: {
 
   const fmt = (v: number) => {
     if (props.unit === "bytes") return formatBytes(v);
-    if (props.unit === "rps") return `${v.toFixed(1)} rps`;
+    if (props.unit === "rps") return `${Math.round(v)} rps`;
     return formatNumber(Math.round(v));
   };
 
@@ -264,27 +273,73 @@ function TimelineSeries(props: {
   const avg = () => values().length ? sum() / values().length : 0;
   const peak = () => Math.max(...values(), 0);
 
+  const gradientId = () => `timelineGradient-${props.color.replace("#", "")}-${props.unit || "default"}`;
+
   return (
     <Show when={props.data && props.data.length > 0} fallback={<EmptyState loading={props.loading} message={settings.t("dashboard.empty.noData")} />}>
       <div ref={hover.refWrap} style={{ position: "relative" }} onMouseMove={hover.onMove} onMouseLeave={hover.onLeave}>
         <svg ref={hover.refSvg} viewBox={`0 0 ${width} ${height}`} style={{ width: "100%", height: "auto", display: "block" }}>
+          <defs>
+            <linearGradient id={gradientId()} x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stop-color={props.color} stop-opacity="0.32" />
+              <stop offset="100%" stop-color={props.color} stop-opacity="0.01" />
+            </linearGradient>
+          </defs>
           <For each={tickVals()}>
             {(v) => {
               const y = () => padding.top + chartH - (v / maxVal()) * chartH;
               return (
                 <g>
-                  <line x1={padding.left} y1={y()} x2={width - padding.right} y2={y()} stroke="var(--border-subtle)" stroke-width="0.5" />
+                  <line
+                    x1={padding.left}
+                    y1={y()}
+                    x2={width - padding.right}
+                    y2={y()}
+                    stroke="var(--border-subtle)"
+                    stroke-width="0.75"
+                    stroke-dasharray="3 3"
+                    opacity="0.6"
+                  />
                   <text x={padding.left - 8} y={y() + 4} text-anchor="end" fill="var(--text-muted)" font-size="11">{fmt(v)}</text>
                 </g>
               );
             }}
           </For>
-          <path d={areaPath()} fill={props.color} opacity={0.18} />
-          <path d={path()} fill="none" stroke={props.color} stroke-width={2.5} />
+          <Show when={props.type === "bar"} fallback={
+            <g>
+              <path d={areaPath()} fill={`url(#${gradientId()})`} />
+              <path d={path()} fill="none" stroke={props.color} stroke-width={2.5} />
+            </g>
+          }>
+            <g>
+              <For each={points()}>
+                {([x, y], i) => {
+                  const barH = () => (padding.top + chartH) - y;
+                  const isHover = () => hover.hoverIdx === i();
+                  return (
+                    <rect
+                      x={x - barW() / 2}
+                      y={y}
+                      width={barW()}
+                      height={barH()}
+                      fill={`url(#${gradientId()})`}
+                      stroke={props.color}
+                      stroke-width="1.2"
+                      opacity={isHover() ? 1 : 0.82}
+                      style={{
+                        transition: "opacity var(--duration-fast), fill var(--duration-fast)",
+                      }}
+                      rx="1.5"
+                    />
+                  );
+                }}
+              </For>
+            </g>
+          </Show>
           <For each={safeData()}>
             {(d, i) => {
               if (i() % Math.max(1, Math.floor(safeData().length / 10)) !== 0) return null;
-              const x = padding.left + i() * stepX();
+              const x = padding.left + i() * stepX() + (props.type === "bar" ? stepX() / 2 : 0);
               return (
                 <text x={x} y={height - 8} text-anchor="middle" fill="var(--text-muted)" font-size="11">
                   {new Date(d.timestamp).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
@@ -391,7 +446,16 @@ function StatusCodesChart(props: { data: StatusCodePoint[] | null; loading: bool
               const y = () => padding.top + chartH - p * chartH;
               return (
                 <g>
-                  <line x1={padding.left} y1={y()} x2={width - padding.right} y2={y()} stroke="var(--border-subtle)" stroke-width="0.5" />
+                  <line
+                    x1={padding.left}
+                    y1={y()}
+                    x2={width - padding.right}
+                    y2={y()}
+                    stroke="var(--border-subtle)"
+                    stroke-width="0.75"
+                    stroke-dasharray="3 3"
+                    opacity="0.6"
+                  />
                   <text x={padding.left - 8} y={y() + 4} text-anchor="end" fill="var(--text-muted)" font-size="11">
                     {formatNumber(Math.round(maxVal() * p))}
                   </text>
@@ -721,6 +785,11 @@ function SeverityDonut(props: { data: SeveritySlice[] | null; loading: boolean }
               const yeI = cy - inner * Math.cos(slice.start);
               const d = `M ${xs} ${ys} A ${r} ${r} 0 ${large} 1 ${xe} ${ye} L ${xsI} ${ysI} A ${inner} ${inner} 0 ${large} 0 ${xeI} ${yeI} Z`;
               const isHover = () => hoverIdx() === idx();
+
+              const midAngle = () => (slice.start + slice.end) / 2;
+              const dx = () => isHover() ? 6 * Math.sin(midAngle()) : 0;
+              const dy = () => isHover() ? -6 * Math.cos(midAngle()) : 0;
+
               return (
                 <path
                   d={d}
@@ -729,15 +798,19 @@ function SeverityDonut(props: { data: SeveritySlice[] | null; loading: boolean }
                   stroke={isHover() ? "var(--ink)" : "transparent"}
                   stroke-width={isHover() ? 2 : 0}
                   onMouseEnter={() => setHoverIdx(idx())}
-                  style={{ cursor: "pointer", transition: "opacity var(--duration-fast) var(--ease-out)" }}
+                  transform={`translate(${dx()}, ${dy()})`}
+                  style={{
+                    cursor: "pointer",
+                    transition: "transform var(--duration-fast) var(--ease-out), opacity var(--duration-fast) var(--ease-out)",
+                  }}
                 />
               );
             }}
           </For>
-          <text x={cx} y={cy - 4} text-anchor="middle" font-size="22" font-weight="700" fill="var(--text-primary)">
+          <text x={cx} y={cy - 2} text-anchor="middle" font-size="22" font-weight="700" fill="var(--text-primary)">
             {hovered() ? formatNumber(hovered()!.hits) : formatNumber(total())}
           </text>
-          <text x={cx} y={cy + 14} text-anchor="middle" font-size="10" fill="var(--text-muted)">
+          <text x={cx} y={cy + 16} text-anchor="middle" font-size="10" fill="var(--text-muted)">
             {hovered() ? hovered()!.severity : "TOTAL"}
           </text>
         </svg>
@@ -1187,10 +1260,11 @@ function NativePanels(props: {
           <TimelineSeries
             data={rps.data()}
             loading={rps.initialLoading()}
-            valueOf={(d) => (d as RpsPoint).rps}
+            valueOf={(d) => Math.ceil((d as RpsPoint).rps)}
             color="#06b6d4"
             unit="rps"
             valueLabel={settings.t("dashboard.tooltip.reqPerSec")}
+            type="bar"
           />
         </PanelCard>
       </Show>

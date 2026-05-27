@@ -15,10 +15,18 @@ services:
   angie:
     build: configs/angie
     ports:
-      - "80:80"
-      - "443:443"
-      # HTTP/3 (QUIC) — UDP
-      - "443:443/udp"
+      - target: 80
+        published: 80
+        protocol: tcp
+        mode: host
+      - target: 443
+        published: 443
+        protocol: tcp
+        mode: host
+      - target: 443
+        published: 443
+        protocol: udp
+        mode: host
     # Raise per-process file-descriptor ceiling so the worker can actually
     # use `worker_connections 65536`.
     ulimits:

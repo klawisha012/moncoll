@@ -663,6 +663,29 @@ function ModSecCatalog(props: {
   catalog: TestCase[] | null;
   translate: (key: string) => string;
 }) {
+  const [selectedFamily, setSelectedFamily] = createSignal<string>("all");
+
+  const uniqueFamilies = () => {
+    const seen = new Set<TestFamily>();
+    const list: TestFamily[] = [];
+    for (const family of props.familyOrder) {
+      if (!seen.has(family)) {
+        seen.add(family);
+        const tests = props.grouped.get(family);
+        if (tests && tests.length > 0) {
+          list.push(family);
+        }
+      }
+    }
+    return list;
+  };
+
+  const displayedFamilies = () => {
+    const fam = selectedFamily();
+    if (fam === "all") return uniqueFamilies();
+    return uniqueFamilies().filter((f) => f === fam);
+  };
+
   return (
     <Show
       when={props.catalog !== null}
@@ -689,8 +712,62 @@ function ModSecCatalog(props: {
           </div>
         }
       >
+        {/* Category filter */}
+        <div
+          class="card"
+          style={{
+            padding: "14px 16px",
+            "margin-bottom": "16px",
+            display: "flex",
+            "align-items": "center",
+            gap: "14px",
+            "flex-wrap": "wrap",
+          }}
+        >
+          <label
+            for="tests-category"
+            style={{
+              "font-family": "var(--font-cond)",
+              "font-weight": 700,
+              "font-size": "12px",
+              "letter-spacing": "0.12em",
+              "text-transform": "uppercase",
+              color: "var(--text-secondary)",
+            }}
+          >
+            {props.translate("tests.category")}
+          </label>
+          <select
+            id="tests-category"
+            value={selectedFamily()}
+            onChange={(e) => setSelectedFamily(e.currentTarget.value)}
+            style={{
+              padding: "8px 12px",
+              border: "2px solid var(--ink)",
+              "border-radius": "0",
+              background: "var(--card-bg)",
+              color: "var(--text-primary)",
+              "font-family": "var(--font-mono)",
+              "font-size": "13px",
+              "min-width": "260px",
+            }}
+          >
+            <option value="all">{props.translate("tests.category.all")}</option>
+            <For each={uniqueFamilies()}>
+              {(family) => {
+                const tests = props.grouped.get(family);
+                return (
+                  <option value={family}>
+                    {props.translate(`tests.family.${family}`)} ({tests?.length ?? 0})
+                  </option>
+                );
+              }}
+            </For>
+          </select>
+        </div>
+
         <div style={{ display: "flex", "flex-direction": "column", gap: "14px" }}>
-          <For each={props.familyOrder}>
+          <For each={displayedFamilies()}>
             {(family) => {
               const tests = props.grouped.get(family);
               if (!tests || tests.length === 0) return null;

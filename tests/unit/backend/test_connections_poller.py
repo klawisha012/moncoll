@@ -20,6 +20,7 @@ def _fake_row(**overrides):
     """Duck-typed Connection row — only the fields the poller touches."""
     defaults = {
         "id": 1,
+        "tenant_id": 1,
         "name": "acme",
         "domain": "acme.com",
         "origin_hosts": ["1.1.1.1"],
@@ -155,12 +156,13 @@ async def test_tick_provisioning_failure_schedules_retry():
 
 @pytest.mark.asyncio
 async def test_tick_provisioning_exhausts_retries_falls_back_to_self_signed():
-    """When ACME has burned through MAX_RETRIES we generate a self-signed
-    cert so the proxy still works — mirrors legacy behaviour. The row
+    """When ACME has burned through MAX_RETRIES and we are in lenient TLS mode,
+    we generate a self-signed cert so the proxy still works. The row
     becomes active, not error, with a status_detail flagging the fallback."""
     row = _fake_row(
         status="provisioning_cert",
         acme_retry_count=poller.acme.MAX_RETRIES - 1,
+        origin_tls_mode="lenient",
     )
     acme_fail = poller.acme.AcmeResult(success=False, message="failed again")
     self_signed_ok = poller.acme.AcmeResult(
@@ -179,10 +181,27 @@ async def test_tick_provisioning_exhausts_retries_falls_back_to_self_signed():
 
 
 @pytest.mark.asyncio
+async def test_tick_provisioning_exhausts_retries_strict_mode_goes_error():
+    """When ACME has burned through MAX_RETRIES and we are in strict TLS mode,
+    we do NOT generate a self-signed cert — it fails straight to error."""
+    row = _fake_row(
+        status="provisioning_cert",
+        acme_retry_count=poller.acme.MAX_RETRIES - 1,
+        origin_tls_mode="strict",
+    )
+    acme_fail = poller.acme.AcmeResult(success=False, message="failed again")
+    with patch.object(poller.acme, "trigger", return_value=acme_fail):
+        await poller._tick_provisioning(row)
+    assert row.status == "error"
+    assert "Strict TLS mode prevents self-signed fallback" in (row.status_detail or "")
+
+
+@pytest.mark.asyncio
 async def test_tick_provisioning_self_signed_also_fails_goes_error():
     row = _fake_row(
         status="provisioning_cert",
         acme_retry_count=poller.acme.MAX_RETRIES - 1,
+        origin_tls_mode="lenient",
     )
     acme_fail = poller.acme.AcmeResult(success=False, message="ACME nope")
     ss_fail = poller.acme.AcmeResult(success=False, message="openssl missing")

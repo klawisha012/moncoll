@@ -107,14 +107,16 @@ export default function TrafficChart(props: Props) {
                     x2={width - padding.right}
                     y2={y()}
                     stroke="var(--border-subtle)"
-                    stroke-width="0.5"
+                    stroke-width="0.75"
+                    stroke-dasharray="3 3"
+                    opacity="0.6"
                   />
                   <text
                     x={padding.left - 8}
                     y={y() + 4}
                     text-anchor="end"
                     fill="var(--text-muted)"
-                    font-size="12"
+                    font-size="11"
                   >
                     {formatNumber(v)}
                   </text>

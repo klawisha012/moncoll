@@ -329,7 +329,7 @@ function StatusBadge(props: { status: ConnectionStatus; detail: string | null })
     ? { bg: "rgba(178, 122, 0, 0.16)", fg: "var(--amber)", icon: "■" }
     : BADGE_TONE[props.status];
   const label = () => isSelfSigned()
-    ? "Protected (self-signed)"
+    ? settings.t("connections.status.self_signed")
     : settings.t(`connections.status.${props.status}`);
 
   return (
