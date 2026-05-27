@@ -30,27 +30,48 @@ router = APIRouter(tags=["auth"])
 OAUTH_STATE_COOKIE = "waf_oauth_state"
 
 
-def _redirect_with_error(intent: str, code: str) -> RedirectResponse:
+def _redirect_with_error(
+    intent: str,
+    code: str,
+    request: Request | None = None,
+) -> RedirectResponse:
     """Send the user back to /signup or /login with an oauth_error query param,
     instead of returning raw JSON. The frontend reads ?oauth_error= and shows
     the appropriate localized message. Also clears the state cookie so a retry
     doesn't trip on the previous attempt's value (which is the most common cause
     of the "invalid oauth state" loop)."""
     target = "/signup" if intent == "signup" else "/login"
-    resp = RedirectResponse(url=f"{target}?oauth_error={quote(code)}", status_code=303)
+    redirect_url = f"{target}?oauth_error={quote(code)}"
+    if request:
+        incoming_host = request.headers.get("x-forwarded-host") or request.headers.get("host", "")
+        if incoming_host and "localhost" not in incoming_host and "127.0.0.1" not in incoming_host:
+            scheme = "https"
+            redirect_url = f"{scheme}://{incoming_host}{redirect_url}"
+
+    resp = RedirectResponse(url=redirect_url, status_code=303)
     resp.delete_cookie(OAUTH_STATE_COOKIE, path="/")
     return resp
 
 
 @router.get("/oauth/{provider}/start")
-async def oauth_start(provider: str, intent: str, tenant_name: str | None = None):
+async def oauth_start(
+    provider: str,
+    intent: str,
+    request: Request,
+    tenant_name: str | None = None,
+):
+    logger.warning("oauth_start: url=%s headers=%s", request.url, dict(request.headers))
     client = get_client(provider)
-    ru = redirect_uri(provider)
+    ru = redirect_uri(provider, request)
+    logger.warning("oauth_start: generated redirect_uri=%s", ru)
     if not client or not ru:
-        return _redirect_with_error(intent if intent in ("signup", "login") else "login",
-                                    "provider_unavailable")
+        return _redirect_with_error(
+            intent if intent in ("signup", "login") else "login",
+            "provider_unavailable",
+            request,
+        )
     if intent not in ("signup", "login"):
-        return _redirect_with_error("login", "invalid_intent")
+        return _redirect_with_error("login", "invalid_intent", request)
     # tenant_name is now optional: if absent, the callback auto-derives a slug
     # from the OAuth profile (display_name or email local-part).
 
@@ -81,13 +102,18 @@ async def oauth_callback(
     request: Request,
     session: AsyncSession = Depends(get_session),
 ):
+    logger.warning("oauth_callback: url=%s headers=%s", request.url, dict(request.headers))
+
+    def redirect_err(intent: str, code: str) -> RedirectResponse:
+        return _redirect_with_error(intent, code, request)
+
     # 2. Validate state HMAC first (independent of cookie — gives us the intent
     # we need to redirect back on cookie failure). If even the HMAC is invalid,
     # we don't know the intent — default to /login.
     payload = verify_short_lived(state, purpose="oauth_state")
     if not payload or payload.get("provider") != provider:
         logger.warning("oauth callback: state HMAC invalid for provider=%s", provider)
-        return _redirect_with_error("login", "invalid_state")
+        return redirect_err("login", "invalid_state")
 
     intent_from_state = payload.get("intent", "login")
 
@@ -98,25 +124,25 @@ async def oauth_callback(
     if not cookie_state:
         logger.warning("oauth callback: state cookie missing (provider=%s intent=%s)",
                        provider, intent_from_state)
-        return _redirect_with_error(intent_from_state, "state_cookie_missing")
+        return redirect_err(intent_from_state, "state_cookie_missing")
     if cookie_state != state:
         logger.warning(
             "oauth callback: state cookie/param mismatch (provider=%s intent=%s)",
             provider, intent_from_state,
         )
-        return _redirect_with_error(intent_from_state, "state_mismatch")
+        return redirect_err(intent_from_state, "state_mismatch")
 
     client = get_client(provider)
-    ru = redirect_uri(provider)
+    ru = redirect_uri(provider, request)
     if not client or not ru:
-        return _redirect_with_error(intent_from_state, "provider_unavailable")
+        return redirect_err(intent_from_state, "provider_unavailable")
 
     # 3. Exchange code for access token.
     try:
         token_data = await client.get_access_token(code, ru)
     except Exception as exc:  # noqa: BLE001 — provider can fail in many ways
         logger.warning("oauth token exchange failed: %s", exc)
-        return _redirect_with_error(intent_from_state, "token_exchange_failed")
+        return redirect_err(intent_from_state, "token_exchange_failed")
 
     # 4. Fetch profile.
     try:
@@ -126,11 +152,11 @@ async def oauth_callback(
             profile = await _fetch_github_profile(token_data["access_token"])
     except Exception as exc:  # noqa: BLE001
         logger.warning("oauth profile fetch failed: %s", exc)
-        return _redirect_with_error(intent_from_state, "profile_fetch_failed")
+        return redirect_err(intent_from_state, "profile_fetch_failed")
 
     # 5. Reject if email not verified at provider.
     if not profile.get("email") or not profile.get("email_verified", False):
-        return _redirect_with_error(intent_from_state, "email_not_verified")
+        return redirect_err(intent_from_state, "email_not_verified")
 
     # 6. Look up existing OAuth account.
     existing = (
@@ -163,7 +189,7 @@ async def oauth_callback(
         existing_by_email = await auth_service.get_by_email(session, profile["email"])
         if existing_by_email:
             intent = payload.get("intent", "login")
-            return _redirect_with_error(intent, "email_in_use")
+            return redirect_err(intent, "email_in_use")
 
         # case (b): truly new user — provision tenant + user + oauth_account.
         provided_tenant = payload.get("tenant_name")
@@ -181,9 +207,9 @@ async def oauth_callback(
                     display_name=profile.get("name", ""),
                 )
         except tenants_service.InvalidTenantName:
-            return _redirect_with_error(payload.get("intent", "signup"), "invalid_tenant_name")
+            return redirect_err(payload.get("intent", "signup"), "invalid_tenant_name")
         except tenants_service.TenantNameTaken:
-            return _redirect_with_error(payload.get("intent", "signup"), "tenant_name_taken")
+            return redirect_err(payload.get("intent", "signup"), "tenant_name_taken")
 
         user = await auth_service.create_client_user(
             session,
@@ -212,7 +238,15 @@ async def oauth_callback(
         tenant_role=user.tenant_role,
     )
     s = get_settings()
-    redirect = RedirectResponse(url="/home", status_code=303)
+
+    incoming_host = request.headers.get("x-forwarded-host") or request.headers.get("host", "")
+    if incoming_host and "localhost" not in incoming_host and "127.0.0.1" not in incoming_host:
+        scheme = "https"
+        redirect_url = f"{scheme}://{incoming_host}/home"
+    else:
+        redirect_url = "/home"
+
+    redirect = RedirectResponse(url=redirect_url, status_code=303)
     redirect.delete_cookie(OAUTH_STATE_COOKIE, path="/")
     redirect.set_cookie(
         SESSION_COOKIE,

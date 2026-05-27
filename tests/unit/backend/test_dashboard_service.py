@@ -274,3 +274,68 @@ def test_requests_per_second_now_applies_host_filter(mock_ch_client):
 
     seen_queries = [call.args[0] for call in mock_ch_client.execute.call_args_list]
     assert any("host IN ('r.test')" in q for q in seen_queries), seen_queries
+
+
+# ── geoip-map and unresolved IPs coverage ────────────────────
+
+
+def test_get_geoip_map_data_success(mock_ch_client):
+    """Test get_geoip_map_data returns formatted coordinates and hits."""
+    mock_ch_client.execute.return_value = [
+        (37.6173, 55.7558, "RU", "Moscow", 120),
+        (-122.4194, 37.7749, "US", "San Francisco", 450),
+    ]
+    with patch.object(ds, "_domains_for_connection", return_value=["map.test"]):
+        result = ds.get_geoip_map_data(hours=2, connection_id=1, tenant_id=2)
+
+    assert len(result) == 2
+    assert result[0] == {
+        "longitude": 37.6173,
+        "latitude": 55.7558,
+        "country_code": "RU",
+        "city_name": "Moscow",
+        "hits": 120,
+    }
+    assert result[1] == {
+        "longitude": -122.4194,
+        "latitude": 37.7749,
+        "country_code": "US",
+        "city_name": "San Francisco",
+        "hits": 450,
+    }
+    seen_queries = [call.args[0] for call in mock_ch_client.execute.call_args_list]
+    assert any("host IN ('map.test')" in q for q in seen_queries), seen_queries
+
+
+def test_get_geoip_map_data_empty_fallback(mock_ch_client):
+    """Test get_geoip_map_data handles empty database returns gracefully."""
+    mock_ch_client.execute.return_value = []
+    result = ds.get_geoip_map_data()
+    assert result == []
+
+
+def test_get_geoip_map_data_no_client_returns_empty():
+    with patch.object(ds, "_get_client", side_effect=Exception("ClickHouse down")):
+        assert ds.get_geoip_map_data() == []
+
+
+def test_get_geoip_unresolved_ips_success(mock_ch_client):
+    """Test get_geoip_unresolved_ips returns external-looking IPs without GeoIP."""
+    mock_ch_client.execute.return_value = [
+        ("192.0.2.1", 15),
+        ("198.51.100.5", 42),
+    ]
+    with patch.object(ds, "_domains_for_connection", return_value=["unresolved.test"]):
+        result = ds.get_geoip_unresolved_ips(hours=2, connection_id=3, tenant_id=1)
+
+    assert len(result) == 2
+    assert result[0] == {"ip": "192.0.2.1", "hits": 15}
+    assert result[1] == {"ip": "198.51.100.5", "hits": 42}
+    seen_queries = [call.args[0] for call in mock_ch_client.execute.call_args_list]
+    assert any("host IN ('unresolved.test')" in q for q in seen_queries), seen_queries
+
+
+def test_get_geoip_unresolved_ips_no_client_returns_empty():
+    with patch.object(ds, "_get_client", side_effect=Exception("ClickHouse down")):
+        assert ds.get_geoip_unresolved_ips() == []
+

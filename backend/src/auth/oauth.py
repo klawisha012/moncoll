@@ -1,5 +1,6 @@
 """OAuth2 client factories for Google and GitHub."""
 
+from fastapi import Request
 from httpx_oauth.clients.github import GitHubOAuth2
 from httpx_oauth.clients.google import GoogleOAuth2
 
@@ -18,12 +19,23 @@ def get_client(provider: str) -> GoogleOAuth2 | GitHubOAuth2 | None:
     return None
 
 
-def redirect_uri(provider: str) -> str | None:
+def redirect_uri(provider: str, request: Request | None = None) -> str | None:
     s = get_settings()
-    return {
+    ru = {
         "google": s.oauth_google_redirect_uri,
         "github": s.oauth_github_redirect_uri,
     }.get(provider)
+    if not ru or not request:
+        return ru
+
+    incoming_host = request.headers.get("host", "")
+    if incoming_host and "localhost" not in incoming_host and "127.0.0.1" not in incoming_host:
+        # Force https for public domains to ensure compatibility with OAuth providers
+        # and prevent schema downgrades behind reverse proxies or Cloudflare.
+        scheme = "https"
+        path = f"/api/auth/oauth/{provider}/callback"
+        return f"{scheme}://{incoming_host}{path}"
+    return ru
 
 
 def scopes_for(provider: str) -> list[str]:
