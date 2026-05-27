@@ -17,7 +17,7 @@ from pyseto import Key
 logger = logging.getLogger(__name__)
 
 SESSION_TTL_SECONDS = 8 * 60 * 60
-PASETO_KEY_FILE = Path("/var/lib/angie/.paseto_key")
+PASETO_KEY_FILE = Path("/var/lib/angie/data/.paseto_key")
 
 _pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 _cached_key: bytes | None = None
@@ -111,18 +111,22 @@ def decode_session_token(token: str) -> dict | None:
 
 
 def sign_short_lived(payload: dict, *, ttl_seconds: int, purpose: str) -> str:
-    """Return base64url(json_body . hmac_tag) for a short-lived signed cookie."""
+    """Return base64url(json_body . hmac_tag) for a short-lived signed cookie.
+    Uses a separator-less layout where the last 32 bytes are always the HMAC-SHA256 signature."""
     body = {**payload, "exp": datetime.now(UTC).timestamp() + ttl_seconds, "p": purpose}
     raw = json.dumps(body, separators=(",", ":")).encode()
     tag = hmac.new(_load_or_create_paseto_key(), raw, hashlib.sha256).digest()
-    return urlsafe_b64encode(raw + b"." + tag).rstrip(b"=").decode()
+    return urlsafe_b64encode(raw + tag).rstrip(b"=").decode()
 
 
 def verify_short_lived(value: str, *, purpose: str) -> dict | None:
     try:
         padded = value + "=" * (-len(value) % 4)
         decoded = urlsafe_b64decode(padded.encode())
-        raw, tag = decoded.rsplit(b".", 1)
+        if len(decoded) < 32:
+            return None
+        raw = decoded[:-32]
+        tag = decoded[-32:]
         expected = hmac.new(_load_or_create_paseto_key(), raw, hashlib.sha256).digest()
         if not hmac.compare_digest(tag, expected):
             return None

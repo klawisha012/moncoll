@@ -78,3 +78,25 @@ def test_short_lived_expired_returns_none(monkeypatch):
     value = security.sign_short_lived({"x": 1}, ttl_seconds=1, purpose="oauth_state")
     time.sleep(1.2)
     assert security.verify_short_lived(value, purpose="oauth_state") is None
+
+
+def test_short_lived_signature_with_dots(monkeypatch):
+    monkeypatch.setenv("WAF_PASETO_KEY", "1" * 64)
+    security._cached_key = None
+    
+    # Craft a fake 32-byte HMAC-SHA256 signature containing dot characters
+    fake_digest = b"some.fake.digest.with.dots.12345"
+    assert len(fake_digest) == 32
+    
+    class MockHMAC:
+        def __init__(self, *args, **kwargs):
+            pass
+        def digest(self):
+            return fake_digest
+            
+    import hmac
+    monkeypatch.setattr(hmac, "new", MockHMAC)
+    
+    value = security.sign_short_lived({"user_id": 5}, ttl_seconds=600, purpose="totp_enrol")
+    payload = security.verify_short_lived(value, purpose="totp_enrol")
+    assert payload == {"user_id": 5}
