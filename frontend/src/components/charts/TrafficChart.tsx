@@ -1,11 +1,8 @@
-import { Show, For, createMemo } from "solid-js";
+import { Show, onMount, onCleanup, createEffect } from "solid-js";
 import type { TrafficDataPoint } from "../../api/client";
-import {
-  ChartTooltip,
-  EmptyState,
-  formatNumber,
-  useSvgHover,
-} from "./chart-utils";
+import { EmptyState, formatNumber } from "./chart-utils";
+import ApexCharts from "apexcharts";
+import { useSettings } from "../../context/SettingsContext";
 
 interface Props {
   data: TrafficDataPoint[] | null;
@@ -22,62 +19,213 @@ interface Props {
 }
 
 export default function TrafficChart(props: Props) {
-  const padding = { top: 16, right: 16, bottom: 36, left: 60 };
-  const width = 1200;
-  const height = 340;
-  const chartW = width - padding.left - padding.right;
-  const chartH = height - padding.top - padding.bottom;
+  const settings = useSettings();
+  let chartRef: HTMLDivElement | undefined;
+  let chart: ApexCharts | undefined;
 
   const safeData = () => props.data ?? [];
-  const maxVal = () => Math.max(...safeData().map((d) => d.clean + d.malicious), 1);
-  const stepX = () => chartW / Math.max(safeData().length, 1);
-  const barW = () => Math.max(3, Math.floor(chartW / Math.max(safeData().length, 1)) - 2);
 
-  const hover = useSvgHover(
-    width,
-    padding.left,
-    padding.right,
-    stepX,
-    () => safeData().length,
-  );
+  onMount(() => {
+    if (!chartRef) return;
 
-  const yTicks = 5;
-  const tickVals = () => {
-    const mv = maxVal();
-    const vals: number[] = [];
-    for (let i = 0; i <= yTicks; i++) {
-      vals.push(Math.round((mv / yTicks) * i));
-    }
-    return vals;
-  };
+    const options: any = {
+      chart: {
+        type: "bar",
+        height: 320,
+        stacked: true,
+        fontFamily: "var(--font-body)",
+        foreColor: "var(--text-secondary)",
+        toolbar: { show: false },
+        animations: { enabled: false },
+      },
+      series: [
+        { name: "Clean", data: [] },
+        { name: "Malicious", data: [] },
+      ],
+      colors: ["#10b981", "#ef4444"],
+      grid: {
+        borderColor: "var(--border-subtle)",
+        strokeDashArray: 3,
+        xaxis: { lines: { show: false } },
+        yaxis: { lines: { show: true } },
+      },
+      plotOptions: {
+        bar: {
+          columnWidth: "70%",
+          borderRadius: 2,
+        },
+      },
+      xaxis: {
+        type: "category",
+        categories: [],
+        axisBorder: { show: true, color: "var(--line)", strokeWidth: 2 },
+        axisTicks: { show: true, color: "var(--line)" },
+        labels: {
+          style: {
+            fontSize: "11px",
+            fontFamily: "var(--font-body)",
+          },
+        },
+      },
+      yaxis: {
+        labels: {
+          formatter: (v: number) => formatNumber(Math.round(v)),
+          style: {
+            fontSize: "11px",
+            fontFamily: "var(--font-body)",
+          },
+        },
+      },
+      tooltip: {
+        theme: settings.theme === "dark" ? "dark" : "light",
+        custom: function({ series, seriesIndex, dataPointIndex, w }: any) {
+          const clean = series[0]?.[dataPointIndex] ?? 0;
+          const malicious = series[1]?.[dataPointIndex] ?? 0;
+          const total = clean + malicious;
+          const rate = total > 0 ? ((malicious / total) * 100).toFixed(1) : "0.0";
+          
+          const point = props.data?.[dataPointIndex];
+          if (!point) return '';
+          
+          const formattedDate = new Date(point.timestamp).toLocaleString([], {
+            month: "short",
+            day: "numeric",
+            hour: "2-digit",
+            minute: "2-digit",
+          });
+          
+          const themeClass = settings.theme === "dark" ? "apexcharts-theme-dark" : "apexcharts-theme-light";
+          
+          return `
+            <div class="apexcharts-active-tooltip ${themeClass}" style="padding: 10px; font-family: var(--font-body); border-radius: 4px; border: 1px solid var(--border-subtle); background: var(--card-bg); color: var(--text-primary); box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1);">
+              <div style="font-weight: 600; margin-bottom: 6px; font-size: 12px; border-bottom: 1px solid var(--border-subtle); padding-bottom: 4px;">
+                ${formattedDate}
+              </div>
+              <div style="font-size: 11px; display: flex; flex-direction: column; gap: 4px;">
+                <div style="display: flex; justify-content: space-between; gap: 12px; align-items: center;">
+                  <span style="display: flex; align-items: center; gap: 6px;">
+                    <span style="width: 8px; height: 8px; border-radius: 50%; background: #10b981; display: inline-block;"></span>
+                    Clean:
+                  </span>
+                  <span style="font-family: var(--font-mono); font-weight: 500;">${clean.toLocaleString()}</span>
+                </div>
+                <div style="display: flex; justify-content: space-between; gap: 12px; align-items: center;">
+                  <span style="display: flex; align-items: center; gap: 6px;">
+                    <span style="width: 8px; height: 8px; border-radius: 50%; background: #ef4444; display: inline-block;"></span>
+                    Malicious:
+                  </span>
+                  <span style="font-family: var(--font-mono); font-weight: 500;">${malicious.toLocaleString()}</span>
+                </div>
+                <div style="display: flex; justify-content: space-between; gap: 12px; border-top: 1px dashed var(--border-subtle); margin-top: 4px; padding-top: 4px; align-items: center;">
+                  <span>Total:</span>
+                  <span style="font-family: var(--font-mono); font-weight: 600;">${total.toLocaleString()}</span>
+                </div>
+                <div style="display: flex; justify-content: space-between; gap: 12px; align-items: center;">
+                  <span>Block rate:</span>
+                  <span style="font-family: var(--font-mono); font-weight: 600; color: #ef4444;">${rate}%</span>
+                </div>
+              </div>
+            </div>
+          `;
+        }
+      },
+      theme: {
+        mode: settings.theme as "dark" | "light",
+      },
+      dataLabels: { enabled: false },
+      legend: {
+        position: "top",
+        horizontalAlign: "left",
+        fontFamily: "var(--font-mono)",
+        fontSize: "12px",
+        markers: {
+          radius: 3,
+        },
+      },
+    };
 
-  const hovered = () => {
-    const idx = hover.hoverIdx;
-    return idx !== null ? safeData()[idx] : null;
-  };
+    chart = new ApexCharts(chartRef, options);
+    chart.render();
 
-  // Pre-compute which bars (by index) overlap a marker timestamp. Charts are
-  // bucketed by hour, so we find the bar whose start <= markerTs < next-start.
-  const markerSet = createMemo(() => {
-    const set = new Set<number>();
+    onCleanup(() => {
+      chart?.destroy();
+    });
+  });
+
+  createEffect(() => {
+    const list = safeData();
+    if (!chart || !list.length) return;
+
+    const cleanData = list.map((d) => d.clean);
+    const maliciousData = list.map((d) => d.malicious);
+    const categories = list.map((d) =>
+      new Date(d.timestamp).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
+    );
+
+    chart.updateSeries([
+      { name: "Clean", data: cleanData },
+      { name: "Malicious", data: maliciousData },
+    ]);
+
+    const annotations: any[] = [];
     const markers = props.markerTimes;
-    const sd = safeData();
-    if (markers && markers.length && sd.length > 0) {
-      const bucketMs = sd.map((d) => new Date(d.timestamp).getTime());
+    if (markers && markers.length && list.length > 0) {
+      const bucketMs = list.map((d) => new Date(d.timestamp).getTime());
       for (const ts of markers) {
         const t = new Date(ts).getTime();
         if (Number.isNaN(t)) continue;
-        // Find the latest bucket whose start is <= t.
+
         let idx = -1;
         for (let i = 0; i < bucketMs.length; i++) {
           if (bucketMs[i] <= t) idx = i;
           else break;
         }
         if (idx < 0) idx = 0;
-        set.add(idx);
+
+        if (idx >= 0 && idx < categories.length) {
+          annotations.push({
+            x: categories[idx],
+            strokeDashArray: 4,
+            borderColor: "#f59e0b",
+            borderWidth: 2,
+            label: {
+              borderColor: "#f59e0b",
+              style: {
+                color: "#fff",
+                background: "#f59e0b",
+                fontFamily: "var(--font-body)",
+                fontSize: "10px",
+              },
+              text: "TEST SPIKE",
+              orientation: "vertical",
+              position: "top",
+              offsetY: 10,
+            }
+          });
+        }
       }
     }
-    return set;
+
+    chart.updateOptions({
+      xaxis: {
+        categories: categories,
+      },
+      annotations: {
+        xaxis: annotations,
+      }
+    }, false, false);
+  });
+
+  createEffect(() => {
+    const theme = settings.theme;
+    chart?.updateOptions({
+      theme: {
+        mode: theme as "dark" | "light",
+      },
+      tooltip: {
+        theme: theme as "dark" | "light",
+      },
+    }, false, false);
   });
 
   return (
@@ -85,198 +233,7 @@ export default function TrafficChart(props: Props) {
       when={props.data && props.data.length > 0}
       fallback={<EmptyState loading={props.loading} message="No traffic data available" />}
     >
-      <div
-        ref={hover.refWrap}
-        style={{ position: "relative" }}
-        onMouseMove={hover.onMove}
-        onMouseLeave={hover.onLeave}
-      >
-        <svg
-          ref={hover.refSvg}
-          viewBox={`0 0 ${width} ${height}`}
-          style={{ width: "100%", height: "auto", display: "block" }}
-        >
-          <For each={tickVals()}>
-            {(v) => {
-              const y = () => padding.top + chartH - (v / maxVal()) * chartH;
-              return (
-                <g>
-                  <line
-                    x1={padding.left}
-                    y1={y()}
-                    x2={width - padding.right}
-                    y2={y()}
-                    stroke="var(--border-subtle)"
-                    stroke-width="0.75"
-                    stroke-dasharray="3 3"
-                    opacity="0.6"
-                  />
-                  <text
-                    x={padding.left - 8}
-                    y={y() + 4}
-                    text-anchor="end"
-                    fill="var(--text-muted)"
-                    font-size="11"
-                  >
-                    {formatNumber(v)}
-                  </text>
-                </g>
-              );
-            }}
-          </For>
-          <For each={safeData()}>
-            {(d, i) => {
-              const x = () => padding.left + i() * stepX();
-              const cleanH = () => (d.clean / maxVal()) * chartH;
-              const malH = () => (d.malicious / maxVal()) * chartH;
-              const isHover = () => hover.hoverIdx === i();
-              const isMarker = () => markerSet().has(i());
-              const labelInterval = () => Math.max(1, Math.floor(safeData().length / 10));
-
-              return (
-                <g>
-                  <rect
-                    x={x() + 1}
-                    y={padding.top + chartH - cleanH() - malH()}
-                    width={barW()}
-                    height={cleanH()}
-                    fill="var(--ok)"
-                    opacity={isHover() ? 1 : 0.85}
-                    rx="1"
-                  />
-                  <rect
-                    x={x() + 1}
-                    y={padding.top + chartH - malH()}
-                    width={barW()}
-                    height={malH()}
-                    fill="var(--red)"
-                    opacity={isHover() ? 1 : 0.9}
-                    rx="1"
-                  />
-                  <Show when={isMarker()}>
-                    <rect
-                      x={x() - 1}
-                      y={padding.top + chartH - cleanH() - malH() - 4}
-                      width={barW() + 4}
-                      height={cleanH() + malH() + 8}
-                      fill="none"
-                      stroke="var(--amber, #f59e0b)"
-                      stroke-width="2"
-                      stroke-dasharray="3 2"
-                      pointer-events="none"
-                    />
-                    <circle
-                      cx={x() + barW() / 2 + 1}
-                      cy={padding.top + chartH - cleanH() - malH() - 10}
-                      r="4"
-                      fill="var(--amber, #f59e0b)"
-                      stroke="var(--ink)"
-                      stroke-width="1"
-                    />
-                  </Show>
-                  <Show when={i() % labelInterval() === 0}>
-                    <text
-                      x={x() + barW() / 2}
-                      y={height - 8}
-                      text-anchor="middle"
-                      fill="var(--text-muted)"
-                      font-size="11"
-                    >
-                      {new Date(d.timestamp).toLocaleTimeString([], {
-                        hour: "2-digit",
-                        minute: "2-digit",
-                      })}
-                    </text>
-                  </Show>
-                </g>
-              );
-            }}
-          </For>
-          <Show when={hover.hoverIdx !== null}>
-            <line
-              x1={padding.left + (hover.hoverIdx ?? 0) * stepX() + barW() / 2 + 1}
-              y1={padding.top}
-              x2={padding.left + (hover.hoverIdx ?? 0) * stepX() + barW() / 2 + 1}
-              y2={padding.top + chartH}
-              stroke="var(--ink)"
-              stroke-width="1"
-              stroke-dasharray="3 3"
-              opacity={0.7}
-              pointer-events="none"
-            />
-          </Show>
-          <rect
-            x={padding.left}
-            y={4}
-            width="12"
-            height="12"
-            rx="2"
-            fill="var(--ok)"
-            opacity={0.85}
-          />
-          <text x={padding.left + 16} y={14} fill="var(--text-secondary)" font-size="12">
-            Clean
-          </text>
-          <rect
-            x={padding.left + 70}
-            y={4}
-            width="12"
-            height="12"
-            rx="2"
-            fill="var(--red)"
-            opacity={0.9}
-          />
-          <text x={padding.left + 86} y={14} fill="var(--text-secondary)" font-size="12">
-            Malicious
-          </text>
-          <Show when={markerSet().size > 0}>
-            <rect
-              x={padding.left + 168}
-              y={4}
-              width="12"
-              height="12"
-              fill="none"
-              stroke="var(--amber, #f59e0b)"
-              stroke-width="2"
-              stroke-dasharray="3 2"
-            />
-            <text x={padding.left + 184} y={14} fill="var(--text-secondary)" font-size="12">
-              Test marker
-            </text>
-          </Show>
-        </svg>
-        <Show when={hovered()}>
-          {(hv) => (
-            <Show when={hover.pos}>
-              {(pos) => (
-                <ChartTooltip
-                  x={pos().x}
-                  y={pos().y}
-                  containerWidth={pos().containerW}
-                  title={new Date(hv().timestamp).toLocaleString([], {
-                    month: "short",
-                    day: "numeric",
-                    hour: "2-digit",
-                    minute: "2-digit",
-                  })}
-                  rows={[
-                    { label: "Clean", value: hv().clean.toLocaleString(), color: "var(--ok)" },
-                    { label: "Malicious", value: hv().malicious.toLocaleString(), color: "var(--red)" },
-                    { label: "Total", value: (hv().clean + hv().malicious).toLocaleString() },
-                    {
-                      label: "Block rate",
-                      value:
-                        hv().clean + hv().malicious > 0
-                          ? `${((hv().malicious / (hv().clean + hv().malicious)) * 100).toFixed(1)}%`
-                          : "0%",
-                    },
-                  ]}
-                />
-              )}
-            </Show>
-          )}
-        </Show>
-      </div>
+      <div ref={chartRef} style={{ width: "100%", height: "320px" }} />
     </Show>
   );
 }

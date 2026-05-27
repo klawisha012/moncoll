@@ -1,4 +1,5 @@
 import { createEffect, createSignal, createMemo, onCleanup, onMount, For, Show } from "solid-js";
+import ApexCharts from "apexcharts";
 import {
   Cog,
   BarChart3,
@@ -215,53 +216,12 @@ function TimelineSeries(props: {
   type?: "line" | "bar";
 }) {
   const settings = useSettings();
-  const padding = { top: 16, right: 16, bottom: 36, left: 64 };
-  const width = 1200;
-  const height = 280;
-  const chartW = width - padding.left - padding.right;
-  const chartH = height - padding.top - padding.bottom;
+  let chartRef: HTMLDivElement | undefined;
+  let chart: ApexCharts | undefined;
 
   const safeData = () => props.data ?? [];
   const values = () => safeData().map(props.valueOf);
   const maxVal = () => Math.max(...values(), 1);
-  const stepX = () => {
-    const len = safeData().length;
-    if (props.type === "bar") return chartW / Math.max(len, 1);
-    return chartW / Math.max(len - 1, 1);
-  };
-  const barW = () => {
-    if (props.type === "bar") return Math.max(3, Math.floor(stepX()) - 2);
-    return 0;
-  };
-
-  const hover = useSvgHover(
-    width,
-    padding.left,
-    padding.right,
-    stepX,
-    () => safeData().length,
-  );
-
-  const points = createMemo(() => {
-    const list = safeData();
-    const max = maxVal();
-    return list.map((d, i) => {
-      const x = padding.left + i * stepX() + (props.type === "bar" ? stepX() / 2 : 0);
-      const y = padding.top + chartH - (props.valueOf(d) / max) * chartH;
-      return [x, y] as const;
-    });
-  });
-
-  const path = createMemo(() => points().map(([x, y], i) => (i === 0 ? `M ${x},${y}` : `L ${x},${y}`)).join(" "));
-  const areaPath = createMemo(() => `${path()} L ${points()[points().length - 1]?.[0] ?? padding.left},${padding.top + chartH} L ${points()[0]?.[0] ?? padding.left},${padding.top + chartH} Z`);
-
-  const yTicks = 5;
-  const tickVals = createMemo(() => {
-    const max = maxVal();
-    const list: number[] = [];
-    for (let i = 0; i <= yTicks; i++) list.push((max / yTicks) * i);
-    return list;
-  });
 
   const fmt = (v: number) => {
     if (props.unit === "bytes") return formatBytes(v);
@@ -269,119 +229,130 @@ function TimelineSeries(props: {
     return formatNumber(Math.round(v));
   };
 
-  const sum = () => values().reduce((a, b) => a + b, 0);
-  const avg = () => values().length ? sum() / values().length : 0;
-  const peak = () => Math.max(...values(), 0);
+  onMount(() => {
+    if (!chartRef) return;
 
-  const gradientId = () => `timelineGradient-${props.color.replace("#", "")}-${props.unit || "default"}`;
+    const isBar = props.type === "bar";
+
+    const options: any = {
+      chart: {
+        type: isBar ? "bar" : "area",
+        height: 280,
+        fontFamily: "var(--font-body)",
+        foreColor: "var(--text-secondary)",
+        toolbar: { show: false },
+        animations: { enabled: false },
+      },
+      series: [
+        {
+          name: props.valueLabel ?? "Value",
+          data: [],
+        },
+      ],
+      colors: [props.color],
+      grid: {
+        borderColor: "var(--border-subtle)",
+        strokeDashArray: 3,
+        xaxis: { lines: { show: false } },
+        yaxis: { lines: { show: true } },
+      },
+      stroke: {
+        curve: "straight",
+        width: isBar ? 0 : 2,
+      },
+      fill: {
+        type: "gradient",
+        gradient: {
+          shadeIntensity: 1,
+          opacityFrom: isBar ? 0.85 : 0.32,
+          opacityTo: 0.01,
+          stops: [0, 100],
+        },
+      },
+      xaxis: {
+        type: "category",
+        categories: [],
+        axisBorder: { show: true, color: "var(--line)", strokeWidth: 2 },
+        axisTicks: { show: true, color: "var(--line)" },
+        labels: {
+          style: {
+            fontSize: "11px",
+            fontFamily: "var(--font-body)",
+          },
+        },
+      },
+      yaxis: {
+        labels: {
+          formatter: (v: number) => fmt(v),
+          style: {
+            fontSize: "11px",
+            fontFamily: "var(--font-body)",
+          },
+        },
+      },
+      tooltip: {
+        theme: settings.theme === "dark" ? "dark" : "light",
+        x: { show: true },
+        y: {
+          formatter: (v: number) => fmt(v),
+        },
+        style: {
+          fontSize: "12px",
+          fontFamily: "var(--font-body)",
+        },
+      },
+      theme: {
+        mode: settings.theme as "dark" | "light",
+      },
+      dataLabels: { enabled: false },
+    };
+
+    chart = new ApexCharts(chartRef, options);
+    chart.render();
+
+    onCleanup(() => {
+      chart?.destroy();
+    });
+  });
+
+  createEffect(() => {
+    const list = safeData();
+    if (!chart || !list.length) return;
+
+    const currentValues = list.map(props.valueOf);
+    const categories = list.map((d) =>
+      new Date(d.timestamp).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
+    );
+
+    chart.updateSeries([
+      {
+        name: props.valueLabel ?? "Value",
+        data: currentValues,
+      },
+    ]);
+
+    chart.updateOptions({
+      xaxis: {
+        categories: categories,
+      },
+    }, false, false);
+  });
+
+  createEffect(() => {
+    const theme = settings.theme;
+    chart?.updateOptions({
+      theme: {
+        mode: theme as "dark" | "light",
+      },
+      tooltip: {
+        theme: theme as "dark" | "light",
+      },
+    }, false, false);
+  });
 
   return (
     <Show when={props.data && props.data.length > 0} fallback={<EmptyState loading={props.loading} message={settings.t("dashboard.empty.noData")} />}>
-      <div ref={hover.refWrap} style={{ position: "relative" }} onMouseMove={hover.onMove} onMouseLeave={hover.onLeave}>
-        <svg ref={hover.refSvg} viewBox={`0 0 ${width} ${height}`} style={{ width: "100%", height: "auto", display: "block" }}>
-          <defs>
-            <linearGradient id={gradientId()} x1="0" y1="0" x2="0" y2="1">
-              <stop offset="0%" stop-color={props.color} stop-opacity="0.32" />
-              <stop offset="100%" stop-color={props.color} stop-opacity="0.01" />
-            </linearGradient>
-          </defs>
-          <For each={tickVals()}>
-            {(v) => {
-              const y = () => padding.top + chartH - (v / maxVal()) * chartH;
-              return (
-                <g>
-                  <line
-                    x1={padding.left}
-                    y1={y()}
-                    x2={width - padding.right}
-                    y2={y()}
-                    stroke="var(--border-subtle)"
-                    stroke-width="0.75"
-                    stroke-dasharray="3 3"
-                    opacity="0.6"
-                  />
-                  <text x={padding.left - 8} y={y() + 4} text-anchor="end" fill="var(--text-muted)" font-size="11">{fmt(v)}</text>
-                </g>
-              );
-            }}
-          </For>
-          <Show when={props.type === "bar"} fallback={
-            <g>
-              <path d={areaPath()} fill={`url(#${gradientId()})`} />
-              <path d={path()} fill="none" stroke={props.color} stroke-width={2.5} />
-            </g>
-          }>
-            <g>
-              <For each={points()}>
-                {([x, y], i) => {
-                  const barH = () => (padding.top + chartH) - y;
-                  const isHover = () => hover.hoverIdx === i();
-                  return (
-                    <rect
-                      x={x - barW() / 2}
-                      y={y}
-                      width={barW()}
-                      height={barH()}
-                      fill={`url(#${gradientId()})`}
-                      stroke={props.color}
-                      stroke-width="1.2"
-                      opacity={isHover() ? 1 : 0.82}
-                      style={{
-                        transition: "opacity var(--duration-fast), fill var(--duration-fast)",
-                      }}
-                      rx="1.5"
-                    />
-                  );
-                }}
-              </For>
-            </g>
-          </Show>
-          <For each={safeData()}>
-            {(d, i) => {
-              if (i() % Math.max(1, Math.floor(safeData().length / 10)) !== 0) return null;
-              const x = padding.left + i() * stepX() + (props.type === "bar" ? stepX() / 2 : 0);
-              return (
-                <text x={x} y={height - 8} text-anchor="middle" fill="var(--text-muted)" font-size="11">
-                  {new Date(d.timestamp).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
-                </text>
-              );
-            }}
-          </For>
-          <Show when={hover.hoverIdx !== null && points()[hover.hoverIdx!]}>
-            <g pointer-events="none">
-              <line
-                x1={points()[hover.hoverIdx!][0]}
-                y1={padding.top}
-                x2={points()[hover.hoverIdx!][0]}
-                y2={padding.top + chartH}
-                stroke="var(--ink)"
-                stroke-width="1"
-                stroke-dasharray="3 3"
-                opacity={0.7}
-              />
-              <circle cx={points()[hover.hoverIdx!][0]} cy={points()[hover.hoverIdx!][1]} r={5} fill="var(--card-bg)" stroke={props.color} stroke-width={2} />
-            </g>
-          </Show>
-        </svg>
-        <Show when={hover.hoverIdx !== null && hover.pos}>
-          <ChartTooltip
-            x={hover.pos!.x}
-            y={hover.pos!.y}
-            containerWidth={hover.pos!.containerW}
-            title={new Date(safeData()[hover.hoverIdx!].timestamp).toLocaleString([], {
-              month: "short",
-              day: "numeric",
-              hour: "2-digit",
-              minute: "2-digit",
-            })}
-            rows={[
-              { label: props.valueLabel ?? "Value", value: fmt(values()[hover.hoverIdx!]), color: props.color },
-              { label: settings.t("dashboard.tooltip.peak"), value: fmt(peak()) },
-              { label: settings.t("dashboard.tooltip.avg"), value: fmt(avg()) },
-            ]}
-          />
-        </Show>
-      </div>
+      <div ref={chartRef} style={{ width: "100%", height: "280px" }} />
     </Show>
   );
 }
@@ -398,181 +369,144 @@ type StatusKey = (typeof STATUS_KEYS)[number];
 
 function StatusCodesChart(props: { data: StatusCodePoint[] | null; loading: boolean }) {
   const settings = useSettings();
-  const padding = { top: 28, right: 16, bottom: 36, left: 60 };
-  const width = 1200;
-  const height = 300;
-  const chartW = width - padding.left - padding.right;
-  const chartH = height - padding.top - padding.bottom;
-
-  const [hidden, setHidden] = createSignal<Set<StatusKey>>(new Set());
-  const isVisible = (k: StatusKey) => !hidden().has(k);
-  const toggle = (k: StatusKey) => {
-    setHidden((prev) => {
-      const next = new Set(prev);
-      if (next.has(k)) next.delete(k);
-      else next.add(k);
-      return next;
-    });
-  };
+  let chartRef: HTMLDivElement | undefined;
+  let chart: ApexCharts | undefined;
 
   const safeData = () => props.data ?? [];
-  const totals = () => safeData().map((d) =>
-    STATUS_KEYS.reduce((sum, k) => sum + (isVisible(k) ? d[k] : 0), 0),
-  );
-  const maxVal = () => Math.max(...totals(), 1);
-  const barW = () => Math.max(3, Math.floor(chartW / Math.max(safeData().length, 1)) - 2);
-  const stepX = () => chartW / Math.max(safeData().length, 1);
 
-  const hover = useSvgHover(
-    width,
-    padding.left,
-    padding.right,
-    stepX,
-    () => safeData().length,
-  );
+  onMount(() => {
+    if (!chartRef) return;
 
-  const hovered = () => hover.hoverIdx !== null ? safeData()[hover.hoverIdx!] : null;
-  const hoveredTotal = () => {
-    const h = hovered();
-    return h ? STATUS_KEYS.reduce((sum, k) => sum + (isVisible(k) ? h[k] : 0), 0) : 0;
-  };
+    const options: any = {
+      chart: {
+        type: "bar",
+        height: 300,
+        stacked: true,
+        fontFamily: "var(--font-body)",
+        foreColor: "var(--text-secondary)",
+        toolbar: { show: false },
+        animations: { enabled: false },
+      },
+      series: [
+        { name: "2xx", data: [] },
+        { name: "3xx", data: [] },
+        { name: "4xx", data: [] },
+        { name: "5xx", data: [] },
+      ],
+      colors: [STATUS_COLORS.c2xx, STATUS_COLORS.c3xx, STATUS_COLORS.c4xx, STATUS_COLORS.c5xx],
+      grid: {
+        borderColor: "var(--border-subtle)",
+        strokeDashArray: 3,
+        xaxis: { lines: { show: false } },
+        yaxis: { lines: { show: true } },
+      },
+      plotOptions: {
+        bar: {
+          columnWidth: "70%",
+          borderRadius: 2,
+        },
+      },
+      xaxis: {
+        type: "category",
+        categories: [],
+        axisBorder: { show: true, color: "var(--line)", strokeWidth: 2 },
+        axisTicks: { show: true, color: "var(--line)" },
+        labels: {
+          style: {
+            fontSize: "11px",
+            fontFamily: "var(--font-body)",
+          },
+        },
+      },
+      yaxis: {
+        labels: {
+          formatter: (v: number) => formatNumber(Math.round(v)),
+          style: {
+            fontSize: "11px",
+            fontFamily: "var(--font-body)",
+          },
+        },
+      },
+      tooltip: {
+        theme: settings.theme === "dark" ? "dark" : "light",
+        y: {
+          formatter: (v: number) => formatNumber(Math.round(v)),
+        },
+      },
+      theme: {
+        mode: settings.theme as "dark" | "light",
+      },
+      dataLabels: { enabled: false },
+      legend: {
+        position: "top",
+        horizontalAlign: "left",
+        fontFamily: "var(--font-mono)",
+        fontSize: "12px",
+        markers: {
+          radius: 3,
+        },
+      },
+    };
+
+    chart = new ApexCharts(chartRef, options);
+    chart.render();
+
+    onCleanup(() => {
+      chart?.destroy();
+    });
+  });
+
+  createEffect(() => {
+    const list = safeData();
+    if (!chart || !list.length) return;
+
+    const seriesData = {
+      c2xx: [] as number[],
+      c3xx: [] as number[],
+      c4xx: [] as number[],
+      c5xx: [] as number[],
+    };
+
+    list.forEach((d) => {
+      seriesData.c2xx.push(d.c2xx);
+      seriesData.c3xx.push(d.c3xx);
+      seriesData.c4xx.push(d.c4xx);
+      seriesData.c5xx.push(d.c5xx);
+    });
+
+    const categories = list.map((d) =>
+      new Date(d.timestamp).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
+    );
+
+    chart.updateSeries([
+      { name: "2xx", data: seriesData.c2xx },
+      { name: "3xx", data: seriesData.c3xx },
+      { name: "4xx", data: seriesData.c4xx },
+      { name: "5xx", data: seriesData.c5xx },
+    ]);
+
+    chart.updateOptions({
+      xaxis: {
+        categories: categories,
+      },
+    }, false, false);
+  });
+
+  createEffect(() => {
+    const theme = settings.theme;
+    chart?.updateOptions({
+      theme: {
+        mode: theme as "dark" | "light",
+      },
+      tooltip: {
+        theme: theme as "dark" | "light",
+      },
+    }, false, false);
+  });
 
   return (
     <Show when={props.data && props.data.length > 0} fallback={<EmptyState loading={props.loading} message={settings.t("dashboard.empty.noStatusData")} />}>
-      <div ref={hover.refWrap} style={{ position: "relative" }} onMouseMove={hover.onMove} onMouseLeave={hover.onLeave}>
-        <svg ref={hover.refSvg} viewBox={`0 0 ${width} ${height}`} style={{ width: "100%", height: "auto", display: "block" }}>
-          <For each={[0, 0.25, 0.5, 0.75, 1]}>
-            {(p) => {
-              const y = () => padding.top + chartH - p * chartH;
-              return (
-                <g>
-                  <line
-                    x1={padding.left}
-                    y1={y()}
-                    x2={width - padding.right}
-                    y2={y()}
-                    stroke="var(--border-subtle)"
-                    stroke-width="0.75"
-                    stroke-dasharray="3 3"
-                    opacity="0.6"
-                  />
-                  <text x={padding.left - 8} y={y() + 4} text-anchor="end" fill="var(--text-muted)" font-size="11">
-                    {formatNumber(Math.round(maxVal() * p))}
-                  </text>
-                </g>
-              );
-            }}
-          </For>
-          <For each={safeData()}>
-            {(d, i) => {
-              const x = () => padding.left + i() * stepX();
-              let yCursor = padding.top + chartH;
-              const isHover = () => hover.hoverIdx === i();
-              return (
-                <g>
-                  <For each={STATUS_KEYS}>
-                    {(k) => {
-                      if (!isVisible(k)) return null;
-                      const h = (d[k] / maxVal()) * chartH;
-                      yCursor -= h;
-                      return <rect x={x() + 1} y={yCursor} width={barW()} height={h} fill={STATUS_COLORS[k]} opacity={isHover() ? 1 : 0.9} />;
-                    }}
-                  </For>
-                  <Show when={i() % Math.max(1, Math.floor(safeData().length / 10)) === 0}>
-                    <text x={x() + barW() / 2} y={height - 8} text-anchor="middle" fill="var(--text-muted)" font-size="11">
-                      {new Date(d.timestamp).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
-                    </text>
-                  </Show>
-                </g>
-              );
-            }}
-          </For>
-          <Show when={hover.hoverIdx !== null}>
-            <line
-              x1={padding.left + hover.hoverIdx! * stepX() + barW() / 2 + 1}
-              y1={padding.top}
-              x2={padding.left + hover.hoverIdx! * stepX() + barW() / 2 + 1}
-              y2={padding.top + chartH}
-              stroke="var(--ink)"
-              stroke-width="1"
-              stroke-dasharray="3 3"
-              opacity={0.7}
-              pointer-events="none"
-            />
-          </Show>
-          <For each={STATUS_KEYS}>
-            {(k, idx) => {
-              const on = () => isVisible(k);
-              const gx = () => padding.left + idx() * 70;
-              return (
-                <g
-                  transform={`translate(${gx()}, 4)`}
-                  onClick={() => toggle(k)}
-                  style={{ cursor: "pointer", "user-select": "none" }}
-                  role="checkbox"
-                  aria-checked={on()}
-                  aria-label={`${k.replace("c", "")} ${on() ? "visible" : "hidden"}`}
-                >
-                  <rect x={-2} y={-2} width="60" height="20" rx="3" fill="transparent" />
-                  <rect
-                    x={0}
-                    y={0}
-                    width="14"
-                    height="14"
-                    rx="3"
-                    fill={on() ? STATUS_COLORS[k] : "transparent"}
-                    stroke={STATUS_COLORS[k]}
-                    stroke-width="1.5"
-                  />
-                  <Show when={on()}>
-                    <path
-                      d="M3 7.5 L6 10.5 L11 4.5"
-                      fill="none"
-                      stroke="#fff"
-                      stroke-width="1.8"
-                      stroke-linecap="round"
-                      stroke-linejoin="round"
-                    />
-                  </Show>
-                  <text
-                    x={18}
-                    y={11}
-                    fill={on() ? "var(--text-secondary)" : "var(--text-muted)"}
-                    font-size="12"
-                    style={{ "text-decoration": on() ? "none" : "line-through" }}
-                  >
-                    {k.replace("c", "")}
-                  </text>
-                </g>
-              );
-            }}
-          </For>
-        </svg>
-        <Show when={hovered() && hover.pos}>
-          <ChartTooltip
-            x={hover.pos!.x}
-            y={hover.pos!.y}
-            containerWidth={hover.pos!.containerW}
-            title={new Date(hovered()!.timestamp).toLocaleString([], {
-              month: "short",
-              day: "numeric",
-              hour: "2-digit",
-              minute: "2-digit",
-            })}
-            rows={[
-              ...STATUS_KEYS.filter(isVisible).map<TooltipRow>((k) => ({
-                label: k.replace("c", "") + " " + settings.t("dashboard.tooltip.responses"),
-                value:
-                  hoveredTotal() > 0
-                    ? `${hovered()![k].toLocaleString()} (${((hovered()![k] / hoveredTotal()) * 100).toFixed(1)}%)`
-                    : hovered()![k].toLocaleString(),
-                color: STATUS_COLORS[k],
-              })),
-              { label: settings.t("dashboard.tooltip.total"), value: hoveredTotal().toLocaleString() },
-            ]}
-          />
-        </Show>
-      </div>
+      <div ref={chartRef} style={{ width: "100%", height: "300px" }} />
     </Show>
   );
 }
@@ -716,145 +650,122 @@ const SEVERITY_COLORS: Record<string, string> = {
 
 function SeverityDonut(props: { data: SeveritySlice[] | null; loading: boolean }) {
   const settings = useSettings();
-  const [hoverIdx, setHoverIdx] = createSignal<number | null>(null);
-  let wrapRef: HTMLDivElement | undefined;
-  const [pos, setPos] = createSignal<{ x: number; y: number; containerW: number } | null>(null);
+  let chartRef: HTMLDivElement | undefined;
+  let chart: ApexCharts | undefined;
 
   const safeData = () => props.data ?? [];
-  const total = () => safeData().reduce((a, b) => a + b.hits, 0);
 
-  const trackPos = (e: MouseEvent) => {
-    const wrap = wrapRef;
-    if (!wrap) return;
-    const rect = wrap.getBoundingClientRect();
-    setPos({ x: e.clientX - rect.left, y: e.clientY - rect.top, containerW: rect.width });
-  };
+  onMount(() => {
+    if (!chartRef) return;
 
-  const hovered = () => {
-    const idx = hoverIdx();
-    return idx !== null ? safeData()[idx] : null;
-  };
+    const options: any = {
+      chart: {
+        type: "donut",
+        height: 250,
+        fontFamily: "var(--font-body)",
+        foreColor: "var(--text-secondary)",
+      },
+      series: [],
+      labels: [],
+      colors: [],
+      plotOptions: {
+        pie: {
+          donut: {
+            size: "65%",
+            labels: {
+              show: true,
+              total: {
+                show: true,
+                label: "TOTAL",
+                fontFamily: "var(--font-mono)",
+                color: "var(--text-muted)",
+                fontSize: "12px",
+                formatter: (w: any) => {
+                  const sum = w.globals.seriesTotals.reduce((a: number, b: number) => a + b, 0);
+                  return formatNumber(sum);
+                },
+              },
+              value: {
+                show: true,
+                fontSize: "20px",
+                fontFamily: "var(--font-display)",
+                fontWeight: 700,
+                color: "var(--text-primary)",
+                formatter: (v: string) => formatNumber(parseInt(v, 10)),
+              },
+              name: {
+                show: true,
+                fontSize: "12px",
+                fontFamily: "var(--font-mono)",
+              },
+            },
+          },
+        },
+      },
+      legend: {
+        position: "right",
+        fontFamily: "var(--font-mono)",
+        fontSize: "12px",
+        markers: {
+          radius: 3,
+        },
+        formatter: (seriesName: string, opts: any) => {
+          const val = opts.w.globals.series[opts.seriesIndex];
+          const totalHits = opts.w.globals.seriesTotals.reduce((a: number, b: number) => a + b, 0);
+          const percent = totalHits > 0 ? ((val / totalHits) * 100).toFixed(1) : "0.0";
+          return `${seriesName}: ${formatNumber(val)} (${percent}%)`;
+        },
+      },
+      tooltip: {
+        theme: settings.theme === "dark" ? "dark" : "light",
+        y: {
+          formatter: (v: number) => `${v.toLocaleString()} hits`,
+        },
+      },
+      theme: {
+        mode: settings.theme as "dark" | "light",
+      },
+      dataLabels: { enabled: false },
+    };
 
-  const size = 220;
-  const cx = size / 2;
-  const cy = size / 2;
-  const r = 90;
-  const inner = 55;
+    chart = new ApexCharts(chartRef, options);
+    chart.render();
 
-  const slicesWithAngles = createMemo(() => {
-    const list = safeData();
-    const sum = total();
-    if (sum === 0) return [];
-    let cursor = 0;
-    return list.map((slice) => {
-      const frac = slice.hits / sum;
-      const start = cursor * 2 * Math.PI;
-      const end = (cursor + frac) * 2 * Math.PI;
-      cursor += frac;
-      return {
-        ...slice,
-        start,
-        end,
-        frac,
-      };
+    onCleanup(() => {
+      chart?.destroy();
     });
   });
 
+  createEffect(() => {
+    const list = safeData();
+    if (!chart || !list.length) return;
+
+    const series = list.map((s) => s.hits);
+    const labels = list.map((s) => s.severity);
+    const colors = list.map((s) => SEVERITY_COLORS[s.severity] || "#888");
+
+    chart.updateOptions({
+      series: series,
+      labels: labels,
+      colors: colors,
+    }, false, false);
+  });
+
+  createEffect(() => {
+    const theme = settings.theme;
+    chart?.updateOptions({
+      theme: {
+        mode: theme as "dark" | "light",
+      },
+      tooltip: {
+        theme: theme as "dark" | "light",
+      },
+    }, false, false);
+  });
+
   return (
-    <Show when={props.data && props.data.length > 0 && total() > 0} fallback={<EmptyState loading={props.loading} message={settings.t("dashboard.empty.noSeverityData")} />}>
-      <div
-        ref={wrapRef}
-        style={{ display: "flex", "align-items": "center", gap: "24px", padding: "8px", "flex-wrap": "wrap", position: "relative" }}
-        onMouseMove={trackPos}
-        onMouseLeave={() => {
-          setHoverIdx(null);
-          setPos(null);
-        }}
-      >
-        <svg viewBox={`0 0 ${size} ${size}`} style={{ width: `${size}px`, height: `${size}px`, "flex-shrink": 0 }}>
-          <For each={slicesWithAngles()}>
-            {(slice, idx) => {
-              const xs = cx + r * Math.sin(slice.start);
-              const ys = cy - r * Math.cos(slice.start);
-              const xe = cx + r * Math.sin(slice.end);
-              const ye = cy - r * Math.cos(slice.end);
-              const large = slice.frac > 0.5 ? 1 : 0;
-              const xsI = cx + inner * Math.sin(slice.end);
-              const ysI = cy - inner * Math.cos(slice.end);
-              const xeI = cx + inner * Math.sin(slice.start);
-              const yeI = cy - inner * Math.cos(slice.start);
-              const d = `M ${xs} ${ys} A ${r} ${r} 0 ${large} 1 ${xe} ${ye} L ${xsI} ${ysI} A ${inner} ${inner} 0 ${large} 0 ${xeI} ${yeI} Z`;
-              const isHover = () => hoverIdx() === idx();
-
-              const midAngle = () => (slice.start + slice.end) / 2;
-              const dx = () => isHover() ? 6 * Math.sin(midAngle()) : 0;
-              const dy = () => isHover() ? -6 * Math.cos(midAngle()) : 0;
-
-              return (
-                <path
-                  d={d}
-                  fill={SEVERITY_COLORS[slice.severity] || "#888"}
-                  opacity={hoverIdx() === null || isHover() ? 0.95 : 0.4}
-                  stroke={isHover() ? "var(--ink)" : "transparent"}
-                  stroke-width={isHover() ? 2 : 0}
-                  onMouseEnter={() => setHoverIdx(idx())}
-                  transform={`translate(${dx()}, ${dy()})`}
-                  style={{
-                    cursor: "pointer",
-                    transition: "transform var(--duration-fast) var(--ease-out), opacity var(--duration-fast) var(--ease-out)",
-                  }}
-                />
-              );
-            }}
-          </For>
-          <text x={cx} y={cy - 2} text-anchor="middle" font-size="22" font-weight="700" fill="var(--text-primary)">
-            {hovered() ? formatNumber(hovered()!.hits) : formatNumber(total())}
-          </text>
-          <text x={cx} y={cy + 16} text-anchor="middle" font-size="10" fill="var(--text-muted)">
-            {hovered() ? hovered()!.severity : "TOTAL"}
-          </text>
-        </svg>
-        <div style={{ display: "flex", "flex-direction": "column", gap: "6px", "min-width": "180px" }}>
-          <For each={safeData()}>
-            {(s, idx) => {
-              const isHover = () => hoverIdx() === idx();
-              return (
-                <div
-                  onMouseEnter={() => setHoverIdx(idx())}
-                  style={{
-                    display: "flex",
-                    "align-items": "center",
-                    gap: "8px",
-                    "font-size": "13px",
-                    cursor: "default",
-                    opacity: hoverIdx() === null || isHover() ? 1 : 0.55,
-                    transition: "opacity var(--duration-fast) var(--ease-out)",
-                  }}
-                >
-                  <div style={{ width: "14px", height: "14px", "border-radius": "3px", background: SEVERITY_COLORS[s.severity] || "#888" }} />
-                  <span style={{ color: "var(--text-secondary)", flex: 1 }}>{s.severity}</span>
-                  <span style={{ "font-weight": 600, color: "var(--text-primary)", "font-family": "var(--font-mono)" }}>
-                    {formatNumber(s.hits)} ({((s.hits / total()) * 100).toFixed(1)}%)
-                  </span>
-                </div>
-              );
-            }}
-          </For>
-        </div>
-        <Show when={hovered() && pos()}>
-          <ChartTooltip
-            x={pos()!.x}
-            y={pos()!.y}
-            containerWidth={pos()!.containerW}
-            title={hovered()!.severity}
-            rows={[
-              { label: settings.t("dashboard.tooltip.hits"), value: hovered()!.hits.toLocaleString(), color: SEVERITY_COLORS[hovered()!.severity] || "#888" },
-              { label: settings.t("dashboard.tooltip.share"), value: `${((hovered()!.hits / total()) * 100).toFixed(2)}%` },
-              { label: settings.t("dashboard.tooltip.totalAll"), value: total().toLocaleString() },
-            ]}
-          />
-        </Show>
-      </div>
+    <Show when={props.data && props.data.length > 0 && safeData().some(s => s.hits > 0)} fallback={<EmptyState loading={props.loading} message={settings.t("dashboard.empty.noSeverityData")} />}>
+      <div ref={chartRef} style={{ width: "100%", "min-height": "250px" }} />
     </Show>
   );
 }
