@@ -1,0 +1,184 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: vector-config
+  namespace: default
+data:
+  vector.yaml: |
+    sources:
+      waf_audit_source:
+        type: file
+        include:
+          - /var/log/angie/modsec_audit.log
+        read_from: end
+        fingerprint:
+          strategy: device_and_inode
+
+      geoip_access_source:
+        type: file
+        include:
+          - /var/log/angie/geoip.log
+        read_from: end
+        fingerprint:
+          strategy: device_and_inode
+
+    transforms:
+      parse_waf_audit:
+        type: remap
+        inputs:
+          - waf_audit_source
+        source: |
+          parsed_event, err = parse_json(.message)
+          if err != null {
+            log("Failed to parse WAF JSON: " + err, level: "warn")
+            abort
+          }
+          . = parsed_event
+          
+          .timestamp = parse_timestamp!(.transaction.time_stamp, format: "%a %b %d %H:%M:%S %Y")
+          .unique_id = to_string(.transaction.unique_id) ?? ""
+          .server_id = to_string(.transaction.server_id) ?? ""
+          .client_ip = to_string(.transaction.client_ip) ?? "0.0.0.0"
+          .client_port = to_int(.transaction.client_port) ?? 0
+          .host_ip = to_string(.transaction.host_ip) ?? "0.0.0.0"
+          .host_port = to_int(.transaction.host_port) ?? 0
+          
+          .request_method = to_string(.transaction.request.method) ?? ""
+          .request_http_version = to_string(.transaction.request.http_version) ?? "1.1"
+          .request_uri = to_string(.transaction.request.uri) ?? ""
+          
+          req_headers = object(.transaction.request.headers) ?? {}
+          .request_headers = map_values(req_headers) -> |val| { to_string(val) ?? "" }
+          
+          .response_http_code = to_int(.transaction.response.http_code) ?? 0
+          res_headers = object(.transaction.response.headers) ?? {}
+          .response_headers = map_values(res_headers) -> |val| { to_string(val) ?? "" }
+          
+          .producer_modsecurity = to_string(.transaction.producer.modsecurity) ?? ""
+          .producer_connector = to_string(.transaction.producer.connector) ?? ""
+          .producer_secrules_engine = to_string(.transaction.producer.secrules_engine) ?? ""
+          
+          ruleIds = []
+          severities = []
+          messages = []
+          datas = []
+          files = []
+          lineNumbers = []
+          matches = []
+          
+          .messages_tags = []
+          .anomaly_score = 0
+          
+          raw_msgs = array(.transaction.messages) ?? []
+          
+          for_each(raw_msgs) -> |_index, msg| {
+            details = object(msg.details) ?? {}
+            
+            ruleIds = push(ruleIds, to_string(details.ruleId) ?? "")
+            severities = push(severities, to_int(details.severity) ?? 0)
+            messages = push(messages, to_string(msg.message) ?? "")
+            datas = push(datas, to_string(details.data) ?? "")
+            files = push(files, to_string(details.file) ?? "")
+            lineNumbers = push(lineNumbers, to_string(details.lineNumber) ?? "")
+            matches = push(matches, to_string(details.match) ?? "")
+            
+            tags_raw = array(msg.tags) ?? []
+            tags_str = map_values(tags_raw) -> |t| { to_string(t) ?? "" }
+            .messages_tags = push(.messages_tags, tags_str)
+            
+            if details.ruleId == "949110" {
+               score_str = to_string(msg.message) ?? ""
+               match_str = to_string(details.match) ?? ""
+               
+               score_data = parse_regex(score_str, r'Total Score: (?P<score>\d+)') ?? {}
+               if is_null(score_data.score) {
+                  score_data = parse_regex(match_str, r'Value: `(?P<score>\d+)\'') ?? {}
+               }
+               if !is_null(score_data.score) {
+                 .anomaly_score = to_int(score_data.score) ?? 0
+               }
+            }
+          }
+          
+          .messages = {
+            "ruleId": ruleIds,
+            "severity": severities,
+            "message": messages,
+            "data": datas,
+            "file": files,
+            "lineNumber": lineNumbers,
+            "match": matches
+          }
+
+      parse_geoip_access:
+        type: remap
+        inputs:
+          - geoip_access_source
+        source: |
+          parsed_event, err = parse_json(.message)
+          if err != null {
+            log("Failed to parse GeoIP JSON: " + err, level: "warn")
+            abort
+          }
+          . = parsed_event
+          
+          .time_local = parse_timestamp!(.time_local, format: "%d/%b/%Y:%H:%M:%S %z")
+          
+          .remote_addr = to_string(.remote_addr) ?? "0.0.0.0"
+          .remote_user = to_string(.remote_user) ?? ""
+          .request_method = to_string(.request_method) ?? ""
+          .request_uri = to_string(.request_uri) ?? ""
+          .server_protocol = to_string(.server_protocol) ?? ""
+          .status = to_int(.status) ?? 0
+          .body_bytes_sent = to_int(.body_bytes_sent) ?? 0
+          .http_referer = to_string(.http_referer) ?? ""
+          .http_user_agent = to_string(.http_user_agent) ?? ""
+          
+          .geoip_country_code = to_string(.geoip.country_code) ?? ""
+          .geoip_city_name = to_string(.geoip.city_name) ?? ""
+          .geoip_organization = to_string(.geoip.organization) ?? ""
+          .geoip_latitude = to_float(.geoip.latitude) ?? 0.0
+          .geoip_longitude = to_float(.geoip.longitude) ?? 0.0
+          .host = to_string(.host) ?? ""
+
+    sinks:
+      waf_audit_sink:
+        type: clickhouse
+        inputs:
+          - parse_waf_audit
+        endpoint: "http://clickhouse:8123"
+        database: "logs"
+        table: "waf_audit_log"
+        compression: gzip
+        auth:
+          strategy: basic
+          user: "user_21b9446c"
+          password: "${CLICKHOUSE_PASSWORD}"
+        skip_unknown_fields: true
+        date_time_best_effort: true 
+        healthcheck:
+          enabled: false
+        batch:
+          max_bytes: 10485760
+          timeout_secs: 1.0
+
+      geoip_access_sink:
+        type: clickhouse
+        inputs:
+          - parse_geoip_access
+        endpoint: "http://clickhouse:8123"
+        database: "logs"
+        table: "nginx_access_log"
+        compression: gzip
+        auth:
+          strategy: basic
+          user: "user_21b9446c"
+          password: "${CLICKHOUSE_PASSWORD}"
+        skip_unknown_fields: true
+        date_time_best_effort: true
+        healthcheck:
+          enabled: false
+        batch:
+          max_bytes: 10485760
+          timeout_secs: 1.0
+

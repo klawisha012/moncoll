@@ -1,0 +1,314 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: angie-config
+  namespace: default
+data:
+  angie.conf: |
+    load_module modules/ngx_http_brotli_filter_module.so;
+    load_module modules/ngx_http_brotli_static_module.so;
+    load_module modules/ngx_http_echo_module.so;
+    load_module modules/ngx_http_geoip2_module.so;
+    load_module modules/ngx_stream_geoip2_module.so;
+    load_module modules/ngx_http_modsecurity_module.so;
+    load_module modules/ngx_http_zip_module.so;
+    load_module modules/ngx_http_zstd_filter_module.so;
+    load_module modules/ngx_http_zstd_static_module.so;
+
+    user  angie;
+    worker_processes  auto;
+    worker_rlimit_nofile 65536;
+
+    pid        /run/angie/angie.pid;
+
+    events {
+        worker_connections  65536;
+        multi_accept on;
+        use epoll;
+        accept_mutex off;
+    }
+
+    http {
+        set_real_ip_from 10.0.0.0/8;
+        set_real_ip_from 127.0.0.0/8;
+        set_real_ip_from 172.16.0.0/12;
+        set_real_ip_from 192.168.0.0/16;
+        real_ip_header X-Forwarded-For;
+        real_ip_recursive on;
+
+        geoip2 /etc/angie/geoip2/GeoLite2-Country.mmdb {
+            auto_reload 1h;
+            $geoip2_data_country_code source=$remote_addr country iso_code;
+            $geoip2_data_country_name source=$remote_addr country names ru;
+        }
+
+        geoip2 /etc/angie/geoip2/GeoLite2-ASN.mmdb {
+            auto_reload 1h;
+            $geoip2_data_asn source=$remote_addr autonomous_system_number;
+            $geoip2_data_organization source=$remote_addr autonomous_system_organization;
+        }
+
+        geoip2 /etc/angie/geoip2/GeoLite2-City.mmdb {
+            auto_reload 1h;
+            $geoip2_data_city_name source=$remote_addr city names ru;
+            $geoip2_data_postal_code source=$remote_addr postal code;
+            $geoip2_data_latitude source=$remote_addr location latitude;
+            $geoip2_data_longitude source=$remote_addr location longitude;
+        }
+
+        include       /etc/angie/mime.types;
+        default_type  application/octet-stream;
+
+        modsecurity on;
+        modsecurity_rules_file /etc/angie/modsecurity/rules.conf;
+
+        log_format with_geoip_json escape=json '{'
+            '"time_local":"$time_local",'
+            '"remote_addr":"$remote_addr",'
+            '"x_forwarded_for":"$http_x_forwarded_for",'
+            '"remote_user":"$remote_user",'
+            '"request_method":"$request_method",'
+            '"request_uri":"$request_uri",'
+            '"server_protocol":"$server_protocol",'
+            '"status": "$status",'
+            '"body_bytes_sent":"$body_bytes_sent",'
+            '"http_referer":"$http_referer",'
+            '"http_user_agent":"$http_user_agent",'
+            '"host":"$host",'
+            '"geoip":{'
+                '"country_name":"$geoip2_data_country_name",'
+                '"country_code":"$geoip2_data_country_code",'
+                '"city_name":"$geoip2_data_city_name",'
+                '"postal_code":"$geoip2_data_postal_code",'
+                '"latitude":"$geoip2_data_latitude",'
+                '"longitude":"$geoip2_data_longitude",'
+                '"asn":"$geoip2_data_asn",'
+                '"organization":"$geoip2_data_organization"'
+            '}'
+        '}';
+
+        map $status $not_clean {
+            ~^[23]  0;
+            default 1;
+        }
+
+        sendfile        on;
+        tcp_nopush      on;
+        tcp_nodelay     on;
+
+        keepalive_timeout  65s;
+        keepalive_requests 10000;
+
+        server_tokens off;
+
+        resolver 10.96.0.10 valid=30s ipv6=off; # K8s DNS Resolver (CoreDNS)
+
+        include /etc/angie/http.d/*.conf;
+    }
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: angie-default
+  namespace: default
+data:
+  _default.conf: |
+    server {
+        listen 80 default_server;
+        listen [::]:80 default_server;
+        server_name _;
+
+        if ($http_x_waf_loop) { return 508; }
+
+        access_log /var/log/angie/geoip.log with_geoip_json if=$not_clean;
+        access_log /var/log/angie/access.log combined if=$not_clean;
+
+        location = /healthz {
+            access_log off;
+            modsecurity off;
+            return 200 "ok\n";
+        }
+
+        location / {
+            proxy_pass http://127.0.0.1:8081;
+            proxy_set_header Host $host;
+            proxy_http_version 1.1;
+        }
+    }
+
+    server {
+        listen 127.0.0.1:8081;
+        server_name _;
+        modsecurity off;
+
+        location / {
+            return 200 "angie default k8s\n";
+        }
+    }
+  crowdsec.conf: |
+    # crowdsec disabled
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: modsecurity-config
+  namespace: default
+data:
+  modsecurity.conf: |
+    SecRuleEngine On
+    SecRequestBodyAccess On
+    SecRule REQUEST_HEADERS:Content-Type "^(?:application(?:/soap\+|/)|text/)xml" \
+         "id:'200000',phase:1,t:none,t:lowercase,pass,nolog,ctl:requestBodyProcessor=XML"
+    SecRule REQUEST_HEADERS:Content-Type "^application/json" \
+         "id:'200001',phase:1,t:none,t:lowercase,pass,nolog,ctl:requestBodyProcessor=JSON"
+    SecRequestBodyLimit 13107200
+    SecRequestBodyNoFilesLimit 131072
+    SecRequestBodyLimitAction Reject
+    SecRequestBodyJsonDepthLimit 512
+    SecArgumentsLimit 1000
+    SecRule &ARGS "@ge 1000" \
+    "id:'200007', phase:2,t:none,log,deny,status:400,msg:'Failed to fully parse request body due to large argument count',severity:2"
+    SecRule REQBODY_ERROR "!@eq 0" \
+    "id:'200002', phase:2,t:none,log,deny,status:400,msg:'Failed to parse request body.',logdata:'%{reqbody_error_msg}',severity:2"
+    SecPcreMatchLimit 150000
+    SecPcreMatchLimitRecursion 150000
+    SecResponseBodyAccess Off
+    SecResponseBodyMimeType text/plain text/html text/xml
+    SecResponseBodyLimit 524288
+    SecResponseBodyLimitAction ProcessPartial
+    SecTmpDir /tmp/
+    SecDataDir /tmp/
+    SecAuditEngine RelevantOnly
+    SecAuditLogRelevantStatus "^(?:5|4(?!04))"
+    SecAuditLogParts ABFHZ
+    SecAuditLogType Serial
+    SecAuditLogFormat JSON
+    SecAuditLog /var/log/angie/modsec_audit.log
+    SecArgumentSeparator &
+    SecCookieFormat 0
+    SecStatusEngine Off
+  rules.conf: |
+    Include modsecurity.conf
+    Include /var/lib/angie/modsecurity/coreruleset/crs-setup.conf
+    Include /var/lib/angie/modsecurity/coreruleset/rules/*.conf
+    SecRule REQUEST_URI "@rx .*" "id:1001,phase:1,log,auditlog,pass,status:200"
+    SecRule TX:anomaly_score "@gt 0" "id:200010,phase:2,t:none,nolog,pass,ctl:auditEngine=On"
+    SecRule TX:anomaly_score "@gt 0" "id:200011,phase:5,t:none,nolog,pass,ctl:auditEngine=On"
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: angie-wafs
+  namespace: default
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: angie-waf
+  template:
+    metadata:
+      labels:
+        app: angie-waf
+    spec:
+      containers:
+      - name: angie
+        image: localhost:5000/angie-modsec-crs:3.3.5
+        imagePullPolicy: IfNotPresent
+        ports:
+        - containerPort: 80
+          name: http
+        - containerPort: 443
+          name: https
+        volumeMounts:
+        - name: shared-logs
+          mountPath: /var/log/angie
+        - name: geop2-vol
+          mountPath: /etc/angie/geoip2
+        - name: angie-conf-vol
+          mountPath: /etc/angie/angie.conf
+          subPath: angie.conf
+        - name: angie-default-vol
+          mountPath: /etc/angie/http.d/default.conf
+          subPath: _default.conf
+        - name: angie-default-vol
+          mountPath: /etc/angie/http.d/crowdsec.conf
+          subPath: crowdsec.conf
+        - name: modsec-conf-vol
+          mountPath: /etc/angie/modsecurity/modsecurity.conf
+          subPath: modsecurity.conf
+        - name: modsec-rules-vol
+          mountPath: /etc/angie/modsecurity/rules.conf
+          subPath: rules.conf
+        resources:
+          limits:
+            cpu: "1"
+            memory: 2Gi
+          requests:
+            cpu: "250m"
+            memory: 512Mi
+      - name: vector
+        image: timberio/vector:0.36.0-debian
+        imagePullPolicy: IfNotPresent
+        volumeMounts:
+        - name: vector-conf-vol
+          mountPath: /etc/vector/vector.yaml
+          subPath: vector.yaml
+        - name: shared-logs
+          mountPath: /var/log/angie
+        env:
+        - name: CLICKHOUSE_PASSWORD
+          value: "PLACEHOLDER_CLICKHOUSE_PASSWRD"
+        resources:
+          limits:
+            cpu: "1"
+            memory: 256Mi
+          requests:
+            cpu: "100m"
+            memory: 64Mi
+      volumes:
+      - name: shared-logs
+        emptyDir: {}
+      - name: geop2-vol
+        hostPath:
+          path: /workspace/configs/angie/geoip2
+          type: Directory
+      - name: angie-conf-vol
+        configMap:
+          name: angie-config
+      - name: angie-default-vol
+        configMap:
+          name: angie-default
+      - name: modsec-conf-vol
+        configMap:
+          name: modsecurity-config
+          items:
+          - key: modsecurity.conf
+            path: modsecurity.conf
+      - name: modsec-rules-vol
+        configMap:
+          name: modsecurity-config
+          items:
+          - key: rules.conf
+            path: rules.conf
+      - name: vector-conf-vol
+        configMap:
+          name: vector-config
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: angie
+  namespace: default
+spec:
+  type: NodePort
+  ports:
+  - port: 80
+    targetPort: 80
+    nodePort: 30080
+    name: http
+  - port: 443
+    targetPort: 443
+    nodePort: 30443
+    name: https
+  selector:
+    app: angie-waf

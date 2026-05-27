@@ -41,6 +41,8 @@ volumes:
     driver: local
   angie_logs:
     driver: local
+  redis_data:
+    driver: local
 
 services:
 
@@ -199,3 +201,38 @@ services:
           memory: 1G
       labels:
         - "com.waf.service=clickhouse"
+
+  # ----------------------------------------------------------------------------
+  # Redis (Cache and Pub/Sub queue)
+  # ----------------------------------------------------------------------------
+  redis:
+    image: redis:7-alpine
+    command:
+      - redis-server
+      - --maxmemory
+      - 256mb
+      - --maxmemory-policy
+      - allkeys-lru
+      - --save
+      - ""
+      - --appendonly
+      - "no"
+    volumes:
+      - redis_data:/data
+    networks:
+      - waf_net
+    deploy:
+      replicas: 1
+      restart_policy:
+        condition: on-failure
+        delay: 5s
+        max_attempts: 3
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 256M
+        reservations:
+          cpus: '0.1'
+          memory: 64M
+      labels:
+        - "com.waf.service=redis"

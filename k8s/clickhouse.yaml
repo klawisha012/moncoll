@@ -1,0 +1,129 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: clickhouse-init-sql
+  namespace: default
+data:
+  init.sql: |
+    CREATE DATABASE IF NOT EXISTS logs;
+    
+    CREATE TABLE IF NOT EXISTS logs.waf_audit_log
+    (
+        `timestamp` DateTime64(3, 'UTC'),
+        `unique_id` String,
+        `server_id` String,
+        `client_ip` String,
+        `client_port` UInt16,
+        `host_ip` String,
+        `host_port` UInt16,
+        `request_method` LowCardinality(String),
+        `request_http_version` LowCardinality(String),
+        `request_uri` String,
+        `request_headers` Map(String, String),
+        `response_http_code` UInt16,
+        `response_headers` Map(String, String),
+        `producer_modsecurity` LowCardinality(String),
+        `producer_connector` LowCardinality(String),
+        `producer_secrules_engine` LowCardinality(String),
+        `messages` Nested
+        (
+            ruleId String,
+            severity UInt8,
+            message String,
+            data String,
+            file String,
+            lineNumber String,
+            match String
+        ),
+        `messages_tags` Array(Array(String)), 
+        `anomaly_score` UInt32 DEFAULT 0
+    ) ENGINE = MergeTree()
+    PARTITION BY toYYYYMM(timestamp)
+    ORDER BY (timestamp, client_ip, unique_id)
+    TTL toDateTime(timestamp) + INTERVAL 6 MONTH;
+
+    CREATE TABLE IF NOT EXISTS logs.nginx_access_log
+    (
+        `time_local` DateTime64(3, 'UTC'),
+        `remote_addr` IPv4,
+        `remote_user` String,
+        `request_method` LowCardinality(String),
+        `request_uri` String,
+        `server_protocol` LowCardinality(String),
+        `status` UInt16,
+        `body_bytes_sent` UInt64,
+        `http_referer` String,
+        `http_user_agent` String,
+        `geoip_country_code` LowCardinality(String),
+        `geoip_city_name` LowCardinality(String),
+        `geoip_organization` String,
+        `geoip_latitude` Float64,
+        `geoip_longitude` Float64,
+        `host` LowCardinality(String) DEFAULT ''
+    ) ENGINE = MergeTree()
+    PARTITION BY toYYYYMM(time_local)
+    ORDER BY (time_local, remote_addr, status)
+    TTL toDateTime(time_local) + INTERVAL 3 MONTH;
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: clickhouse
+  namespace: default
+spec:
+  serviceName: clickhouse
+  replicas: 1
+  selector:
+    matchLabels:
+      app: clickhouse
+  template:
+    metadata:
+      labels:
+        app: clickhouse
+    spec:
+      containers:
+      - name: clickhouse
+        image: clickhouse/clickhouse-server:24.3
+        ports:
+        - containerPort: 8123
+          name: http
+        - containerPort: 9000
+          name: native
+        env:
+        - name: CLICKHOUSE_USER
+          value: "user_21b9446c"
+        - name: CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT
+          value: "1"
+        # In production, use Kubernetes Secrets for passwords.
+        - name: CLICKHOUSE_PASSWORD
+          value: "PLACEHOLDER_CLICKHOUSE_PASSWRD"
+        volumeMounts:
+        - name: clickhouse-init
+          mountPath: /docker-entrypoint-initdb.d/init.sql
+          subPath: init.sql
+        resources:
+          limits:
+            cpu: "1"
+            memory: 2Gi
+          requests:
+            cpu: "500m"
+            memory: 1Gi
+      volumes:
+      - name: clickhouse-init
+        configMap:
+          name: clickhouse-init-sql
+  volumeClaimTemplates: [] # Ephemeral/EmptyDir for testing purposes.
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: clickhouse
+  namespace: default
+spec:
+  ports:
+  - port: 8123
+    name: http
+  - port: 9000
+    name: native
+  selector:
+    app: clickhouse

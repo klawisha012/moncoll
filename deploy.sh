@@ -22,12 +22,13 @@ NODE_ID=$(docker info --format '{{.Swarm.NodeID}}')
 info "Swarm активен. Node ID: ${NODE_ID}"
 
 # --- 2. Создание env-файлов из .env ---
-if [ ! -f "scripts/.env" ]; then
+if [ ! -f ".env" ]; then
     error "Файл .env не найден. Запустите: bash scripts/generate-env.sh"
 fi
 mkdir -p envs
 grep '^ANGIE_'      .env > envs/angie.env
 { grep '^VECTOR_' .env; grep '^CLICKHOUSE_' .env; } > envs/vector.env
+grep '^CLICKHOUSE_' .env > envs/clickhouse.env
 info "env-файлы созданы из .env"
 
 # --- 3. Создание Docker Secrets (если не существуют) ---
@@ -69,7 +70,7 @@ create_or_update_config() {
 }
 
 create_or_update_config "angie_conf"        "./configs/angie/angie.conf"
-create_or_update_config "angie_default"     "./configs/angie/http.d/default.conf"
+create_or_update_config "angie_default"     "./configs/angie/http.d/_default.conf"
 create_or_update_config "modsecurity_conf"  "./configs/angie/modsecurity/modsecurity.conf"
 create_or_update_config "modsecurity_rules" "./configs/angie/modsecurity/rules.conf"
 create_or_update_config "vector_yaml"       "./configs/vector/vector.yaml"

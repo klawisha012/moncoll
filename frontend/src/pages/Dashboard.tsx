@@ -1,5 +1,5 @@
 import { createEffect, createSignal, createMemo, onCleanup, onMount, For, Show } from "solid-js";
-import ApexCharts from "apexcharts";
+import * as echarts from "echarts";
 import {
   Cog,
   BarChart3,
@@ -206,6 +206,186 @@ function PanelCard(props: {
   );
 }
 
+function TimelineSeriesInner(props: {
+  data: { timestamp: string }[];
+  loading: boolean;
+  valueOf: (d: { timestamp: string }) => number;
+  color: string;
+  unit?: "count" | "bytes" | "rps";
+  valueLabel?: string;
+  type?: "line" | "bar";
+}) {
+  const settings = useSettings();
+  let chartRef: HTMLDivElement | undefined;
+  let chart: echarts.ECharts | undefined;
+
+  const fmt = (v: number) => {
+    if (props.unit === "bytes") return formatBytes(v);
+    if (props.unit === "rps") return `${Math.round(v)} rps`;
+    return formatNumber(Math.round(v));
+  };
+
+  const categories = () => props.data.map((d) => {
+    if (!d.timestamp) return "";
+    const dateObj = new Date(d.timestamp);
+    return isNaN(dateObj.getTime()) ? String(d.timestamp) : dateObj.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+  });
+
+  const seriesData = () => props.data.map((d) => props.valueOf(d));
+
+  onMount(() => {
+    if (!chartRef) return;
+    chart = echarts.init(chartRef);
+
+    const handleResize = () => {
+      chart?.resize();
+    };
+    window.addEventListener("resize", handleResize);
+
+    onCleanup(() => {
+      window.removeEventListener("resize", handleResize);
+      chart?.dispose();
+    });
+  });
+
+  createEffect(() => {
+    if (!chart) return;
+
+    const theme = settings.theme;
+    const isDark = theme === "dark";
+
+    const option: echarts.EChartsOption = {
+      grid: {
+        top: 20,
+        left: 55,
+        right: 15,
+        bottom: 25,
+        containLabel: false
+      },
+      tooltip: {
+        trigger: "axis",
+        backgroundColor: isDark ? "#1a1915" : "#fdfcf7",
+        borderColor: "var(--border-subtle)",
+        borderWidth: 1,
+        textStyle: {
+          color: "var(--text-primary)",
+          fontFamily: "var(--font-body)",
+          fontSize: 12
+        },
+        shadowColor: "rgba(0, 0, 0, 0.2)",
+        shadowBlur: 10,
+        padding: 10,
+        formatter: (params: any) => {
+          if (!params || params.length === 0) return "";
+          const idx = params[0].dataIndex;
+          const item = props.data[idx];
+          if (!item) return "";
+          const val = props.valueOf(item);
+          const formattedDate = item.timestamp && !isNaN(new Date(item.timestamp).getTime())
+            ? new Date(item.timestamp).toLocaleString([], {
+                month: "short",
+                day: "numeric",
+                hour: "2-digit",
+                minute: "2-digit",
+              })
+            : "";
+
+          return `
+            <div style="font-family: var(--font-body); min-width: 160px;">
+              <div style="font-weight: 600; margin-bottom: 6px; font-size: 12px; border-bottom: 1px solid var(--border-subtle); padding-bottom: 4px;">
+                ${formattedDate}
+              </div>
+              <div style="font-size: 11px; display: flex; flex-direction: column; gap: 4px;">
+                <div style="display: flex; justify-content: space-between; gap: 12px; align-items: center;">
+                  <span style="display: flex; align-items: center; gap: 6px;">
+                    <span style="width: 8px; height: 8px; border-radius: 50%; background: ${props.color}; display: inline-block;"></span>
+                    ${props.valueLabel ?? "Value"}:
+                  </span>
+                  <span style="font-family: var(--font-mono); font-weight: 600;">${fmt(val)}</span>
+                </div>
+              </div>
+            </div>
+          `;
+        }
+      },
+      xAxis: {
+        type: "category",
+        data: categories(),
+        axisLine: {
+          lineStyle: {
+            color: "var(--border-subtle)",
+            width: 1
+          }
+        },
+        axisLabel: {
+          color: "var(--text-secondary)",
+          fontFamily: "var(--font-body)",
+          fontSize: 10
+        },
+        boundaryGap: props.type === "bar"
+      },
+      yAxis: {
+        type: "value",
+        axisLine: { show: false },
+        splitLine: {
+          lineStyle: {
+            color: "var(--border-subtle)",
+            type: "dashed"
+          }
+        },
+        axisLabel: {
+          color: "var(--text-secondary)",
+          fontFamily: "var(--font-body)",
+          fontSize: 10,
+          formatter: (v: number) => fmt(v)
+        }
+      },
+      series: [
+        props.type === "bar"
+          ? {
+              type: "bar",
+              color: props.color,
+              barWidth: "60%",
+              itemStyle: {
+                borderRadius: [2, 2, 0, 0]
+              },
+              data: seriesData()
+            }
+          : {
+              type: "line",
+              smooth: true,
+              showSymbol: false,
+              color: props.color,
+              lineStyle: {
+                width: 2.5,
+                color: props.color
+              },
+              areaStyle: {
+                color: {
+                  type: "linear",
+                  x: 0,
+                  y: 0,
+                  x2: 0,
+                  y2: 1,
+                  colorStops: [
+                    { offset: 0, color: props.color + "59" },
+                    { offset: 1, color: "transparent" }
+                  ]
+                }
+              },
+              data: seriesData()
+            }
+      ]
+    };
+
+    chart.setOption(option);
+  });
+
+  return (
+    <div ref={chartRef} style={{ width: "100%", height: "280px" }} />
+  );
+}
+
 function TimelineSeries(props: {
   data: { timestamp: string }[] | null;
   loading: boolean;
@@ -216,143 +396,9 @@ function TimelineSeries(props: {
   type?: "line" | "bar";
 }) {
   const settings = useSettings();
-  let chartRef: HTMLDivElement | undefined;
-  let chart: ApexCharts | undefined;
-
-  const safeData = () => props.data ?? [];
-  const values = () => safeData().map(props.valueOf);
-  const maxVal = () => Math.max(...values(), 1);
-
-  const fmt = (v: number) => {
-    if (props.unit === "bytes") return formatBytes(v);
-    if (props.unit === "rps") return `${Math.round(v)} rps`;
-    return formatNumber(Math.round(v));
-  };
-
-  onMount(() => {
-    if (!chartRef) return;
-
-    const isBar = props.type === "bar";
-
-    const options: any = {
-      chart: {
-        type: isBar ? "bar" : "area",
-        height: 280,
-        fontFamily: "var(--font-body)",
-        foreColor: "var(--text-secondary)",
-        toolbar: { show: false },
-        animations: { enabled: false },
-      },
-      series: [
-        {
-          name: props.valueLabel ?? "Value",
-          data: [],
-        },
-      ],
-      colors: [props.color],
-      grid: {
-        borderColor: "var(--border-subtle)",
-        strokeDashArray: 3,
-        xaxis: { lines: { show: false } },
-        yaxis: { lines: { show: true } },
-      },
-      stroke: {
-        curve: "straight",
-        width: isBar ? 0 : 2,
-      },
-      fill: {
-        type: "gradient",
-        gradient: {
-          shadeIntensity: 1,
-          opacityFrom: isBar ? 0.85 : 0.32,
-          opacityTo: 0.01,
-          stops: [0, 100],
-        },
-      },
-      xaxis: {
-        type: "category",
-        categories: [],
-        axisBorder: { show: true, color: "var(--line)", strokeWidth: 2 },
-        axisTicks: { show: true, color: "var(--line)" },
-        labels: {
-          style: {
-            fontSize: "11px",
-            fontFamily: "var(--font-body)",
-          },
-        },
-      },
-      yaxis: {
-        labels: {
-          formatter: (v: number) => fmt(v),
-          style: {
-            fontSize: "11px",
-            fontFamily: "var(--font-body)",
-          },
-        },
-      },
-      tooltip: {
-        theme: settings.theme === "dark" ? "dark" : "light",
-        x: { show: true },
-        y: {
-          formatter: (v: number) => fmt(v),
-        },
-        style: {
-          fontSize: "12px",
-          fontFamily: "var(--font-body)",
-        },
-      },
-      theme: {
-        mode: settings.theme as "dark" | "light",
-      },
-      dataLabels: { enabled: false },
-    };
-
-    chart = new ApexCharts(chartRef, options);
-    chart.render();
-
-    onCleanup(() => {
-      chart?.destroy();
-    });
-  });
-
-  createEffect(() => {
-    const list = safeData();
-    if (!chart || !list.length) return;
-
-    const currentValues = list.map(props.valueOf);
-    const categories = list.map((d) =>
-      new Date(d.timestamp).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
-    );
-
-    chart.updateSeries([
-      {
-        name: props.valueLabel ?? "Value",
-        data: currentValues,
-      },
-    ]);
-
-    chart.updateOptions({
-      xaxis: {
-        categories: categories,
-      },
-    }, false, false);
-  });
-
-  createEffect(() => {
-    const theme = settings.theme;
-    chart?.updateOptions({
-      theme: {
-        mode: theme as "dark" | "light",
-      },
-      tooltip: {
-        theme: theme as "dark" | "light",
-      },
-    }, false, false);
-  });
-
   return (
     <Show when={props.data && props.data.length > 0} fallback={<EmptyState loading={props.loading} message={settings.t("dashboard.empty.noData")} />}>
-      <div ref={chartRef} style={{ width: "100%", height: "280px" }} />
+      <TimelineSeriesInner {...props} data={props.data!} />
     </Show>
   );
 }
@@ -367,146 +413,225 @@ const STATUS_COLORS = {
 const STATUS_KEYS = ["c2xx", "c3xx", "c4xx", "c5xx"] as const;
 type StatusKey = (typeof STATUS_KEYS)[number];
 
-function StatusCodesChart(props: { data: StatusCodePoint[] | null; loading: boolean }) {
+function StatusCodesChartInner(props: { data: StatusCodePoint[]; loading: boolean }) {
   const settings = useSettings();
   let chartRef: HTMLDivElement | undefined;
-  let chart: ApexCharts | undefined;
+  let chart: echarts.ECharts | undefined;
 
-  const safeData = () => props.data ?? [];
+  const categories = () => props.data.map((d) => {
+    if (!d.timestamp) return "";
+    const dateObj = new Date(d.timestamp);
+    return isNaN(dateObj.getTime()) ? String(d.timestamp) : dateObj.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+  });
+
+  const c2xxData = () => props.data.map((d) => d.c2xx ?? 0);
+  const c3xxData = () => props.data.map((d) => d.c3xx ?? 0);
+  const c4xxData = () => props.data.map((d) => d.c4xx ?? 0);
+  const c5xxData = () => props.data.map((d) => d.c5xx ?? 0);
 
   onMount(() => {
     if (!chartRef) return;
+    chart = echarts.init(chartRef);
 
-    const options: any = {
-      chart: {
-        type: "bar",
-        height: 300,
-        stacked: true,
-        fontFamily: "var(--font-body)",
-        foreColor: "var(--text-secondary)",
-        toolbar: { show: false },
-        animations: { enabled: false },
-      },
-      series: [
-        { name: "2xx", data: [] },
-        { name: "3xx", data: [] },
-        { name: "4xx", data: [] },
-        { name: "5xx", data: [] },
-      ],
-      colors: [STATUS_COLORS.c2xx, STATUS_COLORS.c3xx, STATUS_COLORS.c4xx, STATUS_COLORS.c5xx],
-      grid: {
-        borderColor: "var(--border-subtle)",
-        strokeDashArray: 3,
-        xaxis: { lines: { show: false } },
-        yaxis: { lines: { show: true } },
-      },
-      plotOptions: {
-        bar: {
-          columnWidth: "70%",
-          borderRadius: 2,
-        },
-      },
-      xaxis: {
-        type: "category",
-        categories: [],
-        axisBorder: { show: true, color: "var(--line)", strokeWidth: 2 },
-        axisTicks: { show: true, color: "var(--line)" },
-        labels: {
-          style: {
-            fontSize: "11px",
-            fontFamily: "var(--font-body)",
-          },
-        },
-      },
-      yaxis: {
-        labels: {
-          formatter: (v: number) => formatNumber(Math.round(v)),
-          style: {
-            fontSize: "11px",
-            fontFamily: "var(--font-body)",
-          },
-        },
-      },
-      tooltip: {
-        theme: settings.theme === "dark" ? "dark" : "light",
-        y: {
-          formatter: (v: number) => formatNumber(Math.round(v)),
-        },
-      },
-      theme: {
-        mode: settings.theme as "dark" | "light",
-      },
-      dataLabels: { enabled: false },
-      legend: {
-        position: "top",
-        horizontalAlign: "left",
-        fontFamily: "var(--font-mono)",
-        fontSize: "12px",
-        markers: {
-          radius: 3,
-        },
-      },
+    const handleResize = () => {
+      chart?.resize();
     };
-
-    chart = new ApexCharts(chartRef, options);
-    chart.render();
+    window.addEventListener("resize", handleResize);
 
     onCleanup(() => {
-      chart?.destroy();
+      window.removeEventListener("resize", handleResize);
+      chart?.dispose();
     });
   });
 
   createEffect(() => {
-    const list = safeData();
-    if (!chart || !list.length) return;
+    if (!chart) return;
 
-    const seriesData = {
-      c2xx: [] as number[],
-      c3xx: [] as number[],
-      c4xx: [] as number[],
-      c5xx: [] as number[],
-    };
-
-    list.forEach((d) => {
-      seriesData.c2xx.push(d.c2xx);
-      seriesData.c3xx.push(d.c3xx);
-      seriesData.c4xx.push(d.c4xx);
-      seriesData.c5xx.push(d.c5xx);
-    });
-
-    const categories = list.map((d) =>
-      new Date(d.timestamp).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
-    );
-
-    chart.updateSeries([
-      { name: "2xx", data: seriesData.c2xx },
-      { name: "3xx", data: seriesData.c3xx },
-      { name: "4xx", data: seriesData.c4xx },
-      { name: "5xx", data: seriesData.c5xx },
-    ]);
-
-    chart.updateOptions({
-      xaxis: {
-        categories: categories,
-      },
-    }, false, false);
-  });
-
-  createEffect(() => {
     const theme = settings.theme;
-    chart?.updateOptions({
-      theme: {
-        mode: theme as "dark" | "light",
+    const isDark = theme === "dark";
+
+    const option: echarts.EChartsOption = {
+      grid: {
+        top: 30,
+        left: 55,
+        right: 15,
+        bottom: 25,
+        containLabel: false
       },
       tooltip: {
-        theme: theme as "dark" | "light",
+        trigger: "axis",
+        backgroundColor: isDark ? "#1a1915" : "#fdfcf7",
+        borderColor: "var(--border-subtle)",
+        borderWidth: 1,
+        textStyle: {
+          color: "var(--text-primary)",
+          fontFamily: "var(--font-body)",
+          fontSize: 12
+        },
+        shadowColor: "rgba(0, 0, 0, 0.2)",
+        shadowBlur: 10,
+        padding: 10,
+        formatter: (params: any) => {
+          if (!params || params.length === 0) return "";
+          const idx = params[0].dataIndex;
+          const item = props.data[idx];
+          if (!item) return "";
+
+          const c2 = item.c2xx ?? 0;
+          const c3 = item.c3xx ?? 0;
+          const c4 = item.c4xx ?? 0;
+          const c5 = item.c5xx ?? 0;
+          const total = c2 + c3 + c4 + c5;
+
+          const formattedDate = item.timestamp && !isNaN(new Date(item.timestamp).getTime())
+            ? new Date(item.timestamp).toLocaleString([], {
+                month: "short",
+                day: "numeric",
+                hour: "2-digit",
+                minute: "2-digit",
+              })
+            : "";
+
+          return `
+            <div style="font-family: var(--font-body); min-width: 180px;">
+              <div style="font-weight: 600; margin-bottom: 6px; font-size: 12px; border-bottom: 1px solid var(--border-subtle); padding-bottom: 4px;">
+                ${formattedDate}
+              </div>
+              <div style="font-size: 11px; display: flex; flex-direction: column; gap: 4px;">
+                <div style="display: flex; justify-content: space-between; gap: 12px; align-items: center;">
+                  <span style="display: flex; align-items: center; gap: 6px;">
+                    <span style="width: 8px; height: 8px; border-radius: 50%; background: ${STATUS_COLORS.c2xx}; display: inline-block;"></span>
+                    2xx:
+                  </span>
+                  <span style="font-family: var(--font-mono); font-weight: 500;">${c2.toLocaleString()}</span>
+                </div>
+                <div style="display: flex; justify-content: space-between; gap: 12px; align-items: center;">
+                  <span style="display: flex; align-items: center; gap: 6px;">
+                    <span style="width: 8px; height: 8px; border-radius: 50%; background: ${STATUS_COLORS.c3xx}; display: inline-block;"></span>
+                    3xx:
+                  </span>
+                  <span style="font-family: var(--font-mono); font-weight: 500;">${c3.toLocaleString()}</span>
+                </div>
+                <div style="display: flex; justify-content: space-between; gap: 12px; align-items: center;">
+                  <span style="display: flex; align-items: center; gap: 6px;">
+                    <span style="width: 8px; height: 8px; border-radius: 50%; background: ${STATUS_COLORS.c4xx}; display: inline-block;"></span>
+                    4xx:
+                  </span>
+                  <span style="font-family: var(--font-mono); font-weight: 500;">${c4.toLocaleString()}</span>
+                </div>
+                <div style="display: flex; justify-content: space-between; gap: 12px; align-items: center;">
+                  <span style="display: flex; align-items: center; gap: 6px;">
+                    <span style="width: 8px; height: 8px; border-radius: 50%; background: ${STATUS_COLORS.c5xx}; display: inline-block;"></span>
+                    5xx:
+                  </span>
+                  <span style="font-family: var(--font-mono); font-weight: 500;">${c5.toLocaleString()}</span>
+                </div>
+                <div style="display: flex; justify-content: space-between; gap: 12px; border-top: 1px dashed var(--border-subtle); margin-top: 4px; padding-top: 4px; align-items: center;">
+                  <span>Total:</span>
+                  <span style="font-family: var(--font-mono); font-weight: 600;">${total.toLocaleString()}</span>
+                </div>
+              </div>
+            </div>
+          `;
+        }
       },
-    }, false, false);
+      legend: {
+        show: true,
+        left: "left",
+        top: 0,
+        textStyle: {
+          color: "var(--text-secondary)",
+          fontFamily: "var(--font-mono)",
+          fontSize: 11
+        },
+        itemWidth: 10,
+        itemHeight: 10,
+        icon: "rect"
+      },
+      xAxis: {
+        type: "category",
+        data: categories(),
+        axisLine: {
+          lineStyle: {
+            color: "var(--border-subtle)",
+            width: 1
+          }
+        },
+        axisLabel: {
+          color: "var(--text-secondary)",
+          fontFamily: "var(--font-body)",
+          fontSize: 10
+        },
+        boundaryGap: true
+      },
+      yAxis: {
+        type: "value",
+        axisLine: { show: false },
+        splitLine: {
+          lineStyle: {
+            color: "var(--border-subtle)",
+            type: "dashed"
+          }
+        },
+        axisLabel: {
+          color: "var(--text-secondary)",
+          fontFamily: "var(--font-body)",
+          fontSize: 10,
+          formatter: (v: number) => formatNumber(Math.round(v))
+        }
+      },
+      series: [
+        {
+          name: "2xx",
+          type: "bar",
+          stack: "status",
+          color: STATUS_COLORS.c2xx,
+          barWidth: "60%",
+          data: c2xxData()
+        },
+        {
+          name: "3xx",
+          type: "bar",
+          stack: "status",
+          color: STATUS_COLORS.c3xx,
+          barWidth: "60%",
+          data: c3xxData()
+        },
+        {
+          name: "4xx",
+          type: "bar",
+          stack: "status",
+          color: STATUS_COLORS.c4xx,
+          barWidth: "60%",
+          data: c4xxData()
+        },
+        {
+          name: "5xx",
+          type: "bar",
+          stack: "status",
+          color: STATUS_COLORS.c5xx,
+          barWidth: "60%",
+          itemStyle: {
+            borderRadius: [2, 2, 0, 0]
+          },
+          data: c5xxData()
+        }
+      ]
+    };
+
+    chart.setOption(option);
   });
 
   return (
+    <div ref={chartRef} style={{ width: "100%", height: "300px" }} />
+  );
+}
+
+function StatusCodesChart(props: { data: StatusCodePoint[] | null; loading: boolean }) {
+  const settings = useSettings();
+  return (
     <Show when={props.data && props.data.length > 0} fallback={<EmptyState loading={props.loading} message={settings.t("dashboard.empty.noStatusData")} />}>
-      <div ref={chartRef} style={{ width: "100%", height: "300px" }} />
+      <StatusCodesChartInner data={props.data!} loading={props.loading} />
     </Show>
   );
 }
@@ -648,124 +773,194 @@ const SEVERITY_COLORS: Record<string, string> = {
   DEBUG: "#16a34a",
 };
 
-function SeverityDonut(props: { data: SeveritySlice[] | null; loading: boolean }) {
+function SeverityDonutInner(props: { data: SeveritySlice[]; loading: boolean }) {
   const settings = useSettings();
-  let chartRef: HTMLDivElement | undefined;
-  let chart: ApexCharts | undefined;
+  const [hoverSeverity, setHoverSeverity] = createSignal<string | null>(null);
 
-  const safeData = () => props.data ?? [];
+  const activeData = () => props.data.filter(s => s.hits > 0);
+  const totalHits = () => activeData().reduce((sum, s) => sum + s.hits, 0);
+
+  const slices = createMemo(() => {
+    const list = activeData();
+    const total = totalHits();
+    return list.map((item) => ({
+      ...item,
+      percentage: total > 0 ? item.hits / total : 0
+    }));
+  });
+
+  let chartRef: HTMLDivElement | undefined;
+  let chart: echarts.ECharts | undefined;
 
   onMount(() => {
     if (!chartRef) return;
+    chart = echarts.init(chartRef);
 
-    const options: any = {
-      chart: {
-        type: "donut",
-        height: 250,
-        fontFamily: "var(--font-body)",
-        foreColor: "var(--text-secondary)",
-      },
-      series: [],
-      labels: [],
-      colors: [],
-      plotOptions: {
-        pie: {
-          donut: {
-            size: "65%",
-            labels: {
-              show: true,
-              total: {
-                show: true,
-                label: "TOTAL",
-                fontFamily: "var(--font-mono)",
-                color: "var(--text-muted)",
-                fontSize: "12px",
-                formatter: (w: any) => {
-                  const sum = w.globals.seriesTotals.reduce((a: number, b: number) => a + b, 0);
-                  return formatNumber(sum);
-                },
-              },
-              value: {
-                show: true,
-                fontSize: "20px",
-                fontFamily: "var(--font-display)",
-                fontWeight: 700,
-                color: "var(--text-primary)",
-                formatter: (v: string) => formatNumber(parseInt(v, 10)),
-              },
-              name: {
-                show: true,
-                fontSize: "12px",
-                fontFamily: "var(--font-mono)",
-              },
-            },
-          },
-        },
-      },
-      legend: {
-        position: "right",
-        fontFamily: "var(--font-mono)",
-        fontSize: "12px",
-        markers: {
-          radius: 3,
-        },
-        formatter: (seriesName: string, opts: any) => {
-          const val = opts.w.globals.series[opts.seriesIndex];
-          const totalHits = opts.w.globals.seriesTotals.reduce((a: number, b: number) => a + b, 0);
-          const percent = totalHits > 0 ? ((val / totalHits) * 100).toFixed(1) : "0.0";
-          return `${seriesName}: ${formatNumber(val)} (${percent}%)`;
-        },
-      },
-      tooltip: {
-        theme: settings.theme === "dark" ? "dark" : "light",
-        y: {
-          formatter: (v: number) => `${v.toLocaleString()} hits`,
-        },
-      },
-      theme: {
-        mode: settings.theme as "dark" | "light",
-      },
-      dataLabels: { enabled: false },
+    const handleResize = () => {
+      chart?.resize();
     };
+    window.addEventListener("resize", handleResize);
 
-    chart = new ApexCharts(chartRef, options);
-    chart.render();
+    chart.on("mouseover", (params) => {
+      if (params.seriesType === "pie") {
+        setHoverSeverity(params.name);
+      }
+    });
+
+    chart.on("mouseout", () => {
+      setHoverSeverity(null);
+    });
 
     onCleanup(() => {
-      chart?.destroy();
+      window.removeEventListener("resize", handleResize);
+      chart?.dispose();
     });
   });
 
   createEffect(() => {
-    const list = safeData();
-    if (!chart || !list.length) return;
+    if (!chart) return;
 
-    const series = list.map((s) => s.hits);
-    const labels = list.map((s) => s.severity);
-    const colors = list.map((s) => SEVERITY_COLORS[s.severity] || "#888");
+    const dataPoints = slices().map((s) => ({
+      name: s.severity,
+      value: s.hits,
+      itemStyle: {
+        color: SEVERITY_COLORS[s.severity] || "#888"
+      }
+    }));
 
-    chart.updateOptions({
-      series: series,
-      labels: labels,
-      colors: colors,
-    }, false, false);
+    const option: echarts.EChartsOption = {
+      tooltip: {
+        show: false
+      },
+      series: [
+        {
+          name: "Severity",
+          type: "pie",
+          radius: ["55%", "72%"],
+          center: ["50%", "50%"],
+          avoidLabelOverlap: false,
+          label: {
+            show: false
+          },
+          emphasis: {
+            scale: true,
+            scaleSize: 8,
+            itemStyle: {
+              shadowBlur: 10,
+              shadowOffsetX: 0,
+              shadowColor: "rgba(0, 0, 0, 0.5)"
+            }
+          },
+          labelLine: {
+            show: false
+          },
+          data: dataPoints
+        }
+      ]
+    };
+
+    chart.setOption(option);
   });
 
   createEffect(() => {
-    const theme = settings.theme;
-    chart?.updateOptions({
-      theme: {
-        mode: theme as "dark" | "light",
-      },
-      tooltip: {
-        theme: theme as "dark" | "light",
-      },
-    }, false, false);
+    if (!chart) return;
+    const hovered = hoverSeverity();
+    if (hovered) {
+      chart.dispatchAction({
+        type: "highlight",
+        seriesIndex: 0,
+        name: hovered
+      });
+    } else {
+      chart.dispatchAction({
+        type: "downplay",
+        seriesIndex: 0
+      });
+    }
   });
 
   return (
+    <div style={{ display: "flex", "align-items": "center", gap: "24px", width: "100%", "justify-content": "center", "flex-wrap": "wrap", padding: "12px 8px" }} class="solid-donut-chart-wrapper">
+      <div style={{ width: "180px", height: "180px", "position": "relative", "flex-shrink": 0 }}>
+        <div ref={chartRef} style={{ width: "100%", height: "100%" }} />
+        
+        {/* Center Text displaying Stats */}
+        <div style={{
+          position: "absolute",
+          top: "50%",
+          left: "50%",
+          transform: "translate(-50%, -50%)",
+          "text-align": "center",
+          "pointer-events": "none",
+          display: "flex",
+          "flex-direction": "column",
+          "align-items": "center",
+          "justify-content": "center"
+        }}>
+          <div style={{
+            "font-family": "var(--font-mono)",
+            "font-size": "10px",
+            "font-weight": "500",
+            "letter-spacing": "0.1em",
+            color: "var(--text-muted)",
+            "text-transform": "uppercase"
+          }}>
+            TOTAL
+          </div>
+          <div style={{
+            "font-family": "var(--font-display)",
+            "font-size": "22px",
+            "font-weight": "700",
+            color: "var(--text-primary)",
+            "margin-top": "2px"
+          }}>
+            {formatNumber(totalHits())}
+          </div>
+        </div>
+      </div>
+
+      <div style={{ display: "flex", "flex-direction": "column", gap: "6px", "flex-grow": 1, "min-width": "180px" }}>
+        <For each={slices()}>
+          {(slice) => {
+            const color = SEVERITY_COLORS[slice.severity] || "#888";
+            const isHovered = () => hoverSeverity() === slice.severity;
+            return (
+              <div
+                style={{
+                  display: "flex",
+                  "align-items": "center",
+                  "justify-content": "space-between",
+                  padding: "4px 8px",
+                  "border-radius": "4px",
+                  background: isHovered() ? "var(--bg-elevated)" : "transparent",
+                  cursor: "pointer",
+                  transition: "background var(--duration-fast) var(--ease-out)",
+                }}
+                onMouseEnter={() => setHoverSeverity(slice.severity)}
+                onMouseLeave={() => setHoverSeverity(null)}
+              >
+                <span style={{ display: "flex", "align-items": "center", gap: "8px", "font-family": "var(--font-mono)", "font-size": "11px", color: "var(--text-secondary)" }}>
+                  <span style={{ width: "8px", height: "8px", "border-radius": "50%", background: color, display: "inline-block", "box-shadow": isHovered() ? `0 0 6px ${color}` : "none" }}></span>
+                  {slice.severity}
+                </span>
+                <span style={{ "font-family": "var(--font-mono)", "font-size": "11px", "font-weight": "600", color: "var(--text-primary)" }}>
+                  {formatNumber(slice.hits)} ({(slice.percentage * 100).toFixed(1)}%)
+                </span>
+              </div>
+            );
+          }}
+        </For>
+      </div>
+    </div>
+  );
+}
+
+function SeverityDonut(props: { data: SeveritySlice[] | null; loading: boolean }) {
+  const settings = useSettings();
+  const safeData = () => props.data ?? [];
+  return (
     <Show when={props.data && props.data.length > 0 && safeData().some(s => s.hits > 0)} fallback={<EmptyState loading={props.loading} message={settings.t("dashboard.empty.noSeverityData")} />}>
-      <div ref={chartRef} style={{ width: "100%", "min-height": "250px" }} />
+      <SeverityDonutInner data={props.data!} loading={props.loading} />
     </Show>
   );
 }

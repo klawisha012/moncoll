@@ -148,7 +148,7 @@ def _emit_upstream(conn_id: int, origin_hosts: list[str], origin_port: int) -> l
     lines = [f"upstream conn_{conn_id}_origin {{"]
     for ip in origin_hosts:
         lines.append(f"    server {ip}:{origin_port} max_fails=3 fail_timeout=30s;")
-    lines.append("    keepalive 16;")
+    lines.append("    keepalive 128;")
     lines.append("}")
     return lines
 
@@ -175,6 +175,7 @@ def _emit_proxy_block(conn_id: int, domain: str, tls_mode: str) -> list[str]:
             "        proxy_set_header X-Real-IP       $remote_addr;",
             "        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;",
             "        proxy_set_header X-Forwarded-Proto $scheme;",
+            "        proxy_set_header X-WAF-Loop      '1';",
             "        proxy_http_version 1.1;",
             "        proxy_set_header Upgrade         $http_upgrade;",
             "        proxy_set_header Connection      $connection_upgrade;",
@@ -230,9 +231,10 @@ def render(conn: dict) -> str:
     lines.append("server {")
     lines.append("    listen 80;")
     lines.append(f"    server_name {domain};")
+    lines.append("    if ($http_x_waf_loop) { return 508; }")
     lines.append("")
-    lines.append("    access_log /var/log/angie/geoip.log with_geoip_json;")
-    lines.append("    access_log /var/log/angie/access.log combined;")
+    lines.append("    access_log /var/log/angie/geoip.log with_geoip_json if=$not_clean;")
+    lines.append("    access_log /var/log/angie/access.log combined if=$not_clean;")
     lines.append("")
     if crowdsec_active:
         lines.append(blocked_ips_include)
@@ -284,6 +286,7 @@ def render(conn: dict) -> str:
             lines.append("    http3 on;")
             lines.append("    add_header Alt-Svc 'h3=\":443\"; ma=86400' always;")
         lines.append(f"    server_name {domain};")
+        lines.append("    if ($http_x_waf_loop) { return 508; }")
         lines.append(f"    ssl_certificate     {cert_path};")
         lines.append(f"    ssl_certificate_key {key_path};")
         if emit_hsts:
@@ -295,8 +298,8 @@ def render(conn: dict) -> str:
                 "    # HSTS suppressed: cert is self-signed; emitting it would lock browsers out."
             )
         lines.append("")
-        lines.append("    access_log /var/log/angie/geoip.log with_geoip_json;")
-        lines.append("    access_log /var/log/angie/access.log combined;")
+        lines.append("    access_log /var/log/angie/geoip.log with_geoip_json if=$not_clean;")
+        lines.append("    access_log /var/log/angie/access.log combined if=$not_clean;")
         if crowdsec_active:
             lines.append(blocked_ips_include)
         lines.append("")
@@ -308,6 +311,12 @@ def render(conn: dict) -> str:
             lines.extend(comp)
         lines.append("")
         lines.append("    location /socket.io/ {")
+        lines.append("        modsecurity off;")
+        lines.extend(_emit_geoip_deny(geoip_denied))
+        lines.extend(proxy_block)
+        lines.append("    }")
+        lines.append("")
+        lines.append("    location ~* \\.(?:jpg|jpeg|gif|png|ico|css|js|woff2?|svg|webp)$ {")
         lines.append("        modsecurity off;")
         lines.extend(_emit_geoip_deny(geoip_denied))
         lines.extend(proxy_block)
