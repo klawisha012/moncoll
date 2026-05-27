@@ -304,24 +304,19 @@ services:
       - /var/lib/docker:/var/lib/docker:ro
     restart: unless-stopped
 
-  # k6 load-testing harness. Run on-demand with:
-  #   docker compose run --rm k6 run /scripts/baseline.js
-  # Scripts live in tests/loadtest/k6 and target the angie service over the
-  # internal Docker network (so we measure WAF throughput, not the host LB).
-  k6:
-    image: grafana/k6:latest
+  # Инструмент нагрузочного тестирования wrk. Запускается по запросу:
+  #   docker compose run --rm wrk -t 12 -c 400 -d 30s -s /scripts/smoke.lua http://angie/
+  # Скрипты находятся в tests/loadtest/wrk.
+  wrk:
+    image: skandyla/wrk:latest
     profiles: ["loadtest"]
     volumes:
-      - ./tests/loadtest/k6:/scripts:ro
-    environment:
-      - TARGET_HOST=${LOADTEST_TARGET_HOST:-angie}
-      - TARGET_PORT=${LOADTEST_TARGET_PORT:-80}
-      - TARGET_SCHEME=${LOADTEST_TARGET_SCHEME:-http}
-      - K6_OUT=${K6_OUT:-}
+      - ./tests/loadtest/wrk:/scripts:ro
     depends_on:
       - angie
     networks:
       default: null
+
 
   crowdsec-exporter:
     command: sh -c "pip install --root-user-action ignore requests pyyaml && python /app/crowdsec-alerts-exporter.py"
