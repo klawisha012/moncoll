@@ -13,4 +13,18 @@ export default defineConfig({
       },
     },
   },
+  build: {
+    rollupOptions: {
+      output: {
+        manualChunks: (id) => {
+          if (id.includes("node_modules")) {
+            if (id.includes("apexcharts")) {
+              return "vendor-charts";
+            }
+            return "vendor";
+          }
+        },
+      },
+    },
+  },
 });
