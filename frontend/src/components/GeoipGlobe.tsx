@@ -386,20 +386,17 @@ export default function GeoipGlobe(props: Props) {
   const [size, setSize] = createSignal<{ w: number; h: number }>({ w: 800, h: 520 });
   const [countries, setCountries] = createSignal<CountryFeature[]>([]);
 
-  const [lastHitsMap, setLastHitsMap] = createSignal<Record<string, number>>({});
+  const lastHits = new Map<string, number>();
   const [pulseTimestamps, setPulseTimestamps] = createSignal<Record<string, number>>({});
 
   createEffect(() => {
-    const currentHits: Record<string, number> = {};
-    const prevHits = lastHitsMap();
     let hasChanges = false;
     const newPulses: Record<string, number> = {};
 
     for (const m of props.data) {
       const k = markerKey(m);
-      currentHits[k] = m.hits;
+      const prev = lastHits.get(k);
 
-      const prev = prevHits[k];
       if (prev !== undefined && m.hits > prev) {
         newPulses[k] = Date.now();
         hasChanges = true;
@@ -413,9 +410,10 @@ export default function GeoipGlobe(props: Props) {
           });
         }, 2000);
       }
+
+      lastHits.set(k, m.hits);
     }
 
-    setLastHitsMap(currentHits);
     if (hasChanges) {
       setPulseTimestamps((curr) => ({ ...curr, ...newPulses }));
     }
