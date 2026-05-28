@@ -1,4 +1,4 @@
-import { createSignal, onMount, For, Show, createMemo } from "solid-js";
+import { createSignal, onMount, For, Show, createMemo, createEffect } from "solid-js";
 import { feature } from "topojson-client";
 import { geoEqualEarth, geoPath } from "d3-geo";
 import type { GeoipMapPoint } from "../api/client";
@@ -30,6 +30,32 @@ export default function Geoip2DMap(props: Props) {
     x: number;
     y: number;
   } | null>(null);
+
+  const [lastHitsMap, setLastHitsMap] = createSignal<Record<string, number>>({});
+  const [pulseTimestamps, setPulseTimestamps] = createSignal<Record<string, number>>({});
+
+  createEffect(() => {
+    const currentHits: Record<string, number> = {};
+    const pulses = { ...pulseTimestamps() };
+    const prevHits = lastHitsMap();
+    let hasChanges = false;
+
+    for (const m of props.data) {
+      const k = keyOf(m);
+      currentHits[k] = m.hits;
+
+      const prev = prevHits[k];
+      if (prev !== undefined && m.hits > prev) {
+        pulses[k] = Date.now();
+        hasChanges = true;
+      }
+    }
+
+    setLastHitsMap(currentHits);
+    if (hasChanges) {
+      setPulseTimestamps(pulses);
+    }
+  });
 
   const [countries, setCountries] = createSignal<any[]>([]);
 
@@ -176,33 +202,41 @@ export default function Geoip2DMap(props: Props) {
               const isActive = () => selected()?.key === k;
               const r = () => (markerRadius(m.hits) * (isActive() ? 1.25 : 1)) / Math.sqrt(zoom());
 
+              const hasPulse = () => {
+                const ts = pulseTimestamps()[k];
+                if (!ts) return false;
+                return Date.now() - ts < 2000;
+              };
+
               return (
                 <g>
                   {/* Pulsing ripple ring */}
-                  <circle
-                    cx={xy[0]}
-                    cy={xy[1]}
-                    r={r()}
-                    fill="none"
-                    stroke={color}
-                    stroke-width={1.2 / Math.sqrt(zoom())}
-                    style={{ "pointer-events": "none" }}
-                  >
-                    <animate
-                      attributeName="r"
-                      begin="0s"
-                      dur="2s"
-                      values={`${r()}; ${r() * 2.8}`}
-                      repeatCount="indefinite"
-                    />
-                    <animate
-                      attributeName="stroke-opacity"
-                      begin="0s"
-                      dur="2s"
-                      values="0.75; 0"
-                      repeatCount="indefinite"
-                    />
-                  </circle>
+                  <Show when={hasPulse()}>
+                    <circle
+                      cx={xy[0]}
+                      cy={xy[1]}
+                      r={r()}
+                      fill="none"
+                      stroke={color}
+                      stroke-width={1.2 / Math.sqrt(zoom())}
+                      style={{ "pointer-events": "none" }}
+                    >
+                      <animate
+                        attributeName="r"
+                        begin="0s"
+                        dur="2s"
+                        values={`${r()}; ${r() * 2.8}`}
+                        repeatCount="indefinite"
+                      />
+                      <animate
+                        attributeName="stroke-opacity"
+                        begin="0s"
+                        dur="2s"
+                        values="0.75; 0"
+                        repeatCount="indefinite"
+                      />
+                    </circle>
+                  </Show>
 
                   {/* Main Marker */}
                   <circle
