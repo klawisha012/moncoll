@@ -125,7 +125,7 @@ services:
     image: centrifugo/centrifugo:v6
     command: centrifugo --config=/centrifugo/config.json
     ports:
-      - "127.0.0.1:8001:8000"
+      - "8001:8000"
     volumes:
       - ./configs/centrifugo/config.json:/centrifugo/config.json:ro
     environment:

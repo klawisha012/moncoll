@@ -15,11 +15,18 @@
 import { Centrifuge, Subscription } from "centrifuge";
 import { api } from "../api/client";
 
-// Centrifugo слушает на 127.0.0.1:8001 (docker-compose маппинг). В проде
+// Centrifugo слушает на 8001 (docker-compose маппинг). В проде
 // сменишь на /connection/websocket через reverse-proxy.
-const CENTRIFUGO_WS_URL =
-  (import.meta.env.VITE_CENTRIFUGO_URL as string | undefined) ??
-  "ws://127.0.0.1:8001/connection/websocket";
+const getCentrifugoWsUrl = (): string => {
+  const envUrl = import.meta.env.VITE_CENTRIFUGO_URL as string | undefined;
+  if (envUrl) return envUrl;
+
+  const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
+  const host = window.location.hostname;
+  return `${protocol}//${host}:8001/connection/websocket`;
+};
+
+const CENTRIFUGO_WS_URL = getCentrifugoWsUrl();
 
 let _client: Centrifuge | null = null;
 
