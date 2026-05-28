@@ -1169,7 +1169,7 @@ function NativePanels(props: {
   const metrics = useDashboardPanel<Metrics>(
     () => api.getMetrics(props.hours, props.connectionId),
     deps,
-    15_000, // Enable safe, tenant-scoped HTTP polling
+    2_000, // Enable super-fast 2-second real-time polling
     () => props.visiblePanels.has("metricTotalRequests") ||
       props.visiblePanels.has("metricBlockedThreats") ||
       props.visiblePanels.has("metricAvgLatency") ||
@@ -1178,35 +1178,35 @@ function NativePanels(props: {
   const traffic = useDashboardPanel<TrafficDataPoint[]>(
     () => api.getTraffic(props.hours, props.connectionId),
     deps,
-    15_000, // Enable safe, tenant-scoped HTTP polling
+    2_000, // Enable super-fast 2-second real-time polling
     () => props.visiblePanels.has("trafficChart")
   );
-  const wafEvents = useDashboardPanel<TimelinePoint[]>(() => api.getWafEventsTimeline(props.hours, props.connectionId), deps, 15_000, () => props.visiblePanels.has("wafEvents"));
-  const topRules = useDashboardPanel<RuleHit[]>(() => api.getTopRules(props.hours, props.connectionId), deps, 30_000, () => props.visiblePanels.has("topRules"));
-  const severity = useDashboardPanel<SeveritySlice[]>(() => api.getSeverityDistribution(props.hours, props.connectionId), deps, 30_000, () => props.visiblePanels.has("severity"));
-  const topAttackers = useDashboardPanel<IpHit[]>(() => api.getTopAttackingIps(props.hours, props.connectionId), deps, 30_000, () => props.visiblePanels.has("topAttackers"));
-  const anomaly = useDashboardPanel<AnomalyPoint[]>(() => api.getAnomalyScore(props.hours, props.connectionId), deps, 15_000, () => props.visiblePanels.has("anomaly"));
-  const threatOrigins = useDashboardPanel<ThreatOrigin[]>(() => api.getThreatOrigins(props.hours, props.connectionId), deps, 30_000, () => props.visiblePanels.has("threatOrigins"));
-  const topTags = useDashboardPanel<TagHit[]>(() => api.getTopTags(props.hours, props.connectionId), deps, 30_000, () => props.visiblePanels.has("topTags"));
-  const topUris = useDashboardPanel<UriHit[]>(() => api.getTopUris(props.hours, props.connectionId), deps, 30_000, () => props.visiblePanels.has("topUris"));
-  const topRuleFiles = useDashboardPanel<RuleFileHit[]>(() => api.getTopRuleFiles(props.hours, props.connectionId), deps, 30_000, () => props.visiblePanels.has("topRuleFiles"));
-  const statusCodes = useDashboardPanel<StatusCodePoint[]>(() => api.getStatusCodes(props.hours, props.connectionId), deps, 15_000, () => props.visiblePanels.has("statusCodes"));
-  const topClientIps = useDashboardPanel<IpHit[]>(() => api.getTopClientIps(props.hours, props.connectionId), deps, 30_000, () => props.visiblePanels.has("topClientIps"));
-  const topUserAgents = useDashboardPanel<UserAgentHit[]>(() => api.getTopUserAgents(props.hours, props.connectionId), deps, 30_000, () => props.visiblePanels.has("topUserAgents"));
-  const byCountry = useDashboardPanel<CountryHit[]>(() => api.getRequestsByCountry(props.hours, props.connectionId), deps, 30_000, () => props.visiblePanels.has("byCountry"));
-  const trafficVolume = useDashboardPanel<BytesPoint[]>(() => api.getTrafficVolume(props.hours, props.connectionId), deps, 15_000, () => props.visiblePanels.has("trafficVolume"));
+  const wafEvents = useDashboardPanel<TimelinePoint[]>(() => api.getWafEventsTimeline(props.hours, props.connectionId), deps, 2_000, () => props.visiblePanels.has("wafEvents"));
+  const topRules = useDashboardPanel<RuleHit[]>(() => api.getTopRules(props.hours, props.connectionId), deps, 2_000, () => props.visiblePanels.has("topRules"));
+  const severity = useDashboardPanel<SeveritySlice[]>(() => api.getSeverityDistribution(props.hours, props.connectionId), deps, 2_000, () => props.visiblePanels.has("severity"));
+  const topAttackers = useDashboardPanel<IpHit[]>(() => api.getTopAttackingIps(props.hours, props.connectionId), deps, 2_000, () => props.visiblePanels.has("topAttackers"));
+  const anomaly = useDashboardPanel<AnomalyPoint[]>(() => api.getAnomalyScore(props.hours, props.connectionId), deps, 2_000, () => props.visiblePanels.has("anomaly"));
+  const threatOrigins = useDashboardPanel<ThreatOrigin[]>(() => api.getThreatOrigins(props.hours, props.connectionId), deps, 2_000, () => props.visiblePanels.has("threatOrigins"));
+  const topTags = useDashboardPanel<TagHit[]>(() => api.getTopTags(props.hours, props.connectionId), deps, 2_000, () => props.visiblePanels.has("topTags"));
+  const topUris = useDashboardPanel<UriHit[]>(() => api.getTopUris(props.hours, props.connectionId), deps, 2_000, () => props.visiblePanels.has("topUris"));
+  const topRuleFiles = useDashboardPanel<RuleFileHit[]>(() => api.getTopRuleFiles(props.hours, props.connectionId), deps, 2_000, () => props.visiblePanels.has("topRuleFiles"));
+  const statusCodes = useDashboardPanel<StatusCodePoint[]>(() => api.getStatusCodes(props.hours, props.connectionId), deps, 2_000, () => props.visiblePanels.has("statusCodes"));
+  const topClientIps = useDashboardPanel<IpHit[]>(() => api.getTopClientIps(props.hours, props.connectionId), deps, 2_000, () => props.visiblePanels.has("topClientIps"));
+  const topUserAgents = useDashboardPanel<UserAgentHit[]>(() => api.getTopUserAgents(props.hours, props.connectionId), deps, 2_000, () => props.visiblePanels.has("topUserAgents"));
+  const byCountry = useDashboardPanel<CountryHit[]>(() => api.getRequestsByCountry(props.hours, props.connectionId), deps, 2_000, () => props.visiblePanels.has("byCountry"));
+  const trafficVolume = useDashboardPanel<BytesPoint[]>(() => api.getTrafficVolume(props.hours, props.connectionId), deps, 2_000, () => props.visiblePanels.has("trafficVolume"));
   const [rpsMetric, setRpsMetric] = createSignal<"rps" | "volume">("rps");
   const rpsDeps = () => [props.hours, props.connectionId, rpsMetric()] as [number, number | null, "rps" | "volume"];
   const rps = useDashboardPanel<RpsPoint[]>(
     () => api.getRequestsPerSecond(props.hours, props.connectionId, rpsMetric()),
     rpsDeps,
-    15_000,
+    2_000,
     () => props.visiblePanels.has("rps")
   );
   const events = useDashboardPanel<SecurityEvent[]>(
     () => api.getEvents(15, "all", props.hours, props.connectionId),
     deps,
-    15_000,
+    2_000,
     () => props.visiblePanels.has("securityEvents"),
   );
 
