@@ -96,6 +96,9 @@ vllm
 # (Previously a blanket `Dockerfile` ignore lived here — removed because it
 #  would hide any new top-level Dockerfile from git.)
 
+# Docs (local design/plan notes, not source)
+docs/
+
 # AI
 .roo
 .roo/
