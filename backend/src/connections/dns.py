@@ -43,6 +43,12 @@ _DEFAULT_DOH_URLS = (
     "https://dns.google/dns-query",
     "https://cloudflare-dns.com/dns-query",
 )
+_VERIFICATION_DOH_URLS = (
+    "https://dns.google/dns-query",
+    "https://cloudflare-dns.com/dns-query",
+    "https://dns.quad9.net/dns-query",
+    "https://dns.adguard-dns.com/dns-query",
+)
 # Legacy UDP resolvers for fallback when DoH endpoints all fail.
 _FALLBACK_UDP_RESOLVERS = ("1.1.1.1", "1.0.0.1")
 
@@ -53,6 +59,48 @@ def _doh_urls() -> list[str]:
         return list(_DEFAULT_DOH_URLS)
     out = [u.strip() for u in raw.split(",") if u.strip()]
     return out or list(_DEFAULT_DOH_URLS)
+
+
+def _verification_doh_urls() -> list[str]:
+    env_urls = _doh_urls()
+    verification_defaults = list(_VERIFICATION_DOH_URLS)
+    seen = set()
+    out = []
+    for u in env_urls + verification_defaults:
+        if u not in seen:
+            seen.add(u)
+            out.append(u)
+    return out
+
+
+async def _doh_query_all(
+    name: str, rdtype: int, *, timeout: float = 6.0
+) -> list[dns.message.Message]:
+    """Query multiple DoH resolvers in parallel to bypass negative caching.
+
+    Returns a list of successfully parsed dns.message.Message replies.
+    """
+    q = dns.message.make_query(name, rdtype)
+    wire = q.to_wire()
+    headers = {
+        "Content-Type": "application/dns-message",
+        "Accept": "application/dns-message",
+    }
+
+    async def _single_query(client: httpx.AsyncClient, url: str) -> dns.message.Message | None:
+        try:
+            r = await client.post(url, content=wire, headers=headers)
+            r.raise_for_status()
+            return dns.message.from_wire(r.content)
+        except Exception as exc:
+            logger.debug("Parallel DoH %s failed for %s: %s", url, name, exc)
+            return None
+
+    urls = _verification_doh_urls()
+    async with httpx.AsyncClient(timeout=timeout, http2=False) as client:
+        tasks = [_single_query(client, url) for url in urls]
+        results = await asyncio.gather(*tasks)
+    return [r for r in results if r is not None]
 
 
 async def _doh_query(
@@ -127,11 +175,14 @@ def validate_domain(raw: str) -> str:
     if s in _BLOCKED_DOMAINS or s.endswith(_BLOCKED_SUFFIXES):
         raise ValueError(f"private/internal domains are not allowed: {s}")
     # Reject bare IPs — user must enter a domain name, not an address.
+    is_ip = False
     try:
         ip_address(s)
-        raise ValueError("enter a domain name, not an IP address")
+        is_ip = True
     except ValueError:
         pass  # not an IP, good
+    if is_ip:
+        raise ValueError("enter a domain name, not an IP address")
     # IDNA encode (handles unicode → punycode); fall back gracefully if it's already ASCII.
     try:
         encoded = s.encode("idna").decode("ascii")
@@ -178,6 +229,32 @@ async def resolve_a(domain: str, *, timeout: float = 6.0) -> tuple[list[str], in
     DnsResolutionError if all addresses are blocked by the SSRF deny-list
     or if the lookup itself fails outright.
     """
+    # OPTIMIZATION: Try querying multiple DoH resolvers in parallel first to bypass cached A records
+    try:
+        messages = await _doh_query_all(domain, dns.rdatatype.A, timeout=timeout)
+        ips_all = []
+        ttl_all = []
+        for msg in messages:
+            ips = [rd.address for rr in msg.answer if rr.rdtype == dns.rdatatype.A for rd in rr]
+            if ips:
+                ips_all.extend(ips)
+                ttl_all.append(_rrset_ttl(msg, domain))
+        if ips_all:
+            seen = set()
+            ips_dedup = []
+            for ip in ips_all:
+                if ip not in seen:
+                    seen.add(ip)
+                    ips_dedup.append(ip)
+            ips_public = [ip for ip in ips_dedup if not is_blocked_ip(ip)]
+            if ips_public:
+                ttl = min(ttl_all) if ttl_all else 60
+                logger.info("DNS: parallel DoH resolved A %s: %s (ttl=%d)", domain, ips_public, ttl)
+                return ips_public, max(ttl, 30)
+    except Exception as exc:
+        logger.debug("DNS: parallel DoH A lookup for %s failed: %s", domain, exc)
+
+    # Standard fallback
     msg = await _doh_query(domain, dns.rdatatype.A, timeout=timeout)
     if msg is None:
         # DoH unreachable — try UDP as last resort.
@@ -202,6 +279,52 @@ async def resolve_a(domain: str, *, timeout: float = 6.0) -> tuple[list[str], in
     return ips_public, max(ttl, 30)  # floor TTL at 30s
 
 
+async def _get_ns_ips(domain: str, timeout: float = 4.0) -> list[str]:
+    """Find authoritative NS IPs for a domain by climbing up the tree."""
+    parts = domain.split(".")
+    # If the domain starts with _waf-verify, skip that label to query the base zone's NS
+    if parts[0].startswith("_"):
+        parts = parts[1:]
+    
+    # Try finding NS records from most specific to TLD (e.g. test1.zwarder.ru, then zwarder.ru)
+    # Don't go below 2 parts (e.g. 'ru' or 'com') to avoid root/TLD queries
+    for i in range(len(parts) - 1):
+        zone = ".".join(parts[i:])
+        logger.debug("DNS: trying to find NS for zone %s", zone)
+        try:
+            # Query NS via DoH
+            msg = await _doh_query(zone, dns.rdatatype.NS, timeout=timeout)
+            ns_names = []
+            if msg is not None:
+                for rr in msg.answer:
+                    if rr.rdtype == dns.rdatatype.NS:
+                        for rd in rr:
+                            ns_names.append(rd.target.to_text().rstrip("."))
+            else:
+                # Fallback to UDP
+                resolver = _make_udp_resolver(timeout)
+                answer = await resolver.resolve(zone, dns.rdatatype.NS)
+                ns_names = [rd.target.to_text().rstrip(".") for rd in answer]
+            
+            if ns_names:
+                logger.debug("DNS: found NS names for zone %s: %s", zone, ns_names)
+                # Resolve NS names to IPs (using DoH/resolve_a)
+                ips = []
+                for name in ns_names:
+                    try:
+                        ns_ips, _ = await resolve_a(name, timeout=timeout)
+                        ips.extend(ns_ips)
+                    except Exception:
+                        pass
+                if ips:
+                    logger.debug("DNS: resolved NS IPs for zone %s: %s", zone, ips)
+                    return ips
+        except Exception as exc:
+            logger.debug("DNS: NS lookup for zone %s failed: %s", zone, exc)
+            continue
+    return []
+
+
 async def resolve_txt(domain: str, *, timeout: float = 6.0) -> list[str]:
     """Return all TXT record values for *domain* (joined for multi-string records).
 
@@ -210,6 +333,41 @@ async def resolve_txt(domain: str, *, timeout: float = 6.0) -> list[str]:
     "not found" identically whether it's NXDOMAIN, propagation lag, or
     network failure.
     """
+    # OPTIMIZATION: Try querying authoritative nameservers directly to bypass recursive caching
+    try:
+        ns_ips = await _get_ns_ips(domain, timeout=timeout / 2)
+        if ns_ips:
+            logger.debug("DNS: querying authoritative nameservers directly for TXT %s", domain)
+            resolver = dns.asyncresolver.Resolver(configure=False)
+            resolver.nameservers = ns_ips
+            resolver.timeout = timeout / 2
+            resolver.lifetime = timeout / 2
+            resolver.cache = None
+            answer = await resolver.resolve(domain, dns.rdatatype.TXT)
+            out = [b"".join(rd.strings).decode("utf-8", errors="replace") for rd in answer]
+            if out:
+                logger.info("DNS: directly resolved TXT %s via authoritative NS: %s", domain, out)
+                return out
+    except Exception as exc:
+        logger.debug("DNS: authoritative NS TXT lookup for %s failed (falling back to DoH): %s", domain, exc)
+
+    # OPTIMIZATION: Query multiple DoH resolvers in parallel to bypass cached NXDOMAINs
+    try:
+        messages = await _doh_query_all(domain, dns.rdatatype.TXT, timeout=timeout)
+        out = []
+        for msg in messages:
+            for rr in msg.answer:
+                if rr.rdtype == dns.rdatatype.TXT:
+                    for rdata in rr:
+                        joined = b"".join(rdata.strings).decode("utf-8", errors="replace")
+                        if joined not in out:
+                            out.append(joined)
+        if out:
+            logger.info("DNS: parallel DoH resolved TXT %s: %s", domain, out)
+            return out
+    except Exception as exc:
+        logger.debug("DNS: parallel DoH TXT lookup for %s failed: %s", domain, exc)
+
     msg = await _doh_query(domain, dns.rdatatype.TXT, timeout=timeout)
     if msg is not None:
         out: list[str] = []

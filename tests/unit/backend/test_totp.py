@@ -63,3 +63,13 @@ def test_provisioning_uri_format():
     assert uri.startswith("otpauth://totp/")
     assert "WAF" in uri
     assert "user%40example.com" in uri or "user@example.com" in uri
+
+
+def test_encrypt_decrypt_secret():
+    from backend.src.auth.totp import encrypt_secret, decrypt_secret
+    secret = "JBSWY3DPEHPK3PXP"
+    encrypted = encrypt_secret(secret)
+    assert encrypted != secret
+    decrypted = decrypt_secret(encrypted)
+    assert decrypted == secret
+

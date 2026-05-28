@@ -13,6 +13,32 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ..db.models import User
 
 
+from cryptography.fernet import Fernet
+from .security import _load_or_create_paseto_key
+
+
+def _get_fernet() -> Fernet:
+    key_bytes = _load_or_create_paseto_key()
+    fernet_key = base64.urlsafe_b64encode(key_bytes)
+    return Fernet(fernet_key)
+
+
+def encrypt_secret(plain_secret: str) -> str:
+    f = _get_fernet()
+    return f.encrypt(plain_secret.encode()).decode()
+
+
+def decrypt_secret(encrypted_secret: str | None) -> str | None:
+    if not encrypted_secret:
+        return None
+    try:
+        f = _get_fernet()
+        return f.decrypt(encrypted_secret.encode()).decode()
+    except Exception:
+        # Fallback for unencrypted legacy secrets during transition
+        return encrypted_secret
+
+
 def generate_secret() -> str:
     return pyotp.random_base32()
 
@@ -31,7 +57,10 @@ def qr_data_uri(uri: str) -> str:
 def verify_code(secret: str | None, code: str) -> bool:
     if not secret:
         return False
-    return pyotp.TOTP(secret).verify(code, valid_window=1)
+    decrypted = decrypt_secret(secret)
+    if not decrypted:
+        return False
+    return pyotp.TOTP(decrypted).verify(code, valid_window=1)
 
 
 def generate_recovery_codes(n: int = 10) -> tuple[list[str], list[str]]:

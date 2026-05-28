@@ -12,7 +12,7 @@ from .. import service as auth_service
 from .. import totp
 from ..dependencies import SESSION_COOKIE, TOTP_ENROL_COOKIE, get_current_user
 from ..schemas import TotpConfirmRequest, UserPublic
-from ..security import SESSION_TTL_SECONDS, create_session_token, verify_short_lived
+from ..security import SESSION_TTL_SECONDS, create_session_token, verify_short_lived, sign_short_lived, encrypt_short_lived, decrypt_short_lived
 
 logger = logging.getLogger(__name__)
 
@@ -102,6 +102,7 @@ async def _resolve_user(request: Request, session: AsyncSession):
 @router.post("/totp/setup")
 async def totp_setup(
     request: Request,
+    response: Response,
     session: AsyncSession = Depends(get_session),
 ):
     """Generate a new TOTP secret + recovery codes for the authenticated user.
@@ -113,11 +114,39 @@ async def totp_setup(
     if user is None:
         raise HTTPException(status_code=401, detail="not authorized for totp enrol")
 
+    if user.totp_enabled_at is not None:
+        current_code = request.headers.get("X-WAF-Current-TOTP")
+        if not current_code or not (
+            totp.verify_code(user.totp_secret, current_code)
+            or await totp.verify_recovery(session, user, current_code)
+        ):
+            raise HTTPException(
+                status_code=403,
+                detail="Verification with current TOTP or recovery code required to re-enroll 2FA",
+            )
+
     secret = totp.generate_secret()
     plain, hashes = totp.generate_recovery_codes()
-    user.totp_secret = secret
-    user.recovery_codes_hash = hashes
-    await session.commit()
+
+    # Store the pending secret and hashes in a secure short-lived cookie instead of writing to DB immediately
+    pending_payload = {
+        "user_id": user.id,
+        "secret": secret,
+        "hashes": hashes,
+    }
+    pending_cookie = encrypt_short_lived(pending_payload, ttl_seconds=600, purpose="totp_pending")
+
+    from ...config import get_settings
+    s = get_settings()
+    response.set_cookie(
+        "waf_totp_pending",
+        pending_cookie,
+        max_age=600,
+        httponly=True,
+        secure=s.cookie_secure,
+        samesite="lax",
+        path="/",
+    )
 
     uri = totp.provisioning_uri(secret, account_label=user.email)
     return {
@@ -146,8 +175,23 @@ async def totp_confirm(
     the cookie's 10-minute TTL.
     """
     user = await _resolve_user(request, session)
-    if user is None or not user.totp_secret:
-        raise HTTPException(status_code=401, detail="not enrolled")
+    if user is None:
+        raise HTTPException(status_code=401, detail="not authorized")
+
+    # Read pending setup from cookie if it exists
+    pending = request.cookies.get("waf_totp_pending")
+    if not pending:
+        # Fall back to user's existing secret if there's no pending cookie
+        secret = user.totp_secret
+        hashes = user.recovery_codes_hash
+        if not secret:
+            raise HTTPException(status_code=401, detail="not enrolled")
+    else:
+        pending_payload = decrypt_short_lived(pending, purpose="totp_pending")
+        if not pending_payload or pending_payload.get("user_id") != user.id:
+            raise HTTPException(status_code=400, detail="invalid or expired setup session")
+        secret = pending_payload["secret"]
+        hashes = pending_payload["hashes"]
 
     # Check rate budget BEFORE running pyotp.verify — the goal is to bound
     # attempts, not just bound successful attempts. Returns Retry-After so
@@ -162,16 +206,21 @@ async def totp_confirm(
             headers={"Retry-After": str(_TOTP_CONFIRM_WINDOW_SECONDS)},
         )
 
-    if not totp.verify_code(user.totp_secret, payload.code):
+    if not totp.verify_code(secret, payload.code):
         _record_totp_fail(user.id)
         raise HTTPException(status_code=400, detail="invalid code")
 
     # Success path: clear the per-user budget so a legitimate user who
     # mistyped a few times doesn't stay locked out after they get it right.
     _clear_totp_fails(user.id)
+
+    # Save the encrypted secret and recovery codes hash
+    user.totp_secret = totp.encrypt_secret(secret)
+    user.recovery_codes_hash = hashes
     await totp.activate(session, user)
 
-    # Clear the enrol cookie and issue a real session
+    # Clear pending cookies
+    response.delete_cookie("waf_totp_pending", path="/")
     response.delete_cookie(TOTP_ENROL_COOKIE, path="/")
     session_token = create_session_token(
         user_id=user.id,

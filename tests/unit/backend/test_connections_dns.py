@@ -15,6 +15,13 @@ from src.connections import dns as conn_dns
 from src.connections.dns import DnsResolutionError, is_blocked_ip, validate_domain
 
 
+@pytest.fixture(autouse=True)
+def mock_doh_query():
+    with patch.object(conn_dns, "_doh_query", AsyncMock(return_value=None)), \
+         patch("httpx.AsyncClient.post", AsyncMock(side_effect=Exception("Blocked in tests"))):
+        yield
+
+
 # ── validate_domain ──────────────────────────────────────────────────────────
 
 
@@ -200,3 +207,78 @@ async def test_verify_txt_token_no_match():
 @pytest.mark.asyncio
 async def test_verify_txt_token_empty_token_rejects():
     assert await conn_dns.verify_txt_token("acme.com", "") is False
+
+
+# ── resolve_txt & _doh_query_all ─────────────────────────────────────────────
+
+
+def _fake_txt_message(txt_values: list[str], rcode: int = 0):
+    import dns.message
+    import dns.rdatatype
+    import dns.rrset
+
+    msg = dns.message.Message()
+    msg.set_rcode(rcode)
+    if txt_values and rcode == 0:
+        rr = dns.rrset.from_text("example.com.", 300, "IN", "TXT", *[f'"{v}"' for v in txt_values])
+        msg.answer.append(rr)
+    return msg
+
+
+@pytest.mark.asyncio
+async def test_doh_query_all_success():
+    msg1 = _fake_txt_message(["token123"])
+    msg2 = _fake_txt_message([])
+
+    async def mock_single(url, content, headers):
+        class FakeResponse:
+            status_code = 200
+            content = msg1.to_wire() if "dns.google" in url else msg2.to_wire()
+            def raise_for_status(self):
+                pass
+        return FakeResponse()
+
+    with patch("httpx.AsyncClient.post", new=AsyncMock(side_effect=mock_single)):
+        res = await conn_dns._doh_query_all("example.com", 16)
+        assert len(res) == len(conn_dns._verification_doh_urls())
+        # Ensure it successfully returned parsed messages
+        rcodes = [r.rcode() for r in res]
+        assert all(rc == 0 for rc in rcodes)
+
+
+@pytest.mark.asyncio
+async def test_resolve_txt_parallel_merges_results():
+    msg_cached = _fake_txt_message([], rcode=3)  # NXDOMAIN
+    msg_fresh = _fake_txt_message(["fresh_token"])
+
+    # Mock authoritative nameservers returning error (refused/timeout)
+    with patch.object(conn_dns, "_get_ns_ips", AsyncMock(return_value=[])):
+        # Mock _doh_query_all returning both cached NXDOMAIN and fresh record
+        mocked_msgs = [msg_cached, msg_fresh, msg_cached, msg_fresh]
+        with patch.object(conn_dns, "_doh_query_all", AsyncMock(return_value=mocked_msgs)):
+            txt_vals = await conn_dns.resolve_txt("example.com")
+            # Should successfully merge and return the fresh token
+            assert txt_vals == ["fresh_token"]
+
+
+@pytest.mark.asyncio
+async def test_resolve_a_parallel_merges_results():
+    import dns.message
+    import dns.rrset
+
+    def _fake_a_message(ips: list[str], rcode: int = 0):
+        msg = dns.message.Message()
+        msg.set_rcode(rcode)
+        if ips and rcode == 0:
+            rr = dns.rrset.from_text("example.com.", 300, "IN", "A", *ips)
+            msg.answer.append(rr)
+        return msg
+
+    msg_cached = _fake_a_message([], rcode=3)  # NXDOMAIN
+    msg_fresh = _fake_a_message(["1.1.1.1", "1.0.0.1"])
+
+    mocked_msgs = [msg_cached, msg_fresh, msg_cached, msg_fresh]
+    with patch.object(conn_dns, "_doh_query_all", AsyncMock(return_value=mocked_msgs)):
+        ips, ttl = await conn_dns.resolve_a("example.com")
+        # Should successfully merge, deduplicate, filter, and return the fresh IPs
+        assert ips == ["1.1.1.1", "1.0.0.1"]

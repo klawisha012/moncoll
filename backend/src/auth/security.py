@@ -142,6 +142,29 @@ def verify_short_lived(value: str, *, purpose: str) -> dict | None:
         return None
 
 
+def encrypt_short_lived(payload: dict, *, ttl_seconds: int, purpose: str) -> str:
+    """Return an encrypted and authenticated PASETO v4.local token for short-lived storage."""
+    body = {**payload, "exp": datetime.now(UTC).timestamp() + ttl_seconds, "p": purpose}
+    return pyseto.encode(_paseto_key(), json.dumps(body).encode()).decode()
+
+
+def decrypt_short_lived(token: str, *, purpose: str) -> dict | None:
+    """Decrypt and verify a short-lived PASETO v4.local token."""
+    try:
+        decoded = pyseto.decode(_paseto_key(), token)
+        body = json.loads(decoded.payload)
+        if body.get("p") != purpose:
+            return None
+        if body.get("exp", 0) < datetime.now(UTC).timestamp():
+            return None
+        body.pop("p", None)
+        body.pop("exp", None)
+        return body
+    except Exception:
+        return None
+
+
+
 # ---------------------------------------------------------------------------
 # Transition shims — removed after Phase 4 / Phase 8 land.
 # ---------------------------------------------------------------------------
