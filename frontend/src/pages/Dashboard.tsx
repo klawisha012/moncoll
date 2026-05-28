@@ -54,6 +54,8 @@ import {
   type TooltipRow,
 } from "../components/charts/chart-utils";
 import { injectionLabel, ruleFileToFamily } from "../utils/ruleNames";
+import { subscribe, type GeoipMapDelta } from "../realtime/client";
+
 
 type PanelKey =
   | "metricTotalRequests"
@@ -1138,7 +1140,21 @@ function NativePanels(props: {
   visiblePanels: Set<PanelKey>;
 }) {
   const settings = useSettings();
-  const deps = () => [props.hours, props.connectionId] as [number, number | null];
+  const [refreshTick, setRefreshTick] = createSignal(0);
+  const deps = () => [props.hours, props.connectionId, refreshTick()] as [number, number | null, number];
+
+  onMount(() => {
+    let lastRefresh = 0;
+    const unsub = subscribe<GeoipMapDelta>("dashboard:map", (delta) => {
+      const now = Date.now();
+      // Throttle refreshes to maximum once every 3 seconds to avoid overloading ClickHouse/FastAPI
+      if (now - lastRefresh >= 3000) {
+        lastRefresh = now;
+        setRefreshTick((t) => t + 1);
+      }
+    });
+    onCleanup(() => unsub());
+  });
 
   const metrics = useDashboardPanel<Metrics>(
     () => api.getMetrics(props.hours, props.connectionId),

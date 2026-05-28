@@ -1,6 +1,7 @@
 import { createEffect, createMemo, createSignal, onCleanup, onMount, For, Show } from "solid-js";
-import { TestTube, Play, AlertTriangle, ShieldAlert, ShieldOff, Clock, ShieldCheck } from "lucide-solid";
+import { TestTube, Play, AlertTriangle, ShieldAlert, ShieldOff, Clock, ShieldCheck, X, Eye } from "lucide-solid";
 import { api } from "../api/client";
+import { subscribe, type GeoipMapDelta } from "../realtime/client";
 import type {
   Connection,
   CrowdsecRunResult,
@@ -13,6 +14,7 @@ import type {
   TrafficDataPoint,
 } from "../api/client";
 import { useSettings } from "../context/SettingsContext";
+import { useGlobalFilters } from "../context/GlobalFiltersContext";
 import TrafficChart from "../components/charts/TrafficChart";
 import { injectionLabel, injectionName } from "../utils/ruleNames";
 
@@ -34,7 +36,6 @@ const FAMILY_ORDER: TestFamily[] = [
   "session_fixation",
   "generic",
   "blocking",
-  "blocking",
 ];
 
 const STATUS_COLOR: Record<TestResultStatus, string> = {
@@ -51,20 +52,52 @@ const getStatusIcon = (status: TestResultStatus) => {
   return <Clock size={14} />;
 };
 
+// Extract HTML body out of a raw HTTP response structure
+const extractHtmlBody = (responseRaw: string | null | undefined): string => {
+  if (!responseRaw) return "<html><body style='font-family:sans-serif;padding:20px;color:#666;'><h3>No response received</h3></body></html>";
+  const parts = responseRaw.split(/\r?\n\r?\n/);
+  if (parts.length > 1) {
+    return parts.slice(1).join("\n\n");
+  }
+  return responseRaw;
+};
+
 export default function Tests() {
   const settings = useSettings();
+  const filters = useGlobalFilters();
   const [activeSub, setActiveSub] = createSignal<SubTab>("modsec");
   const [catalog, setCatalog] = createSignal<TestCase[] | null>(null);
   const [catalogError, setCatalogError] = createSignal<string | null>(null);
-
-  const [connections, setConnections] = createSignal<Connection[]>([]);
-  const [connectionId, setConnectionId] = createSignal<number | null>(null);
 
   const [runningId, setRunningId] = createSignal<string | null>(null);
   const [lastResult, setLastResult] = createSignal<TestRunResult | null>(null);
   const [runError, setRunError] = createSignal<string | null>(null);
   const [traffic, setTraffic] = createSignal<TrafficDataPoint[] | null>(null);
   const [markerTraffic, setMarkerTraffic] = createSignal<TestTrafficResponse | null>(null);
+
+  // ── Debug Console Signals ─────────────────────────────────
+  const [debugResult, setDebugResult] = createSignal<{ type: "modsec"; data: TestRunResult } | { type: "crowdsec"; data: CrowdsecRunResult } | null>(null);
+  const [debugOpen, setDebugOpen] = createSignal(false);
+  const [debugTab, setDebugTab] = createSignal<string>("request");
+
+  const connectionId = () => filters.connectionId;
+
+  const activeConnection = createMemo(() => {
+    const id = filters.connectionId;
+    return filters.connections.find((c) => c.id === id);
+  });
+
+  const activeConnectionText = () => {
+    if (filters.connectionId !== null) {
+      const conn = activeConnection();
+      return conn ? (conn.domain ? `${conn.name} (${conn.domain})` : conn.name) : "localhost (default)";
+    }
+    const enabled = filters.connections.filter((c) => c.enabled);
+    if (enabled.length > 0) {
+      return enabled.map((c) => c.domain ? `${c.name} (${c.domain})` : c.name).join(" + ");
+    }
+    return "localhost (default)";
+  };
 
   // ── Fetchers ────────────────────────────────────────────
   onMount(() => {
@@ -77,27 +110,14 @@ export default function Tests() {
       .catch((e) => {
         if (!cancelled) setCatalogError(e instanceof Error ? e.message : String(e));
       });
-    api
-      .getConnections()
-      .then((res) => {
-        if (cancelled) return;
-        const enabled = res.filter((c) => c.enabled);
-        setConnections(enabled);
-        if (enabled.length > 0) setConnectionId(enabled[0].id);
-      })
-      .catch(() => {
-        // Connections API may fail in dev — fall back to localhost-only.
-      });
-    onCleanup(() => {
-      cancelled = true;
-    });
   });
 
-  // Refresh traffic chart every 10s — the chart is the proof the test fired.
-  // The marker overlay relies on this polling to actually show the spike
-  // once Vector flushes the new audit row into ClickHouse.
+  const [realtimeTrigger, setRealtimeTrigger] = createSignal(0);
+
+  // Refresh traffic chart every 10s or on real-time event
   createEffect(() => {
     const connId = connectionId();
+    realtimeTrigger(); // track reactively
     let cancelled = false;
     const run = () =>
       api
@@ -116,10 +136,12 @@ export default function Tests() {
     });
   });
 
-  // After a Run, poll the marker endpoint until rows land (or 8s expires).
+  // Poll marker endpoint after a test run until rows land
+  // Reacts immediately to real-time events to display spikes without delay!
   createEffect(() => {
     const result = lastResult();
     if (!result || !result.marker) return;
+    realtimeTrigger(); // track reactively
     let cancelled = false;
     let attempts = 0;
     const tick = async () => {
@@ -130,7 +152,6 @@ export default function Tests() {
         setMarkerTraffic(data);
         if (data.events.length > 0 || attempts >= 8) return;
       } catch {
-        // 400 = bad marker (shouldn't happen — server-generated UUID); stop.
         return;
       }
       if (!cancelled && attempts < 8) setTimeout(tick, 1000);
@@ -139,6 +160,19 @@ export default function Tests() {
     onCleanup(() => {
       cancelled = true;
     });
+  });
+
+  onMount(() => {
+    let lastRefresh = 0;
+    const unsub = subscribe<GeoipMapDelta>("dashboard:map", (delta) => {
+      const now = Date.now();
+      // Throttle slightly to prevent rapid polling
+      if (now - lastRefresh >= 1500) {
+        lastRefresh = now;
+        setRealtimeTrigger((t) => t + 1);
+      }
+    });
+    onCleanup(() => unsub());
   });
 
   const onRun = async (test: TestCase) => {
@@ -152,6 +186,15 @@ export default function Tests() {
         connection_id: connectionId(),
       });
       setLastResult(res);
+      // Automatically open the debug drawer console
+      setDebugResult({ type: "modsec", data: res });
+      // If WAF blocks or returns HTML content, select preview tab directly, else response
+      if (res.response_raw && res.response_raw.toLowerCase().includes("content-type: text/html")) {
+        setDebugTab("preview");
+      } else {
+        setDebugTab("response");
+      }
+      setDebugOpen(true);
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
       if (msg.includes("rate limit")) {
@@ -166,7 +209,6 @@ export default function Tests() {
     }
   };
 
-  // Group catalog by family — render families in fixed order.
   const grouped = createMemo(() => {
     const map = new Map<TestFamily, TestCase[]>();
     const cat = catalog();
@@ -182,7 +224,7 @@ export default function Tests() {
   const markerTimes = createMemo(() => markerTraffic()?.timestamps ?? []);
 
   return (
-    <div class="page">
+    <div class="page" style={{ "padding-bottom": debugOpen() ? "470px" : "40px", "transition": "padding-bottom 0.3s ease" }}>
       <header class="page-header">
         <div class="page-title-row">
           <h1 class="page-title">
@@ -193,23 +235,92 @@ export default function Tests() {
         <p class="page-subtitle">{settings.t("tests.subtitle")}</p>
       </header>
 
-      {/* Warning banner */}
+      {/* Target connection status info */}
       <div
         class="card"
         style={{
           padding: "12px 14px",
           "margin-bottom": "16px",
           display: "flex",
-          "align-items": "flex-start",
+          "align-items": "center",
           gap: "10px",
-          "border-left": "6px solid var(--amber, #f59e0b)",
+          background: "var(--bg-elevated)",
+          border: "2px dashed var(--ink)",
+          "flex-wrap": "wrap",
         }}
       >
-        <AlertTriangle size={18} style={{ color: "var(--amber, #f59e0b)", "flex-shrink": 0, "margin-top": "2px" }} />
-        <div style={{ "font-size": "13px", "line-height": 1.45, color: "var(--text-secondary)" }}>{settings.t("tests.warning")}</div>
+        <span style={{ "font-family": "var(--font-cond)", "font-weight": 700, "font-size": "12px", "text-transform": "uppercase", color: "var(--text-secondary)" }}>
+          {settings.t("tests.target")}:
+        </span>
+        <span style={{ "font-family": "var(--font-mono)", "font-size": "13px", "font-weight": 700, color: "var(--text-primary)" }}>
+          {activeConnectionText()}
+        </span>
+        <span style={{ "font-size": "11px", color: "var(--text-muted)", "margin-left": "auto" }}>
+          {settings.t("tests.target.globalInfo")}
+        </span>
       </div>
 
-      {/* Sub-tab switcher */}
+      {/* Last result panel */}
+      <Show when={lastResult()}>
+        {(res) => (
+          <div style={{ position: "relative" }}>
+            <ResultPanel result={res()} translate={settings.t} markerEvents={markerTraffic()?.events ?? []} />
+            <button
+              onClick={() => {
+                setDebugResult({ type: "modsec", data: res() });
+                setDebugTab("response");
+                setDebugOpen(true);
+              }}
+              class="btn btn-sm"
+              style={{
+                position: "absolute",
+                top: "14px",
+                right: "16px",
+                padding: "4px 10px",
+                "font-family": "var(--font-mono)",
+                "font-size": "11px",
+                border: "2px solid var(--ink)",
+                background: "var(--cream)",
+                color: "var(--ink)",
+                "box-shadow": "2px 2px 0 var(--ink)",
+                cursor: "pointer",
+              }}
+            >
+              [ {settings.t("tests.showDebug")} ]
+            </button>
+          </div>
+        )}
+      </Show>
+
+      <Show when={runError()}>
+        <div
+          class="card"
+          style={{
+            padding: "10px 14px",
+            "margin-bottom": "16px",
+            background: "var(--red)",
+            color: "var(--cream)",
+            "border-color": "var(--ink)",
+            "font-family": "var(--font-mono)",
+            "font-size": "13px",
+          }}
+        >
+          {runError()}
+        </div>
+      </Show>
+
+      {/* Live impact chart */}
+      <div class="card" style={{ "margin-bottom": "16px" }}>
+        <div class="card-header" style={{ display: "flex", "align-items": "center", gap: "10px", "justify-content": "space-between" }}>
+          <h2 style={{ "font-size": "15px", margin: "0" }}>{settings.t("tests.impact.title")}</h2>
+          <span style={{ "font-size": "11px", color: "var(--text-muted)", "font-family": "var(--font-mono)" }}>{settings.t("tests.impact.help")}</span>
+        </div>
+        <div style={{ padding: "8px 4px" }}>
+          <TrafficChart data={traffic()} loading={traffic() === null} markerTimes={markerTimes()} />
+        </div>
+      </div>
+
+      {/* Switcher & Catalog */}
       <div style={{ display: "flex", gap: "0", "margin-bottom": "16px", "border-bottom": "2px solid var(--ink)" }}>
         <For each={["modsec", "crowdsec"] as SubTab[]}>
           {(sub) => {
@@ -238,96 +349,6 @@ export default function Tests() {
         </For>
       </div>
 
-      {/* Target connection picker */}
-      <div
-        class="card"
-        style={{
-          padding: "14px 16px",
-          "margin-bottom": "16px",
-          display: "flex",
-          "align-items": "center",
-          gap: "14px",
-          "flex-wrap": "wrap",
-        }}
-      >
-        <label
-          for="tests-target"
-          style={{
-            "font-family": "var(--font-cond)",
-            "font-weight": 700,
-            "font-size": "12px",
-            "letter-spacing": "0.12em",
-            "text-transform": "uppercase",
-            color: "var(--text-secondary)",
-          }}
-        >
-          {settings.t("tests.target")}
-        </label>
-        <select
-          id="tests-target"
-          value={connectionId() ?? ""}
-          onChange={(e) => setConnectionId(e.currentTarget.value ? Number(e.currentTarget.value) : null)}
-          style={{
-            padding: "8px 12px",
-            border: "2px solid var(--ink)",
-            "border-radius": "0",
-            background: "var(--card-bg)",
-            color: "var(--text-primary)",
-            "font-family": "var(--font-mono)",
-            "font-size": "13px",
-            "min-width": "260px",
-          }}
-        >
-          <For each={connections()}>
-            {(c) => (
-              <option value={c.id}>
-                {c.name} {c.domain ? `(${c.domain})` : ""}
-              </option>
-            )}
-          </For>
-        </select>
-        <span style={{ "font-size": "12px", color: "var(--text-muted)", flex: 1, "min-width": "200px" }}>{settings.t("tests.target.help")}</span>
-      </div>
-
-      {/* Last result panel */}
-      <Show when={lastResult()}>
-        {(res) => (
-          <ResultPanel result={res()} translate={settings.t} markerEvents={markerTraffic()?.events ?? []} />
-        )}
-      </Show>
-      
-      <Show when={runError()}>
-        <div
-          class="card"
-          style={{
-            padding: "10px 14px",
-            "margin-bottom": "16px",
-            background: "var(--red)",
-            color: "var(--cream)",
-            "border-color": "var(--ink)",
-            "font-family": "var(--font-mono)",
-            "font-size": "13px",
-          }}
-        >
-          {runError()}
-        </div>
-      </Show>
-
-      {/* Live impact chart */}
-      <div
-        class="card"
-        style={{ "margin-bottom": "16px" }}
-      >
-        <div class="card-header" style={{ display: "flex", "align-items": "center", gap: "10px", "justify-content": "space-between" }}>
-          <h2 style={{ "font-size": "15px", margin: "0" }}>{settings.t("tests.impact.title")}</h2>
-          <span style={{ "font-size": "11px", color: "var(--text-muted)", "font-family": "var(--font-mono)" }}>{settings.t("tests.impact.help")}</span>
-        </div>
-        <div style={{ padding: "8px 4px" }}>
-          <TrafficChart data={traffic()} loading={traffic() === null} markerTimes={markerTimes()} />
-        </div>
-      </div>
-
-      {/* Catalog */}
       <Show when={activeSub() === "modsec"}>
         <ModSecCatalog
           grouped={grouped()}
@@ -341,13 +362,275 @@ export default function Tests() {
       </Show>
 
       <Show when={activeSub() === "crowdsec"}>
-        <CrowdsecCatalog translate={settings.t} />
+        <CrowdsecCatalog
+          connectionId={connectionId()}
+          translate={settings.t}
+          onResult={(res) => {
+            setDebugResult({ type: "crowdsec", data: res });
+            setDebugTab("decisions");
+            setDebugOpen(true);
+          }}
+        />
       </Show>
+
+      {/* Sliding Bottom Debug Drawer Panel */}
+      <div
+        style={{
+          position: "fixed",
+          bottom: 0,
+          left: 0,
+          right: 0,
+          height: "450px",
+          background: "var(--cream-2)",
+          "border-top": "4px solid var(--ink)",
+          "box-shadow": "0 -8px 24px rgba(0,0,0,0.15)",
+          transform: debugOpen() ? "translateY(0)" : "translateY(100%)",
+          transition: "transform 0.3s ease-in-out",
+          "z-index": 1000,
+          display: "flex",
+          "flex-direction": "column",
+        }}
+      >
+        {/* Drawer Header */}
+        <div
+          style={{
+            padding: "10px 16px",
+            background: "var(--ink)",
+            color: "var(--cream)",
+            display: "flex",
+            "align-items": "center",
+            "justify-content": "space-between",
+          }}
+        >
+          <div style={{ display: "flex", "align-items": "center", gap: "8px" }}>
+            <span style={{
+              display: "inline-block",
+              width: "8px",
+              height: "8px",
+              background: "#10b981",
+              "border-radius": "50%",
+              "box-shadow": "0 0 8px #10b981",
+            }} />
+            <span style={{
+              "font-family": "var(--font-cond)",
+              "font-weight": 700,
+              "font-size": "12px",
+              "letter-spacing": "0.14em",
+              "text-transform": "uppercase",
+            }}>
+              {settings.t("tests.debug.console")}
+            </span>
+          </div>
+          <button
+            onClick={() => setDebugOpen(false)}
+            style={{
+              background: "transparent",
+              border: "none",
+              color: "var(--cream)",
+              cursor: "pointer",
+              display: "flex",
+              "align-items": "center",
+              "font-family": "var(--font-mono)",
+              "font-size": "12px",
+              "font-weight": 700,
+              padding: "2px 6px",
+            }}
+            onMouseEnter={(e) => e.currentTarget.style.color = "var(--red)"}
+            onMouseLeave={(e) => e.currentTarget.style.color = "var(--cream)"}
+          >
+            [ CLOSE ]
+          </button>
+        </div>
+
+        {/* Drawer Tabs Toolbar */}
+        <div
+          style={{
+            padding: "6px 14px",
+            background: "var(--cream-3)",
+            "border-bottom": "2px solid var(--ink)",
+            display: "flex",
+            gap: "8px",
+          }}
+        >
+          <Show when={debugResult()?.type === "modsec"}>
+            <button
+              class={`btn btn-sm ${debugTab() === "request" ? "active" : ""}`}
+              onClick={() => setDebugTab("request")}
+              style={tabStyle(debugTab() === "request")}
+            >
+              HTTP Request Payload
+            </button>
+            <button
+              class={`btn btn-sm ${debugTab() === "response" ? "active" : ""}`}
+              onClick={() => setDebugTab("response")}
+              style={tabStyle(debugTab() === "response")}
+            >
+              HTTP Server Response
+            </button>
+            <button
+              class={`btn btn-sm ${debugTab() === "preview" ? "active" : ""}`}
+              onClick={() => setDebugTab("preview")}
+              style={tabStyle(debugTab() === "preview")}
+            >
+              Page Preview
+            </button>
+          </Show>
+
+          <Show when={debugResult()?.type === "crowdsec"}>
+            <button
+              class={`btn btn-sm ${debugTab() === "decisions" ? "active" : ""}`}
+              onClick={() => setDebugTab("decisions")}
+              style={tabStyle(debugTab() === "decisions")}
+            >
+              CrowdSec Decisions Diff
+            </button>
+            <button
+              class={`btn btn-sm ${debugTab() === "timeline" ? "active" : ""}`}
+              onClick={() => setDebugTab("timeline")}
+              style={tabStyle(debugTab() === "timeline")}
+            >
+              Test Action Timeline
+            </button>
+          </Show>
+        </div>
+
+        {/* Drawer Content */}
+        <div
+          style={{
+            flex: 1,
+            padding: "16px",
+            overflow: "auto",
+            background: "var(--cream)",
+            color: "var(--ink)",
+            "font-size": "12px",
+            "line-height": "1.6",
+          }}
+        >
+          <Show when={debugResult()} fallback={
+            <div style={{ display: "flex", "align-items": "center", "justify-content": "center", height: "100%", color: "var(--text-muted)" }}>
+              No debug session active. Run a test to inspect details.
+            </div>
+          }>
+            {(session) => {
+              const res = session();
+              if (res.type === "modsec") {
+                const data = res.data as TestRunResult;
+                return (
+                  <Show when={debugTab() === "request"} fallback={
+                    <Show when={debugTab() === "response"} fallback={
+                      <div>
+                        <div style={{ "margin-bottom": "8px", "display": "flex", "align-items": "center", "justify-content": "space-between" }}>
+                          <div style={{ "font-weight": 700, "font-family": "var(--font-cond)", "text-transform": "uppercase", "color": "var(--text-secondary)" }}>
+                            Rendered HTML Page Preview:
+                          </div>
+                          <div style={{
+                            "font-family": "var(--font-mono)",
+                            "font-size": "10px",
+                            "background": "var(--ink)",
+                            "color": "var(--cream)",
+                            "padding": "2px 6px",
+                            "border-radius": "2px",
+                            "text-transform": "uppercase",
+                            "letter-spacing": "0.05em",
+                          }}>
+                            Secured Sandbox iframe
+                          </div>
+                        </div>
+                        <iframe
+                          srcdoc={extractHtmlBody(data.response_raw)}
+                          sandbox=""
+                          style={{
+                            width: "100%",
+                            height: "320px",
+                            background: "#ffffff",
+                            border: "2px solid var(--ink)",
+                            "box-shadow": "4px 4px 0 var(--ink)",
+                            margin: 0,
+                          }}
+                        />
+                      </div>
+                    }>
+                      <div>
+                        <div style={{ "margin-bottom": "8px", "font-weight": 700, "font-family": "var(--font-cond)", "text-transform": "uppercase", "color": "var(--text-secondary)" }}>
+                          Raw HTTP Response:
+                        </div>
+                        <pre style={{
+                          background: "var(--bg-elevated)",
+                          border: "1px solid var(--border-subtle)",
+                          padding: "12px",
+                          overflow: "auto",
+                          "max-height": "320px",
+                          margin: 0,
+                          "white-space": "pre-wrap",
+                          "font-family": "var(--font-mono)",
+                          "font-size": "11.5px",
+                        }}>
+                          {formatHttpResponse(data.response_raw || "No response received (Request failed/timed out).")}
+                        </pre>
+                      </div>
+                    </Show>
+                  }>
+                    <div>
+                      <div style={{ "margin-bottom": "8px", "font-weight": 700, "font-family": "var(--font-cond)", "text-transform": "uppercase", "color": "var(--text-secondary)" }}>
+                        Raw HTTP Request:
+                      </div>
+                      <pre style={{
+                        background: "var(--bg-elevated)",
+                        border: "1px solid var(--border-subtle)",
+                        padding: "12px",
+                        overflow: "auto",
+                        "max-height": "320px",
+                        margin: 0,
+                        "white-space": "pre-wrap",
+                        "font-family": "var(--font-mono)",
+                        "font-size": "11.5px",
+                      }}>
+                        {formatHttpRequest(data.request_raw || "Failed to format request.")}
+                      </pre>
+                    </div>
+                  </Show>
+                );
+              } else {
+                const data = res.data as CrowdsecRunResult;
+                return (
+                  <Show when={debugTab() === "decisions"} fallback={
+                    <div>
+                      <div style={{ "margin-bottom": "8px", "font-weight": 700, "font-family": "var(--font-cond)", "text-transform": "uppercase", "color": "var(--text-secondary)" }}>
+                        E2E Test Execution Timeline:
+                      </div>
+                      <div style={{
+                        background: "var(--bg-elevated)",
+                        border: "1px solid var(--border-subtle)",
+                        padding: "12px",
+                        "font-family": "var(--font-mono)",
+                        "font-size": "11.5px",
+                      }}>
+                        {renderTimeline(data, settings.t)}
+                      </div>
+                    </div>
+                  }>
+                    <div>
+                      <div style={{ "margin-bottom": "8px", "font-weight": 700, "font-family": "var(--font-cond)", "text-transform": "uppercase", "color": "var(--text-secondary)" }}>
+                        CrowdSec Active Decisions snapshot (Before vs After):
+                      </div>
+                      {renderDecisionsDiff(data, settings.t)}
+                    </div>
+                  </Show>
+                );
+              }
+            }}
+          </Show>
+        </div>
+      </div>
     </div>
   );
 }
 
-function CrowdsecCatalog(props: { translate: (key: string) => string }) {
+function CrowdsecCatalog(props: {
+  connectionId: number | null;
+  translate: (key: string) => string;
+  onResult: (res: CrowdsecRunResult) => void;
+}) {
   const [scenarios, setScenarios] = createSignal<CrowdsecScenario[] | null>(null);
   const [runningId, setRunningId] = createSignal<string | null>(null);
   const [lastResult, setLastResult] = createSignal<CrowdsecRunResult | null>(null);
@@ -363,9 +646,6 @@ function CrowdsecCatalog(props: { translate: (key: string) => string }) {
       .catch((e) => {
         if (!cancelled) setError(e instanceof Error ? e.message : String(e));
       });
-    onCleanup(() => {
-      cancelled = true;
-    });
   });
 
   const onRun = async (s: CrowdsecScenario) => {
@@ -373,8 +653,9 @@ function CrowdsecCatalog(props: { translate: (key: string) => string }) {
     setRunningId(s.id);
     setError(null);
     try {
-      const res = await api.runCrowdsecScenario(s.id);
+      const res = await api.runCrowdsecScenario(s.id, props.connectionId);
       setLastResult(res);
+      props.onResult(res);
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
       if (msg.includes("rate limit")) {
@@ -484,6 +765,7 @@ function CrowdsecCatalog(props: { translate: (key: string) => string }) {
             <For each={scenarios()}>
               {(s) => (
                 <div
+                  title={`${s.scenario} · ${s.description} · burst=${s.burst_size}`}
                   style={{
                     border: "2px solid var(--ink)",
                     background: "var(--card-bg)",
@@ -492,6 +774,7 @@ function CrowdsecCatalog(props: { translate: (key: string) => string }) {
                     display: "flex",
                     "flex-direction": "column",
                     gap: "8px",
+                    cursor: "help",
                   }}
                 >
                   <div style={{ "font-family": "var(--font-mono)", "font-weight": 700, "font-size": "12px" }}>
@@ -663,7 +946,8 @@ function ModSecCatalog(props: {
   catalog: TestCase[] | null;
   translate: (key: string) => string;
 }) {
-  const [selectedFamily, setSelectedFamily] = createSignal<string>("all");
+  const [selectedFamily, setSelectedFamily] = createSignal<string>("");
+  const [searchQuery, setSearchQuery] = createSignal<string>("");
 
   const uniqueFamilies = () => {
     const seen = new Set<TestFamily>();
@@ -680,9 +964,29 @@ function ModSecCatalog(props: {
     return list;
   };
 
+  // Set default selected category to the first active WAF category once loaded
+  createEffect(() => {
+    const families = uniqueFamilies();
+    if (families.length > 0 && (!selectedFamily() || !families.includes(selectedFamily() as TestFamily))) {
+      setSelectedFamily(families[0]);
+    }
+  });
+
+  const getFilteredTests = (tests: TestCase[]) => {
+    const query = searchQuery().toLowerCase().trim();
+    if (!query) return tests;
+    return tests.filter(
+      (t) =>
+        t.rule_id.toLowerCase().includes(query) ||
+        t.id.toLowerCase().includes(query) ||
+        (t.description && t.description.toLowerCase().includes(query)) ||
+        t.path.toLowerCase().includes(query)
+    );
+  };
+
   const displayedFamilies = () => {
     const fam = selectedFamily();
-    if (fam === "all") return uniqueFamilies();
+    if (!fam) return [];
     return uniqueFamilies().filter((f) => f === fam);
   };
 
@@ -712,7 +1016,7 @@ function ModSecCatalog(props: {
           </div>
         }
       >
-        {/* Category filter */}
+        {/* Category & Search filter card */}
         <div
           class="card"
           style={{
@@ -724,53 +1028,95 @@ function ModSecCatalog(props: {
             "flex-wrap": "wrap",
           }}
         >
-          <label
-            for="tests-category"
-            style={{
-              "font-family": "var(--font-cond)",
-              "font-weight": 700,
-              "font-size": "12px",
-              "letter-spacing": "0.12em",
-              "text-transform": "uppercase",
-              color: "var(--text-secondary)",
-            }}
-          >
-            {props.translate("tests.category")}
-          </label>
-          <select
-            id="tests-category"
-            value={selectedFamily()}
-            onChange={(e) => setSelectedFamily(e.currentTarget.value)}
-            style={{
-              padding: "8px 12px",
-              border: "2px solid var(--ink)",
-              "border-radius": "0",
-              background: "var(--card-bg)",
-              color: "var(--text-primary)",
-              "font-family": "var(--font-mono)",
-              "font-size": "13px",
-              "min-width": "260px",
-            }}
-          >
-            <option value="all">{props.translate("tests.category.all")}</option>
-            <For each={uniqueFamilies()}>
-              {(family) => {
-                const tests = props.grouped.get(family);
-                return (
-                  <option value={family}>
-                    {props.translate(`tests.family.${family}`)} ({tests?.length ?? 0})
-                  </option>
-                );
+          <div style={{ display: "flex", "align-items": "center", gap: "10px", "flex": 1, "min-width": "260px" }}>
+            <label
+              for="tests-category"
+              style={{
+                "font-family": "var(--font-cond)",
+                "font-weight": 700,
+                "font-size": "12px",
+                "letter-spacing": "0.12em",
+                "text-transform": "uppercase",
+                color: "var(--text-secondary)",
               }}
-            </For>
-          </select>
+            >
+              {props.translate("tests.category")}
+            </label>
+            <select
+              id="tests-category"
+              value={selectedFamily()}
+              onChange={(e) => setSelectedFamily(e.currentTarget.value)}
+              style={{
+                padding: "8px 12px",
+                border: "2px solid var(--ink)",
+                "border-radius": "0",
+                background: "var(--card-bg)",
+                color: "var(--text-primary)",
+                "font-family": "var(--font-mono)",
+                "font-size": "13px",
+                "min-width": "200px",
+                "flex": 1,
+              }}
+            >
+              <For each={uniqueFamilies()}>
+                {(family) => {
+                  const tests = props.grouped.get(family);
+                  return (
+                    <option value={family}>
+                      {props.translate(`tests.family.${family}`)} ({tests?.length ?? 0})
+                    </option>
+                  );
+                }}
+              </For>
+            </select>
+          </div>
+
+          <div style={{ display: "flex", "align-items": "center", gap: "10px", "flex": 1, "min-width": "260px" }}>
+            <label
+              for="tests-search"
+              style={{
+                "font-family": "var(--font-cond)",
+                "font-weight": 700,
+                "font-size": "12px",
+                "letter-spacing": "0.12em",
+                "text-transform": "uppercase",
+                color: "var(--text-secondary)",
+              }}
+            >
+              {props.translate("tests.search")}
+            </label>
+            <input
+              id="tests-search"
+              type="text"
+              placeholder={props.translate("tests.searchPlaceholder")}
+              value={searchQuery()}
+              onInput={(e) => setSearchQuery(e.currentTarget.value)}
+              style={{
+                padding: "8px 12px",
+                border: "2px solid var(--ink)",
+                "border-radius": "0",
+                background: "var(--card-bg)",
+                color: "var(--text-primary)",
+                "font-family": "var(--font-mono)",
+                "font-size": "13px",
+                "flex": 1,
+              }}
+            />
+          </div>
         </div>
 
         <div style={{ display: "flex", "flex-direction": "column", gap: "14px" }}>
           <For each={displayedFamilies()}>
             {(family) => {
-              const tests = props.grouped.get(family);
-              if (!tests || tests.length === 0) return null;
+              const rawTests = props.grouped.get(family) ?? [];
+              const tests = getFilteredTests(rawTests);
+              if (tests.length === 0) {
+                return (
+                  <div class="card" style={{ padding: "32px", "text-align": "center", color: "var(--text-muted)" }}>
+                    {props.translate("tests.noMatches")}
+                  </div>
+                );
+              }
               return (
                 <details class="card" open style={{ "margin-bottom": 0 }}>
                   <summary
@@ -838,6 +1184,11 @@ function TestRunCard(props: {
   runLabel: string;
   runningLabel: string;
 }) {
+  const fullPayload = () => {
+    const param = props.test.query ? props.test.query["param"] : null;
+    return `${props.test.method} ${props.test.path}${param ? `?param=${param}` : ""}`;
+  };
+
   return (
     <div
       style={{
@@ -879,16 +1230,18 @@ function TestRunCard(props: {
         </span>
       </div>
       <div
+        title={fullPayload()}
         style={{
           "font-size": "11px",
           color: "var(--text-muted)",
           "font-family": "var(--font-mono)",
           "word-break": "break-all",
           "min-height": "28px",
+          cursor: "help",
         }}
       >
         {props.test.method} {props.test.path}
-        {props.test.query["param"] ? `?param=${truncate(props.test.query["param"], 32)}` : ""}
+        {props.test.query && props.test.query["param"] ? `?param=${truncate(props.test.query["param"], 32)}` : ""}
       </div>
       <button
         onClick={() => props.onRun(props.test)}
@@ -919,4 +1272,183 @@ function TestRunCard(props: {
 
 function truncate(s: string, max: number): string {
   return s.length > max ? `${s.slice(0, max)}…` : s;
+}
+
+const tabStyle = (active: boolean) => ({
+  background: active ? "var(--ink)" : "var(--cream)",
+  color: active ? "var(--cream)" : "var(--ink)",
+  "border-color": "var(--ink)",
+  "box-shadow": active ? "none" : "2px 2px 0 var(--ink)",
+  transform: active ? "translate(1px, 1px)" : "none",
+  "font-family": "var(--font-mono)",
+  "padding": "4px 10px",
+  "font-size": "11px",
+  "letter-spacing": "0",
+  "text-transform": "none",
+  "cursor": "pointer",
+  "transition": "background 0.15s, color 0.15s, transform 0.1s, box-shadow 0.1s"
+});
+
+function formatHttpRequest(raw: string) {
+  if (!raw) return "No request data.";
+  const lines = raw.split("\n");
+  return (
+    <For each={lines}>
+      {(line, idx) => {
+        if (idx() === 0) {
+          const parts = line.split(" ");
+          return (
+            <div>
+              <span style={{ color: "var(--red)", "font-weight": "bold" }}>{parts[0]}</span>{" "}
+              <span style={{ color: "var(--text-primary)" }}>{parts.slice(1).join(" ")}</span>
+            </div>
+          );
+        }
+        if (line.includes(": ")) {
+          const sep = line.indexOf(": ");
+          const name = line.slice(0, sep);
+          const value = line.slice(sep + 2);
+          return (
+            <div>
+              <span style={{ color: "var(--text-muted)" }}>{name}:</span>{" "}
+              <span style={{ color: "var(--text-primary)" }}>{value}</span>
+            </div>
+          );
+        }
+        return <div>{line}</div>;
+      }}
+    </For>
+  );
+}
+
+function formatHttpResponse(raw: string) {
+  if (!raw) return "No response data.";
+  const lines = raw.split("\n");
+  return (
+    <For each={lines}>
+      {(line, idx) => {
+        if (idx() === 0) {
+          const parts = line.split(" ");
+          const status = Number(parts[1]);
+          const isBlocked = status === 403;
+          const statusColor = isBlocked ? "var(--red)" : (status < 400 ? "var(--ok)" : "var(--amber)");
+          return (
+            <div>
+              <span style={{ color: "var(--text-muted)" }}>{parts[0]}</span>{" "}
+              <span style={{ color: statusColor, "font-weight": "bold" }}>{parts.slice(1).join(" ")}</span>
+            </div>
+          );
+        }
+        if (line.includes(": ")) {
+          const sep = line.indexOf(": ");
+          const name = line.slice(0, sep);
+          const value = line.slice(sep + 2);
+          return (
+            <div>
+              <span style={{ color: "var(--text-muted)" }}>{name}:</span>{" "}
+              <span style={{ color: "var(--text-primary)" }}>{value}</span>
+            </div>
+          );
+        }
+        return <div>{line}</div>;
+      }}
+    </For>
+  );
+}
+
+function renderTimeline(data: CrowdsecRunResult, t: (key: string) => string) {
+  const steps = [
+    { time: "0.0s", text: `[1/5] Snapshotting CrowdSec decisions before test (found ${data.decisions_before.length} active bans).`, color: "var(--text-secondary)" },
+    { time: "0.2s", text: `[2/5] Firing burst of ${data.bursts_sent} attack requests to internal target: ${data.target_url}`, color: "var(--text-primary)" },
+    { time: "1.2s", text: `[3/5] Requests finished. Sleeping for 4.0s to allow CrowdSec to parse logs and register decisions...`, color: "var(--text-muted)" },
+    { time: "5.2s", text: `[4/5] Snapshotting decisions after test (found ${data.decisions_after.length} active bans).`, color: "var(--text-secondary)" },
+  ];
+
+  const beforeIps = new Set(data.decisions_before.map(d => d.value));
+  const newDecisions = data.decisions_after.filter(d => !beforeIps.has(d.value));
+
+  if (newDecisions.length > 0) {
+    steps.push({
+      time: "5.3s",
+      text: `[5/5] SUCCESS! CrowdSec successfully blocked ${newDecisions.length} IP address(es): ${newDecisions.map(d => `${d.value} via scenario ${d.reason}`).join(", ")}`,
+      color: "var(--ok)",
+    });
+  } else {
+    steps.push({
+      time: "5.3s",
+      text: `[5/5] WARNING: No new IP bans registered. Verify that the connection has 'crowdsec_active: true' or that the CrowdSec service parser is configured correctly.`,
+      color: "var(--amber)",
+    });
+  }
+
+  return (
+    <div style={{ display: "flex", "flex-direction": "column", gap: "8px" }}>
+      <For each={steps}>
+        {(step) => (
+          <div style={{ display: "flex", gap: "12px" }}>
+            <span style={{ color: "var(--text-muted)", "min-width": "45px" }}>+{step.time}</span>
+            <span style={{ color: step.color }}>{step.text}</span>
+          </div>
+        )}
+      </For>
+    </div>
+  );
+}
+
+function renderDecisionsDiff(data: CrowdsecRunResult, t: (key: string) => string) {
+  const beforeIps = new Set(data.decisions_before.map(d => d.value));
+  
+  const allDecisions = [...data.decisions_after];
+  data.decisions_before.forEach(b => {
+    if (!allDecisions.some(a => a.value === b.value)) {
+      allDecisions.push({ ...b, type: "unbanned" });
+    }
+  });
+
+  return (
+    <div style={{ overflow: "auto" }}>
+      <table style={{ width: "100%", "border-collapse": "collapse", "font-family": "var(--font-mono)", "font-size": "11.5px" }}>
+        <thead>
+          <tr style={{ "border-bottom": "2px solid var(--ink)", "text-align": "left", color: "var(--text-muted)" }}>
+            <th style={{ padding: "6px" }}>IP Address</th>
+            <th style={{ padding: "6px" }}>Scenario / Reason</th>
+            <th style={{ padding: "6px" }}>Scope</th>
+            <th style={{ padding: "6px" }}>Duration</th>
+            <th style={{ padding: "6px" }}>Status Change</th>
+          </tr>
+        </thead>
+        <tbody>
+          <Show when={allDecisions.length > 0} fallback={
+            <tr>
+              <td colspan="5" style={{ padding: "12px", "text-align": "center", color: "var(--text-muted)" }}>
+                No active decisions before or after this run.
+              </td>
+            </tr>
+          }>
+            <For each={allDecisions}>
+              {(dec) => {
+                const isNew = !beforeIps.has(dec.value) && dec.type !== "unbanned";
+                const bg = isNew ? "rgba(44, 122, 61, 0.12)" : (dec.type === "unbanned" ? "rgba(214, 54, 42, 0.08)" : "transparent");
+                const border = isNew ? "1px dashed var(--ok)" : "1px solid var(--border-subtle)";
+                const statusText = isNew ? "BANNED (NEW)" : (dec.type === "unbanned" ? "UNBANNED" : "ACTIVE (PRE-EXISTING)");
+                const statusColor = isNew ? "var(--ok)" : (dec.type === "unbanned" ? "var(--red)" : "var(--text-secondary)");
+                
+                return (
+                  <tr style={{ background: bg, "border-bottom": border }}>
+                    <td style={{ padding: "6px", "font-weight": isNew ? "bold" : "normal" }}>{dec.value}</td>
+                    <td style={{ padding: "6px", color: "var(--text-secondary)" }}>{dec.reason}</td>
+                    <td style={{ padding: "6px", "text-transform": "uppercase" }}>{dec.scope}</td>
+                    <td style={{ padding: "6px" }}>{dec.duration || "permanent"}</td>
+                    <td style={{ padding: "6px", color: statusColor, "font-weight": "bold" }}>
+                      {statusText}
+                    </td>
+                  </tr>
+                );
+              }}
+            </For>
+          </Show>
+        </tbody>
+      </table>
+    </div>
+  );
 }
