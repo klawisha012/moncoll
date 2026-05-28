@@ -147,6 +147,8 @@ services:
   # GeoIP lookups, frontend session). Ephemeral — no AOF, LRU eviction.
   redis:
     image: redis:7-alpine
+    ports:
+      - "127.0.0.1:6379:6379"
     command:
       - redis-server
       - --maxmemory
