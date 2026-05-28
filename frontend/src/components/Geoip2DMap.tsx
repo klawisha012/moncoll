@@ -177,24 +177,53 @@ export default function Geoip2DMap(props: Props) {
               const r = () => (markerRadius(m.hits) * (isActive() ? 1.25 : 1)) / Math.sqrt(zoom());
 
               return (
-                <circle
-                  cx={xy[0]}
-                  cy={xy[1]}
-                  r={r()}
-                  fill={color}
-                  fill-opacity={isActive() ? 0.85 : 0.55}
-                  stroke={color}
-                  stroke-width={(isActive() ? 2 : 1.4) / Math.sqrt(zoom())}
-                  style={{ cursor: "pointer", transition: "all 0.14s ease-out" }}
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    setSelected((prev) =>
-                      prev?.key === k
-                        ? null
-                        : { key: k, m, x: e.clientX, y: e.clientY },
-                    );
-                  }}
-                />
+                <g>
+                  {/* Pulsing ripple ring */}
+                  <circle
+                    cx={xy[0]}
+                    cy={xy[1]}
+                    r={r()}
+                    fill="none"
+                    stroke={color}
+                    stroke-width={1.2 / Math.sqrt(zoom())}
+                    style={{ "pointer-events": "none" }}
+                  >
+                    <animate
+                      attributeName="r"
+                      begin="0s"
+                      dur="2s"
+                      values={`${r()}; ${r() * 2.8}`}
+                      repeatCount="indefinite"
+                    />
+                    <animate
+                      attributeName="stroke-opacity"
+                      begin="0s"
+                      dur="2s"
+                      values="0.75; 0"
+                      repeatCount="indefinite"
+                    />
+                  </circle>
+
+                  {/* Main Marker */}
+                  <circle
+                    cx={xy[0]}
+                    cy={xy[1]}
+                    r={r()}
+                    fill={color}
+                    fill-opacity={isActive() ? 0.85 : 0.55}
+                    stroke={color}
+                    stroke-width={(isActive() ? 2 : 1.4) / Math.sqrt(zoom())}
+                    style={{ cursor: "pointer", transition: "all 0.14s ease-out" }}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setSelected((prev) =>
+                        prev?.key === k
+                          ? null
+                          : { key: k, m, x: e.clientX, y: e.clientY },
+                      );
+                    }}
+                  />
+                </g>
               );
             }}
           </For>

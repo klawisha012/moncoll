@@ -123,6 +123,30 @@ function ensureMarkerStyle(): void {
     .geoip-marker.active {
       z-index: 10;
     }
+    .geoip-marker-ripple {
+      position: absolute;
+      left: 7px;
+      bottom: 50%;
+      width: 10px;
+      height: 10px;
+      margin-left: -5px;
+      margin-bottom: -5px;
+      border-radius: 50%;
+      pointer-events: none;
+      transform: scale(1);
+      opacity: 0.8;
+      animation: geoip-ripple 2s cubic-bezier(0, 0, 0.2, 1) infinite;
+    }
+    @keyframes geoip-ripple {
+      0% {
+        transform: scale(1);
+        opacity: 0.8;
+      }
+      100% {
+        transform: scale(4.5);
+        opacity: 0;
+      }
+    }
     .geoip-marker-pin {
       position: absolute;
       left: 0;
@@ -312,6 +336,7 @@ function buildMarker(
       : "";
 
   el.innerHTML = `
+    <div class="geoip-marker-ripple" style="background: ${color};"></div>
     <svg class="geoip-marker-pin" viewBox="0 0 14 20">
       <path d="M7 0 C3.13 0 0 3.13 0 7 c0 5.25 7 13 7 13 s7 -7.75 7 -13 c0 -3.87 -3.13 -7 -7 -7 z" fill="${color}" stroke="#0b0f1e" stroke-width="1"/>
       <circle cx="7" cy="7" r="2.6" fill="#0b0f1e"/>
