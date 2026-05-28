@@ -1163,36 +1163,24 @@ function NativePanels(props: {
         setRefreshTick((t) => t + 1);
       }
     });
-
-    const unsubMetrics = subscribe<{ metrics: Metrics }>("dashboard:metrics", (payload) => {
-      if (payload && payload.metrics) {
-        metrics.setData(payload.metrics);
-      }
-    });
-
-    const unsubTraffic = subscribe<{ traffic: TrafficDataPoint[] }>("dashboard:traffic", (payload) => {
-      if (payload && payload.traffic) {
-        traffic.setData(payload.traffic);
-      }
-    });
-
-    onCleanup(() => {
-      unsubMap();
-      unsubMetrics();
-      unsubTraffic();
-    });
+    onCleanup(() => unsubMap());
   });
 
   const metrics = useDashboardPanel<Metrics>(
     () => api.getMetrics(props.hours, props.connectionId),
     deps,
-    null, // Disable HTTP polling — completely driven by Centrifugo Push events
+    15_000, // Enable safe, tenant-scoped HTTP polling
     () => props.visiblePanels.has("metricTotalRequests") ||
       props.visiblePanels.has("metricBlockedThreats") ||
       props.visiblePanels.has("metricAvgLatency") ||
       props.visiblePanels.has("metricActiveRules"),
   );
-  const traffic = useDashboardPanel<TrafficDataPoint[]>(() => api.getTraffic(props.hours, props.connectionId), deps, null, () => props.visiblePanels.has("trafficChart"));
+  const traffic = useDashboardPanel<TrafficDataPoint[]>(
+    () => api.getTraffic(props.hours, props.connectionId),
+    deps,
+    15_000, // Enable safe, tenant-scoped HTTP polling
+    () => props.visiblePanels.has("trafficChart")
+  );
   const wafEvents = useDashboardPanel<TimelinePoint[]>(() => api.getWafEventsTimeline(props.hours, props.connectionId), deps, 15_000, () => props.visiblePanels.has("wafEvents"));
   const topRules = useDashboardPanel<RuleHit[]>(() => api.getTopRules(props.hours, props.connectionId), deps, 30_000, () => props.visiblePanels.has("topRules"));
   const severity = useDashboardPanel<SeveritySlice[]>(() => api.getSeverityDistribution(props.hours, props.connectionId), deps, 30_000, () => props.visiblePanels.has("severity"));

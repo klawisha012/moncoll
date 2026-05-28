@@ -177,11 +177,13 @@ async def _flush_loop(agg: _Aggregator, stop: asyncio.Event) -> None:
 
 
 async def _metrics_broadcast_loop(stop: asyncio.Event) -> None:
-    """Раз в 2 секунды транслируем свежие метрики дашборда и трафика в Centrifugo."""
+    """Раз в 2 секунды транслируем свежие метрики дашборда и трафика для всех диапазонов в Centrifugo."""
     import time
     from ..dashboard.service import get_dashboard_metrics, get_traffic_data
 
     loop = asyncio.get_running_loop()
+    # Список стандартных временных диапазонов на фронтенде (15м, 1ч, 24ч, 7дн, 30дн)
+    time_windows = [0.25, 1.0, 24.0, 168.0, 720.0]
 
     while not stop.is_set():
         try:
@@ -191,23 +193,26 @@ async def _metrics_broadcast_loop(stop: asyncio.Event) -> None:
             pass  # обычный тик
 
         try:
-            # Вычисляем метрики в пуле потоков, чтобы не блокировать event loop
-            metrics = await loop.run_in_executor(None, get_dashboard_metrics, 24, None, None)
-            traffic = await loop.run_in_executor(None, get_traffic_data, 24, None, None)
+            for hours in time_windows:
+                if stop.is_set():
+                    break
+                # Вычисляем метрики в пуле потоков (активно использует быстрый Redis-кэш)
+                metrics = await loop.run_in_executor(None, get_dashboard_metrics, hours, None, None)
+                traffic = await loop.run_in_executor(None, get_traffic_data, hours, None, None)
 
-            payload_metrics = {
-                "type": "dashboard_metrics",
-                "ts": int(time.time() * 1000),
-                "metrics": metrics,
-            }
-            payload_traffic = {
-                "type": "dashboard_traffic",
-                "ts": int(time.time() * 1000),
-                "traffic": traffic,
-            }
+                payload_metrics = {
+                    "type": "dashboard_metrics",
+                    "ts": int(time.time() * 1000),
+                    "metrics": metrics,
+                }
+                payload_traffic = {
+                    "type": "dashboard_traffic",
+                    "ts": int(time.time() * 1000),
+                    "traffic": traffic,
+                }
 
-            await publisher.publish("dashboard:metrics", payload_metrics)
-            await publisher.publish("dashboard:traffic", payload_traffic)
+                await publisher.publish(f"dashboard:metrics:{hours}", payload_metrics)
+                await publisher.publish(f"dashboard:traffic:{hours}", payload_traffic)
 
         except Exception as exc:
             logger.warning("realtime: failed to broadcast dashboard metrics: %s", exc)
@@ -221,7 +226,6 @@ async def run_forever(stop: asyncio.Event) -> None:
         await asyncio.gather(
             _subscribe_loop(agg, stop),
             _flush_loop(agg, stop),
-            _metrics_broadcast_loop(stop),
             return_exceptions=False,
         )
     finally:
