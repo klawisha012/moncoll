@@ -36,9 +36,9 @@ export default function Geoip2DMap(props: Props) {
 
   createEffect(() => {
     const currentHits: Record<string, number> = {};
-    const pulses = { ...pulseTimestamps() };
     const prevHits = lastHitsMap();
     let hasChanges = false;
+    const newPulses: Record<string, number> = {};
 
     for (const m of props.data) {
       const k = keyOf(m);
@@ -46,14 +46,23 @@ export default function Geoip2DMap(props: Props) {
 
       const prev = prevHits[k];
       if (prev !== undefined && m.hits > prev) {
-        pulses[k] = Date.now();
+        newPulses[k] = Date.now();
         hasChanges = true;
+
+        // Auto-remove pulse after 2 seconds to trigger reactivity
+        setTimeout(() => {
+          setPulseTimestamps((curr) => {
+            const next = { ...curr };
+            delete next[k];
+            return next;
+          });
+        }, 2000);
       }
     }
 
     setLastHitsMap(currentHits);
     if (hasChanges) {
-      setPulseTimestamps(pulses);
+      setPulseTimestamps((curr) => ({ ...curr, ...newPulses }));
     }
   });
 
@@ -203,9 +212,7 @@ export default function Geoip2DMap(props: Props) {
               const r = () => (markerRadius(m.hits) * (isActive() ? 1.25 : 1)) / Math.sqrt(zoom());
 
               const hasPulse = () => {
-                const ts = pulseTimestamps()[k];
-                if (!ts) return false;
-                return Date.now() - ts < 2000;
+                return pulseTimestamps()[k] !== undefined;
               };
 
               return (

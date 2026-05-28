@@ -293,6 +293,7 @@ function buildMarker(
   color: string,
   _theme: "light" | "dark",
   requestsLabel: string,
+  hasPulse: boolean,
 ): HTMLDivElement {
   ensureMarkerStyle();
   ensureDocumentClick();
@@ -335,8 +336,12 @@ function buildMarker(
           .join("")
       : "";
 
+  const rippleHtml = hasPulse
+    ? `<div class="geoip-marker-ripple" style="background: ${color};"></div>`
+    : "";
+
   el.innerHTML = `
-    <div class="geoip-marker-ripple" style="background: ${color};"></div>
+    ${rippleHtml}
     <svg class="geoip-marker-pin" viewBox="0 0 14 20">
       <path d="M7 0 C3.13 0 0 3.13 0 7 c0 5.25 7 13 7 13 s7 -7.75 7 -13 c0 -3.87 -3.13 -7 -7 -7 z" fill="${color}" stroke="#0b0f1e" stroke-width="1"/>
       <circle cx="7" cy="7" r="2.6" fill="#0b0f1e"/>
@@ -380,6 +385,41 @@ export default function GeoipGlobe(props: Props) {
 
   const [size, setSize] = createSignal<{ w: number; h: number }>({ w: 800, h: 520 });
   const [countries, setCountries] = createSignal<CountryFeature[]>([]);
+
+  const [lastHitsMap, setLastHitsMap] = createSignal<Record<string, number>>({});
+  const [pulseTimestamps, setPulseTimestamps] = createSignal<Record<string, number>>({});
+
+  createEffect(() => {
+    const currentHits: Record<string, number> = {};
+    const prevHits = lastHitsMap();
+    let hasChanges = false;
+    const newPulses: Record<string, number> = {};
+
+    for (const m of props.data) {
+      const k = markerKey(m);
+      currentHits[k] = m.hits;
+
+      const prev = prevHits[k];
+      if (prev !== undefined && m.hits > prev) {
+        newPulses[k] = Date.now();
+        hasChanges = true;
+
+        // Auto-remove pulse after 2 seconds to trigger reactivity
+        setTimeout(() => {
+          setPulseTimestamps((curr) => {
+            const next = { ...curr };
+            delete next[k];
+            return next;
+          });
+        }, 2000);
+      }
+    }
+
+    setLastHitsMap(currentHits);
+    if (hasChanges) {
+      setPulseTimestamps((curr) => ({ ...curr, ...newPulses }));
+    }
+  });
 
   // Starfield generated once
   const starfieldUrl = createMemo(() => makeStarfield(900, 4096, 2048));
@@ -429,7 +469,16 @@ export default function GeoipGlobe(props: Props) {
   
   const htmlElementFn = (d: object) => {
     const m = d as GlobeMarker;
-    return buildMarker(m, colorFor(m.hits, minHits(), maxHits()), props.theme, props.requestsLabel);
+    const k = markerKey(m);
+    const hasPulse = pulseTimestamps()[k] !== undefined;
+
+    return buildMarker(
+      m,
+      colorFor(m.hits, minHits(), maxHits()),
+      props.theme,
+      props.requestsLabel,
+      hasPulse,
+    );
   };
 
   onMount(() => {
@@ -535,6 +584,8 @@ export default function GeoipGlobe(props: Props) {
   // React to active marker updates
   createEffect(() => {
     if (globeInstance) {
+      // Subscribe to pulseTimestamps changes to forcefully redraw HTML markers on pulse!
+      pulseTimestamps();
       globeInstance.htmlElementsData(props.data);
     }
   });
