@@ -332,7 +332,7 @@ def get_traffic_data(
     connection_id: int | None = None,
     tenant_id: int | None = None,
 ) -> list[dict[str, Any]]:
-    """Get traffic data points aggregated by hour."""
+    """Get traffic data points aggregated by hour or minute."""
     try:
         client = _get_client()
     except Exception:
@@ -343,13 +343,19 @@ def get_traffic_data(
     nginx_filter = _host_filter_nginx(domains)
     waf_filter = _host_filter_waf(domains)
 
+    # Use minute granularity for short windows (<= 2 hours), hour granularity for longer windows.
+    if hours <= 2.0:
+        time_func = "toStartOfMinute"
+    else:
+        time_func = "toStartOfHour"
+
     rows = (
         _safe_execute(
             client,
-            "SELECT toStartOfHour(time_local) AS hour, count() AS total "
+            f"SELECT {time_func}(time_local) AS t, count() AS total "
             "FROM logs.nginx_access_log "
             f"WHERE time_local >= now() - INTERVAL {minutes} MINUTE{nginx_filter} "
-            "GROUP BY hour ORDER BY hour",
+            "GROUP BY t ORDER BY t",
             default=[],
         )
         or []
@@ -357,21 +363,32 @@ def get_traffic_data(
     malicious_rows = (
         _safe_execute(
             client,
-            "SELECT toStartOfHour(timestamp) AS hour, count() AS total "
+            f"SELECT {time_func}(timestamp) AS t, count() AS total "
             "FROM logs.waf_audit_log "
             f"WHERE timestamp >= now() - INTERVAL {minutes} MINUTE{waf_filter} "
-            "GROUP BY hour ORDER BY hour",
+            "GROUP BY t ORDER BY t",
             default=[],
         )
         or []
     )
+    
+    # Merge and sort all unique timestamps from both logs to prevent losing data points
+    # if one of the logs has a slight delay or contains zero records.
+    all_times = sorted(list(set(r[0] for r in rows) | set(r[0] for r in malicious_rows)))
+    
+    nginx_map = {row[0]: row[1] for row in rows}
     malicious_map = {row[0]: row[1] for row in malicious_rows}
 
     result = []
-    for hour, total in rows:
-        malicious = malicious_map.get(hour, 0)
+    for t in all_times:
+        total = nginx_map.get(t, 0)
+        malicious = malicious_map.get(t, 0)
         clean = max(total - malicious, 0)
-        result.append({"timestamp": hour.isoformat(), "clean": clean, "malicious": malicious})
+        result.append({
+            "timestamp": t.isoformat(),
+            "clean": clean,
+            "malicious": malicious
+        })
     return result
 
 
@@ -922,25 +939,42 @@ def get_requests_per_second(
     hours: float = 24,
     connection_id: int | None = None,
     tenant_id: int | None = None,
+    metric: str = "rps",
 ) -> list[dict[str, Any]]:
-    """Requests per second derived from per-minute counts."""
+    """Requests per second derived from per-minute or per-hour counts, or peak RPS."""
     try:
         client = _get_client()
     except Exception:
         return []
     minutes = _clamp_minutes(hours)
     nginx_filter = _host_filter_nginx(_domains_for_connection(connection_id, tenant_id))
-    rows = (
-        _safe_execute(
-            client,
-            "SELECT toStartOfMinute(time_local) AS t, count() / 60.0 AS rps "
+
+    # Use minute granularity for short windows (<= 2 hours), hour granularity for longer windows.
+    if hours <= 2.0:
+        time_func = "toStartOfMinute"
+    else:
+        time_func = "toStartOfHour"
+
+    if metric == "volume":
+        query = (
+            f"SELECT {time_func}(time_local) AS t, count() AS rps "
             "FROM logs.nginx_access_log "
             f"WHERE time_local >= now() - INTERVAL {minutes} MINUTE{nginx_filter} "
-            "GROUP BY t ORDER BY t",
-            default=[],
+            "GROUP BY t ORDER BY t"
         )
-        or []
-    )
+    else:
+        # Peak RPS: Group by second first (time_local), then find max count inside each bucket
+        query = (
+            f"SELECT {time_func}(time_local) AS t, max(rps_sec) AS rps "
+            "FROM ("
+            "  SELECT time_local, count() AS rps_sec "
+            "  FROM logs.nginx_access_log "
+            f"  WHERE time_local >= now() - INTERVAL {minutes} MINUTE{nginx_filter} "
+            "  GROUP BY time_local"
+            ") GROUP BY t ORDER BY t"
+        )
+
+    rows = _safe_execute(client, query, default=[]) or []
     return [{"timestamp": t.isoformat(), "rps": float(rps)} for t, rps in rows]
 
 

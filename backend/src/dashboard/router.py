@@ -289,10 +289,13 @@ async def traffic_volume(
 
 @router.get("/requests-per-second")
 async def requests_per_second(
-    hours: float = _HOURS, connection_id: int | None = _CONNECTION_ID, user: User = _U
+    hours: float = _HOURS,
+    connection_id: int | None = _CONNECTION_ID,
+    metric: str = Query("rps", pattern="^(rps|volume)$"),
+    user: User = _U,
 ):
     return await _run(
-        functools.partial(get_requests_per_second, hours, connection_id, user.tenant_id)
+        functools.partial(get_requests_per_second, hours, connection_id, user.tenant_id, metric)
     )
 
 

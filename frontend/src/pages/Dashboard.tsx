@@ -150,7 +150,7 @@ function loadVisible(): Set<PanelKey> {
 // refreshes are silent — the previous data stays on screen.
 function useDashboardPanel<T>(
   fetcher: () => Promise<T>,
-  deps: () => [number, number | null],
+  deps: () => any,
   intervalMs = 15_000,
   enabled: () => boolean = () => true,
 ): { data: () => T | null; initialLoading: () => boolean; error: () => string | null } {
@@ -194,12 +194,16 @@ function PanelCard(props: {
   icon?: any;
   children: any;
   style?: any;
+  headerActions?: any;
 }) {
   return (
     <div class="card" style={{ "margin-bottom": "16px", ...props.style }}>
-      <div class="card-header" style={{ display: "flex", "align-items": "center", gap: "8px" }}>
-        {props.icon}
-        <h2 style={{ "font-size": "15px", margin: "0" }}>{props.title}</h2>
+      <div class="card-header" style={{ display: "flex", "align-items": "center", "justify-content": "space-between", gap: "8px" }}>
+        <div style={{ display: "flex", "align-items": "center", gap: "8px" }}>
+          {props.icon}
+          <h2 style={{ "font-size": "15px", margin: "0" }}>{props.title}</h2>
+        </div>
+        {props.headerActions}
       </div>
       <div style={{ padding: "8px 4px" }}>{props.children}</div>
     </div>
@@ -221,7 +225,11 @@ function TimelineSeriesInner(props: {
 
   const fmt = (v: number) => {
     if (props.unit === "bytes") return formatBytes(v);
-    if (props.unit === "rps") return `${Math.round(v)} rps`;
+    if (props.unit === "rps") {
+      if (v === 0) return "0 rps";
+      const formatted = v < 0.1 ? v.toFixed(3) : v.toFixed(2);
+      return `${parseFloat(formatted)} rps`;
+    }
     return formatNumber(Math.round(v));
   };
 
@@ -326,6 +334,7 @@ function TimelineSeriesInner(props: {
       },
       yAxis: {
         type: "value",
+        minInterval: props.unit === "rps" ? 0 : 1,
         axisLine: { show: false },
         splitLine: {
           lineStyle: {
@@ -1155,7 +1164,14 @@ function NativePanels(props: {
   const topUserAgents = useDashboardPanel<UserAgentHit[]>(() => api.getTopUserAgents(props.hours, props.connectionId), deps, 30_000, () => props.visiblePanels.has("topUserAgents"));
   const byCountry = useDashboardPanel<CountryHit[]>(() => api.getRequestsByCountry(props.hours, props.connectionId), deps, 30_000, () => props.visiblePanels.has("byCountry"));
   const trafficVolume = useDashboardPanel<BytesPoint[]>(() => api.getTrafficVolume(props.hours, props.connectionId), deps, 15_000, () => props.visiblePanels.has("trafficVolume"));
-  const rps = useDashboardPanel<RpsPoint[]>(() => api.getRequestsPerSecond(props.hours, props.connectionId), deps, 15_000, () => props.visiblePanels.has("rps"));
+  const [rpsMetric, setRpsMetric] = createSignal<"rps" | "volume">("rps");
+  const rpsDeps = () => [props.hours, props.connectionId, rpsMetric()] as [number, number | null, "rps" | "volume"];
+  const rps = useDashboardPanel<RpsPoint[]>(
+    () => api.getRequestsPerSecond(props.hours, props.connectionId, rpsMetric()),
+    rpsDeps,
+    15_000,
+    () => props.visiblePanels.has("rps")
+  );
   const events = useDashboardPanel<SecurityEvent[]>(
     () => api.getEvents(15, "all", props.hours, props.connectionId),
     deps,
@@ -1362,14 +1378,55 @@ function NativePanels(props: {
       </Show>
 
       <Show when={props.visiblePanels.has("rps")}>
-        <PanelCard title={settings.t("dashboard.panel.rps")} icon={<Zap size={16} />}>
+        <PanelCard
+          title={settings.t("dashboard.panel.rps")}
+          icon={<Zap size={16} />}
+          headerActions={
+            <div style={{ display: "flex", background: "var(--bg-elevated)", border: "1px solid var(--border-subtle)", "border-radius": "4px", padding: "2px" }}>
+              <button
+                onClick={() => setRpsMetric("rps")}
+                style={{
+                  background: rpsMetric() === "rps" ? "var(--accent-1)" : "transparent",
+                  color: rpsMetric() === "rps" ? "#fff" : "var(--text-secondary)",
+                  border: "none",
+                  "font-size": "10px",
+                  "font-family": "var(--font-mono)",
+                  "font-weight": 600,
+                  padding: "2px 8px",
+                  "border-radius": "3px",
+                  cursor: "pointer",
+                  transition: "background var(--duration-fast), color var(--duration-fast)"
+                }}
+              >
+                RPS
+              </button>
+              <button
+                onClick={() => setRpsMetric("volume")}
+                style={{
+                  background: rpsMetric() === "volume" ? "var(--accent-1)" : "transparent",
+                  color: rpsMetric() === "volume" ? "#fff" : "var(--text-secondary)",
+                  border: "none",
+                  "font-size": "10px",
+                  "font-family": "var(--font-mono)",
+                  "font-weight": 600,
+                  padding: "2px 8px",
+                  "border-radius": "3px",
+                  cursor: "pointer",
+                  transition: "background var(--duration-fast), color var(--duration-fast)"
+                }}
+              >
+                {props.hours <= 2 ? "RPM" : "RPH"}
+              </button>
+            </div>
+          }
+        >
           <TimelineSeries
             data={rps.data()}
             loading={rps.initialLoading()}
-            valueOf={(d) => Math.ceil((d as RpsPoint).rps)}
+            valueOf={(d) => (d as RpsPoint).rps}
             color="#06b6d4"
-            unit="rps"
-            valueLabel={settings.t("dashboard.tooltip.reqPerSec")}
+            unit={rpsMetric() === "rps" ? "rps" : "count"}
+            valueLabel={rpsMetric() === "rps" ? settings.t("dashboard.tooltip.reqPerSec") : (props.hours <= 2 ? "RPM" : "RPH")}
             type="bar"
           />
         </PanelCard>

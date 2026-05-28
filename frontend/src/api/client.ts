@@ -337,6 +337,8 @@ export interface TestRunResult {
   latency_ms: number | null;
   target_url: string;
   error: string | null;
+  request_raw: string | null;
+  response_raw: string | null;
 }
 
 export interface TestTrafficEvent {
@@ -370,18 +372,21 @@ export interface CrowdsecRunResult {
   scenario: string;
   source_ip: string;
   started_at: string;
-  decisions_after: string[];
+  decisions_before: DecisionItem[];
+  decisions_after: DecisionItem[];
   bursts_sent: number;
   target_url: string;
 }
 
 function buildDashboardQuery(
   hours?: number,
-  connectionId?: number | null
+  connectionId?: number | null,
+  metric?: string
 ): string {
   const params = new URLSearchParams();
   if (hours !== undefined) params.set("hours", String(hours));
   if (connectionId != null) params.set("connection_id", String(connectionId));
+  if (metric !== undefined) params.set("metric", metric);
   const qs = params.toString();
   return qs ? `?${qs}` : "";
 }
@@ -640,9 +645,9 @@ export const api = {
     fetchApi<BytesPoint[]>(
       `/api/dashboard/traffic-volume${buildDashboardQuery(hours, connectionId)}`
     ),
-  getRequestsPerSecond: (hours?: number, connectionId?: number | null) =>
+  getRequestsPerSecond: (hours?: number, connectionId?: number | null, metric?: string) =>
     fetchApi<RpsPoint[]>(
-      `/api/dashboard/requests-per-second${buildDashboardQuery(hours, connectionId)}`
+      `/api/dashboard/requests-per-second${buildDashboardQuery(hours, connectionId, metric)}`
     ),
   getRequestsByCountry: (hours?: number, connectionId?: number | null) =>
     fetchApi<CountryHit[]>(
@@ -663,10 +668,10 @@ export const api = {
   getTestTrafficByMarker: (marker: string) =>
     fetchApi<TestTrafficResponse>(`/api/dashboard/test-traffic/${encodeURIComponent(marker)}`),
   getCrowdsecTestCatalog: () => fetchApi<CrowdsecCatalog>("/api/tests/crowdsec/catalog"),
-  runCrowdsecScenario: (scenario_id: string) =>
+  runCrowdsecScenario: (scenario_id: string, connection_id: number | null) =>
     fetchApi<CrowdsecRunResult>("/api/tests/crowdsec/run", {
       method: "POST",
-      body: JSON.stringify({ scenario_id }),
+      body: JSON.stringify({ scenario_id, connection_id }),
     }),
 
   // ── Connections API (domain-only model; spec §4) ─────────────
