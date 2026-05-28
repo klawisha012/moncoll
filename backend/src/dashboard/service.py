@@ -131,6 +131,14 @@ def _clamp_minutes(hours: float) -> int:
     return max(1, int(hours * 60))
 
 
+def _iso(t: Any) -> str:
+    if isinstance(t, str):
+        return t
+    if hasattr(t, "isoformat"):
+        return t.isoformat()
+    return str(t)
+
+
 def _domains_for_connection(
     connection_id: int | None,
     tenant_id: int | None = None,
@@ -405,7 +413,7 @@ def get_traffic_data(
         malicious = malicious_map.get(t, 0)
         clean = max(total - malicious, 0)
         result.append({
-            "timestamp": t.isoformat(),
+            "timestamp": _iso(t),
             "clean": clean,
             "malicious": malicious
         })
@@ -622,7 +630,7 @@ def get_security_events(
     for ts, rule_id, client_ip, sev, uri, _msg in rows:
         result.append(
             {
-                "timestamp": ts.isoformat(),
+                "timestamp": _iso(ts),
                 "type": rule_id or "unknown",
                 "ip": client_ip or "0.0.0.0",
                 "country": "",
@@ -671,7 +679,7 @@ def get_waf_events_timeline(
         )
         or []
     )
-    return [{"timestamp": t.isoformat(), "hits": int(hits)} for t, hits in rows]
+    return [{"timestamp": _iso(t), "hits": int(hits)} for t, hits in rows]
 
 
 def get_top_rules(
@@ -779,7 +787,7 @@ def get_anomaly_score_timeline(
         )
         or []
     )
-    return [{"timestamp": t.isoformat(), "score": int(score)} for t, score in rows]
+    return [{"timestamp": _iso(t), "score": int(score)} for t, score in rows]
 
 
 def get_top_tags(
@@ -892,7 +900,7 @@ def get_status_codes_timeline(
     )
     return [
         {
-            "timestamp": t.isoformat(),
+            "timestamp": _iso(t),
             "c2xx": int(a),
             "c3xx": int(b),
             "c4xx": int(c),
@@ -952,7 +960,7 @@ def get_traffic_volume(
         )
         or []
     )
-    return [{"timestamp": t.isoformat(), "bytes": int(b or 0)} for t, b in rows]
+    return [{"timestamp": _iso(t), "bytes": int(b or 0)} for t, b in rows]
 
 
 def get_requests_per_second(
@@ -995,7 +1003,7 @@ def get_requests_per_second(
         )
 
     rows = _safe_execute(client, query, default=[]) or []
-    return [{"timestamp": t.isoformat(), "rps": float(rps)} for t, rps in rows]
+    return [{"timestamp": _iso(t), "rps": float(rps)} for t, rps in rows]
 
 
 def get_requests_by_country(
@@ -1081,7 +1089,7 @@ def get_test_traffic_by_marker(
     timestamps: list[str] = []
     seen_ts: set[str] = set()
     for ts, rule_id, client_ip, uri, method, sev, msg, score in rows:
-        iso = ts.isoformat()
+        iso = _iso(ts)
         events.append(
             {
                 "timestamp": iso,

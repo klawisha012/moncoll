@@ -93,6 +93,7 @@ async def publish(channel: str, data: dict[str, Any]) -> bool:
 import hmac
 import hashlib
 import base64
+import json
 
 
 def _b64url(b: bytes) -> str:
