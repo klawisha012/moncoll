@@ -104,6 +104,7 @@ docs/
 .roo/
 .claude/
 CLAUDE.md
+GEMINI.md
 .mcp.json
 .playwright-mcp/
 .gstack/

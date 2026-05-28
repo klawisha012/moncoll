@@ -176,14 +176,52 @@ async def _flush_loop(agg: _Aggregator, stop: asyncio.Event) -> None:
             logger.warning("realtime: drop %d points, publish failed", len(points))
 
 
+async def _metrics_broadcast_loop(stop: asyncio.Event) -> None:
+    """Раз в 2 секунды транслируем свежие метрики дашборда и трафика в Centrifugo."""
+    import time
+    from ..dashboard.service import get_dashboard_metrics, get_traffic_data
+
+    loop = asyncio.get_running_loop()
+
+    while not stop.is_set():
+        try:
+            await asyncio.wait_for(stop.wait(), timeout=2.0)
+            return  # stop signaled
+        except (TimeoutError, asyncio.TimeoutError):
+            pass  # обычный тик
+
+        try:
+            # Вычисляем метрики в пуле потоков, чтобы не блокировать event loop
+            metrics = await loop.run_in_executor(None, get_dashboard_metrics, 24, None, None)
+            traffic = await loop.run_in_executor(None, get_traffic_data, 24, None, None)
+
+            payload_metrics = {
+                "type": "dashboard_metrics",
+                "ts": int(time.time() * 1000),
+                "metrics": metrics,
+            }
+            payload_traffic = {
+                "type": "dashboard_traffic",
+                "ts": int(time.time() * 1000),
+                "traffic": traffic,
+            }
+
+            await publisher.publish("dashboard:metrics", payload_metrics)
+            await publisher.publish("dashboard:traffic", payload_traffic)
+
+        except Exception as exc:
+            logger.warning("realtime: failed to broadcast dashboard metrics: %s", exc)
+
+
 async def run_forever(stop: asyncio.Event) -> None:
-    """Точка входа — запустить subscribe + flush параллельно и ждать stop.
+    """Точка входа — запустить subscribe + flush + broadcast параллельно и ждать stop.
     Вызывается из lifespan через asyncio.create_task."""
     agg = _Aggregator()
     try:
         await asyncio.gather(
             _subscribe_loop(agg, stop),
             _flush_loop(agg, stop),
+            _metrics_broadcast_loop(stop),
             return_exceptions=False,
         )
     finally:

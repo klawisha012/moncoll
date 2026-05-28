@@ -153,9 +153,9 @@ function loadVisible(): Set<PanelKey> {
 function useDashboardPanel<T>(
   fetcher: () => Promise<T>,
   deps: () => any,
-  intervalMs = 15_000,
+  intervalMs: number | null = 15_000,
   enabled: () => boolean = () => true,
-): { data: () => T | null; initialLoading: () => boolean; error: () => string | null } {
+): { data: () => T | null; setData: (v: T) => void; initialLoading: () => boolean; error: () => string | null } {
   const [data, setData] = createSignal<T | null>(null);
   const [initialLoading, setInitialLoading] = createSignal(true);
   const [error, setError] = createSignal<string | null>(null);
@@ -181,14 +181,24 @@ function useDashboardPanel<T>(
     };
 
     run();
-    const id = setInterval(run, intervalMs);
+    
+    let id: any = null;
+    if (intervalMs !== null && intervalMs > 0) {
+      id = setInterval(run, intervalMs);
+    }
+    
     onCleanup(() => {
       cancelled = true;
-      clearInterval(id);
+      if (id !== null) clearInterval(id);
     });
   });
 
-  return { data, initialLoading, error };
+  const customSetData = (val: T) => {
+    setData(() => val);
+    setInitialLoading(false);
+  };
+
+  return { data, setData: customSetData, initialLoading, error };
 }
 
 function PanelCard(props: {
@@ -1145,7 +1155,7 @@ function NativePanels(props: {
 
   onMount(() => {
     let lastRefresh = 0;
-    const unsub = subscribe<GeoipMapDelta>("dashboard:map", (delta) => {
+    const unsubMap = subscribe<GeoipMapDelta>("dashboard:map", (delta) => {
       const now = Date.now();
       // Throttle refreshes to maximum once every 3 seconds to avoid overloading ClickHouse/FastAPI
       if (now - lastRefresh >= 3000) {
@@ -1153,19 +1163,36 @@ function NativePanels(props: {
         setRefreshTick((t) => t + 1);
       }
     });
-    onCleanup(() => unsub());
+
+    const unsubMetrics = subscribe<{ metrics: Metrics }>("dashboard:metrics", (payload) => {
+      if (payload && payload.metrics) {
+        metrics.setData(payload.metrics);
+      }
+    });
+
+    const unsubTraffic = subscribe<{ traffic: TrafficDataPoint[] }>("dashboard:traffic", (payload) => {
+      if (payload && payload.traffic) {
+        traffic.setData(payload.traffic);
+      }
+    });
+
+    onCleanup(() => {
+      unsubMap();
+      unsubMetrics();
+      unsubTraffic();
+    });
   });
 
   const metrics = useDashboardPanel<Metrics>(
     () => api.getMetrics(props.hours, props.connectionId),
     deps,
-    15_000,
+    null, // Disable HTTP polling — completely driven by Centrifugo Push events
     () => props.visiblePanels.has("metricTotalRequests") ||
       props.visiblePanels.has("metricBlockedThreats") ||
       props.visiblePanels.has("metricAvgLatency") ||
       props.visiblePanels.has("metricActiveRules"),
   );
-  const traffic = useDashboardPanel<TrafficDataPoint[]>(() => api.getTraffic(props.hours, props.connectionId), deps, 15_000, () => props.visiblePanels.has("trafficChart"));
+  const traffic = useDashboardPanel<TrafficDataPoint[]>(() => api.getTraffic(props.hours, props.connectionId), deps, null, () => props.visiblePanels.has("trafficChart"));
   const wafEvents = useDashboardPanel<TimelinePoint[]>(() => api.getWafEventsTimeline(props.hours, props.connectionId), deps, 15_000, () => props.visiblePanels.has("wafEvents"));
   const topRules = useDashboardPanel<RuleHit[]>(() => api.getTopRules(props.hours, props.connectionId), deps, 30_000, () => props.visiblePanels.has("topRules"));
   const severity = useDashboardPanel<SeveritySlice[]>(() => api.getSeverityDistribution(props.hours, props.connectionId), deps, 30_000, () => props.visiblePanels.has("severity"));

@@ -16,10 +16,9 @@ from src.dashboard import service as ds
 def mock_ch_client():
     client = MagicMock()
     client.execute = MagicMock(return_value=[])
-    with ds._cache_lock:
-        ds._cache.clear()
-    with patch.object(ds, "_get_client", return_value=client):
-        yield client
+    with patch.object(ds, "_get_redis", return_value=None):
+        with patch.object(ds, "_get_client", return_value=client):
+            yield client
 
 
 # ── helper coverage ──────────────────────────────────────────

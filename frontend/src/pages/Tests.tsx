@@ -114,25 +114,21 @@ export default function Tests() {
 
   const [realtimeTrigger, setRealtimeTrigger] = createSignal(0);
 
-  // Refresh traffic chart every 10s or on real-time event
+  // Fetch initial traffic chart data
   createEffect(() => {
     const connId = connectionId();
     realtimeTrigger(); // track reactively
     let cancelled = false;
-    const run = () =>
-      api
-        .getTraffic(1, connId)
-        .then((res) => {
-          if (!cancelled) setTraffic(res);
-        })
-        .catch(() => {
-          if (!cancelled) setTraffic([]);
-        });
-    run();
-    const id = setInterval(run, 10_000);
+    api
+      .getTraffic(1, connId)
+      .then((res) => {
+        if (!cancelled) setTraffic(res);
+      })
+      .catch(() => {
+        if (!cancelled) setTraffic([]);
+      });
     onCleanup(() => {
       cancelled = true;
-      clearInterval(id);
     });
   });
 
@@ -164,7 +160,7 @@ export default function Tests() {
 
   onMount(() => {
     let lastRefresh = 0;
-    const unsub = subscribe<GeoipMapDelta>("dashboard:map", (delta) => {
+    const unsubMap = subscribe<GeoipMapDelta>("dashboard:map", (delta) => {
       const now = Date.now();
       // Throttle slightly to prevent rapid polling
       if (now - lastRefresh >= 1500) {
@@ -172,7 +168,17 @@ export default function Tests() {
         setRealtimeTrigger((t) => t + 1);
       }
     });
-    onCleanup(() => unsub());
+
+    const unsubTraffic = subscribe<{ traffic: any }>("dashboard:traffic", (payload) => {
+      if (payload && payload.traffic) {
+        setTraffic(payload.traffic);
+      }
+    });
+
+    onCleanup(() => {
+      unsubMap();
+      unsubTraffic();
+    });
   });
 
   const onRun = async (test: TestCase) => {

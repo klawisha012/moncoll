@@ -45,13 +45,27 @@ def _get_client() -> ClickHouseClient:
     )
 
 
-# Small in-process TTL cache for ClickHouse query results. The dashboard
+import hashlib
+import orjson
+import redis
+
+# Small distributed Redis-backed TTL cache for ClickHouse query results. The dashboard
 # polls every 15s * 19 panels — without this, every poll hits ClickHouse
 # from scratch and the heaviest queries (joins, ARRAY JOINs over the full
 # audit log) drove the container to 30+ cores.
 _QUERY_TTL_S = float(os.getenv("DASHBOARD_QUERY_TTL", "30"))
-_cache_lock = threading.Lock()
-_cache: dict[str, tuple[float, Any]] = {}
+_redis_conn = None
+
+def _get_redis() -> redis.Redis | None:
+    global _redis_conn
+    if _redis_conn is None:
+        try:
+            redis_url = os.getenv("REDIS_URL", "redis://redis:6379/0")
+            _redis_conn = redis.Redis.from_url(redis_url, socket_timeout=2.0)
+        except Exception as exc:
+            logger.warning("Failed to initialize Redis connection for ClickHouse caching: %s", exc)
+            return None
+    return _redis_conn
 
 
 def _direct_execute(client: ClickHouseClient, query: str, default: Any = None) -> Any:
@@ -72,12 +86,19 @@ def _direct_execute(client: ClickHouseClient, query: str, default: Any = None) -
 
 
 def _safe_execute(client: ClickHouseClient, query: str, default: Any = None) -> Any:
-    """Run *query* with a short TTL cache and swallow ClickHouse errors."""
-    now = time.monotonic()
-    with _cache_lock:
-        hit = _cache.get(query)
-        if hit is not None and now - hit[0] < _QUERY_TTL_S:
-            return hit[1]
+    """Run *query* with a short distributed TTL cache in Redis and swallow ClickHouse errors."""
+    r = _get_redis()
+    cache_key = None
+    if r is not None:
+        try:
+            query_hash = hashlib.md5(query.encode("utf-8")).hexdigest()
+            cache_key = f"waf:clickhouse:{query_hash}"
+            cached = r.get(cache_key)
+            if cached is not None:
+                return orjson.loads(cached)
+        except Exception as exc:
+            logger.warning("Redis cache read failed: %s", exc)
+
     try:
         result = client.execute(query)
     except ClickHouseError as exc:
@@ -87,13 +108,12 @@ def _safe_execute(client: ClickHouseClient, query: str, default: Any = None) -> 
         logger.exception("Unexpected error executing ClickHouse query: %s", query)
         return default
 
-    with _cache_lock:
-        _cache[query] = (now, result)
-        # Evict expired entries opportunistically to keep the dict small.
-        if len(_cache) > 256:
-            cutoff = now - _QUERY_TTL_S
-            for k in [k for k, (ts, _) in _cache.items() if ts < cutoff]:
-                _cache.pop(k, None)
+    if r is not None and cache_key is not None:
+        try:
+            r.setex(cache_key, int(_QUERY_TTL_S), orjson.dumps(result))
+        except Exception as exc:
+            logger.warning("Redis cache write failed: %s", exc)
+
     return result
 
 
