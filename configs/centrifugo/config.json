@@ -16,7 +16,15 @@
   },
 
   "engine": {
-    "type": "memory"
+    "type": "redis",
+    "redis": {
+      "address": "redis:6379"
+    }
+  },
+
+  "websocket": {
+    "compression": false,
+    "use_write_buffer_pool": true
   },
 
   "channel": {

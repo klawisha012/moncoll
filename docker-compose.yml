@@ -157,6 +157,12 @@ services:
       - ""
       - --appendonly
       - "no"
+      - --io-threads
+      - "4"
+      - --tcp-backlog
+      - "65535"
+      - --loglevel
+      - "warning"
     volumes:
       - redis-data:/data
     healthcheck:

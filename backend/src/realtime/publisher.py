@@ -11,12 +11,12 @@ Failure mode: если Centrifugo не отвечает или вернул 5xx 
 
 from __future__ import annotations
 
-import json
 import logging
 import time
 from typing import Any
 
 import httpx
+import orjson
 
 from . import config
 
@@ -62,7 +62,8 @@ async def publish(channel: str, data: dict[str, Any]) -> bool:
 
     try:
         client = _get_client()
-        resp = await client.post(url, content=json.dumps(payload))
+        # orjson.dumps returns bytes directly, which httpx accepts as content
+        resp = await client.post(url, content=orjson.dumps(payload))
         if resp.status_code != 200:
             logger.warning(
                 "Centrifugo publish %s returned %s: %s",
@@ -71,7 +72,7 @@ async def publish(channel: str, data: dict[str, Any]) -> bool:
             return False
         # Centrifugo возвращает {"result": {...}} при успехе, {"error": {...}}
         # при ошибке валидации (например, неизвестный namespace).
-        body = resp.json()
+        body = orjson.loads(resp.content)
         if "error" in body:
             logger.warning("Centrifugo publish %s error: %s", channel, body["error"])
             return False

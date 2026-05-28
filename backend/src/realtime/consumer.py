@@ -20,10 +20,10 @@ Single-backend-instance assumption: см. __init__.py docstring.
 from __future__ import annotations
 
 import asyncio
-import json
 import logging
 from dataclasses import dataclass
 
+import orjson
 import redis.asyncio as aioredis
 
 from . import config, publisher
@@ -48,10 +48,9 @@ class _Aggregator:
 
     def __init__(self) -> None:
         self._buckets: dict[_BucketKey, int] = {}
-        self._lock = asyncio.Lock()
         self._dropped_no_geoip = 0
 
-    async def add_event(self, raw: dict) -> None:
+    def add_event(self, raw: dict) -> None:
         """Принять одно raw-событие из Vector. Если у него нет geoip-
         координат (частный IP, MaxMind miss) — увеличиваем счётчик
         потерь, событие игнорируем для карты (всё равно нечего рисовать).
@@ -78,27 +77,25 @@ class _Aggregator:
             lon=round(lon_f, config.GEOIP_BUCKET_PRECISION),
             city=str(geoip.get("city_name") or ""),
         )
-        async with self._lock:
-            self._buckets[key] = self._buckets.get(key, 0) + 1
+        self._buckets[key] = self._buckets.get(key, 0) + 1
 
-    async def drain(self) -> list[dict]:
+    def drain(self) -> list[dict]:
         """Атомарно забрать накопленные дельты и обнулить буфер. Возвращает
         список JSON-серилизуемых точек (с короткими именами полей для
         экономии bytes на 10k клиентах)."""
-        async with self._lock:
-            if not self._buckets:
-                return []
-            out = [
-                {
-                    "cc": k.cc,
-                    "lat": k.lat,
-                    "lon": k.lon,
-                    "city": k.city,
-                    "delta": v,
-                }
-                for k, v in self._buckets.items()
-            ]
-            self._buckets.clear()
+        if not self._buckets:
+            return []
+        out = [
+            {
+                "cc": k.cc,
+                "lat": k.lat,
+                "lon": k.lon,
+                "city": k.city,
+                "delta": v,
+            }
+            for k, v in self._buckets.items()
+        ]
+        self._buckets.clear()
         return out
 
 
@@ -106,6 +103,8 @@ async def _subscribe_loop(agg: _Aggregator, stop: asyncio.Event) -> None:
     """Держать подписку на Redis pub/sub. Auto-reconnect с backoff."""
     backoff = 1.0
     while not stop.is_set():
+        client = None
+        pubsub = None
         try:
             client = aioredis.from_url(config.REDIS_URL, decode_responses=True)
             pubsub = client.pubsub()
@@ -122,16 +121,16 @@ async def _subscribe_loop(agg: _Aggregator, stop: asyncio.Event) -> None:
                 if not data:
                     continue
                 try:
-                    raw = json.loads(data)
-                except (json.JSONDecodeError, TypeError) as exc:
+                    raw = orjson.loads(data)
+                except (ValueError, TypeError) as exc:
                     logger.warning("realtime: bad json from redis: %s", exc)
                     continue
-                await agg.add_event(raw)
+                agg.add_event(raw)
         except asyncio.CancelledError:
             raise
-        except Exception:
+        except Exception as exc:
             logger.warning(
-                "realtime: redis subscribe failed, retry in %.1fs", backoff, exc_info=True,
+                "realtime: redis subscribe failed, retry in %.1fs: %s", backoff, exc, exc_info=True,
             )
             try:
                 await asyncio.wait_for(stop.wait(), timeout=backoff)
@@ -139,6 +138,18 @@ async def _subscribe_loop(agg: _Aggregator, stop: asyncio.Event) -> None:
             except (TimeoutError, asyncio.TimeoutError):
                 pass
             backoff = min(backoff * 2, 30.0)
+        finally:
+            if pubsub is not None:
+                try:
+                    await pubsub.unsubscribe()
+                    await pubsub.close()
+                except Exception:
+                    pass
+            if client is not None:
+                try:
+                    await client.close()
+                except Exception:
+                    pass
 
 
 async def _flush_loop(agg: _Aggregator, stop: asyncio.Event) -> None:
@@ -150,7 +161,7 @@ async def _flush_loop(agg: _Aggregator, stop: asyncio.Event) -> None:
         except (TimeoutError, asyncio.TimeoutError):
             pass  # обычный тик
 
-        points = await agg.drain()
+        points = agg.drain()
         if not points:
             continue
 
@@ -178,3 +189,4 @@ async def run_forever(stop: asyncio.Event) -> None:
     finally:
         await publisher.close()
         logger.info("realtime: consumer stopped")
+
