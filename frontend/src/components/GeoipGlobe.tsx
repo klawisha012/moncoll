@@ -392,12 +392,13 @@ export default function GeoipGlobe(props: Props) {
   createEffect(() => {
     let hasChanges = false;
     const newPulses: Record<string, number> = {};
+    const isInitialLoad = lastHits.size === 0;
 
     for (const m of props.data) {
       const k = markerKey(m);
       const prev = lastHits.get(k);
 
-      if (prev !== undefined && m.hits > prev) {
+      if (!isInitialLoad && (prev === undefined || m.hits > prev)) {
         newPulses[k] = Date.now();
         hasChanges = true;
 

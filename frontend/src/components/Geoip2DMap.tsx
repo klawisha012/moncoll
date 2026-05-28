@@ -37,12 +37,15 @@ export default function Geoip2DMap(props: Props) {
   createEffect(() => {
     let hasChanges = false;
     const newPulses: Record<string, number> = {};
+    const isInitialLoad = lastHits.size === 0;
+    console.debug("[Geoip2DMap] Checking updates for points:", props.data.length);
 
     for (const m of props.data) {
       const k = keyOf(m);
       const prev = lastHits.get(k);
 
-      if (prev !== undefined && m.hits > prev) {
+      if (!isInitialLoad && (prev === undefined || m.hits > prev)) {
+        console.debug(`[Geoip2DMap] 💥 PULSE TRIGGERED for point: ${k}, hits: ${m.hits} (was ${prev})`);
         newPulses[k] = Date.now();
         hasChanges = true;
 

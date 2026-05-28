@@ -35,7 +35,8 @@
         "history_size": 0,
         "history_ttl": "0s",
         "force_recovery": false,
-        "join_leave": false
+        "join_leave": false,
+        "allow_subscribe_for_client": true
       }
     ]
   }
