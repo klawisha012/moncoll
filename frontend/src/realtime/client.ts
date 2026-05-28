@@ -23,7 +23,18 @@ const getCentrifugoWsUrl = (): string => {
 
   const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
   const host = window.location.hostname;
-  return `${protocol}//${host}:8001/connection/websocket`;
+  const port = window.location.port;
+
+  // Если мы ведем локальную разработку на порту 3000 (прямой доступ к React Dev Server),
+  // то проксируем на порт 8001 Centrifugo, так как на порту 3000 нет проксирования вебсокетов.
+  if (port === "3000") {
+    return `${protocol}//${host}:8001/connection/websocket`;
+  }
+
+  // На боевом сервере (порты 80/443) или при работе через Angie
+  // подключаемся по основному порту хоста страницы — Angie всё проксирует.
+  const portSuffix = port ? `:${port}` : "";
+  return `${protocol}//${host}${portSuffix}/connection/websocket`;
 };
 
 const CENTRIFUGO_WS_URL = getCentrifugoWsUrl();
