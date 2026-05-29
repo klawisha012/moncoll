@@ -16,7 +16,7 @@ export default function RequireRole(props: { role: Role; children?: JSX.Element 
         when={auth.user?.platform_role === props.role}
         fallback={
           <Navigate
-            href={auth.user?.platform_role === "admin" ? "/monitoring" : "/home"}
+            href={auth.user?.platform_role === "admin" ? "/monitoring" : "/"}
           />
         }
       >

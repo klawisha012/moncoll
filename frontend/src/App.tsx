@@ -1,3 +1,4 @@
+import { Show } from "solid-js";
 import { Router, Route, Navigate } from "@solidjs/router";
 import Layout from "./components/Layout";
 import ProtectedRoute from "./components/ProtectedRoute";
@@ -19,15 +20,6 @@ import ChangePassword from "./pages/ChangePassword";
 import Tests from "./pages/Tests";
 import Clients from "./pages/Clients";
 import ClientDetail from "./pages/ClientDetail";
-
-function RoleHomeRedirect() {
-  const auth = useAuth();
-  return (
-    <Navigate
-      href={auth.user?.platform_role === "admin" ? "/monitoring" : "/home"}
-    />
-  );
-}
 
 export default function App() {
   return (
@@ -71,16 +63,24 @@ export default function App() {
             )}
           />
 
-          {/* Index: redirect to role-appropriate page */}
-          <Route path="" component={RoleHomeRedirect} />
-          
+          {/* Index: для клиента рендерим Home, для админа редиректим на /monitoring */}
           <Route
-            path="home"
-            component={() => (
-              <RequireRole role="client">
-                <Home />
-              </RequireRole>
-            )}
+            path=""
+            component={() => {
+              const auth = useAuth();
+              return (
+                <Show
+                  when={auth.user?.platform_role === "admin"}
+                  fallback={
+                    <RequireRole role="client">
+                      <Home />
+                    </RequireRole>
+                  }
+                >
+                  <Navigate href="/monitoring" />
+                </Show>
+              );
+            }}
           />
           <Route
             path="dashboard"

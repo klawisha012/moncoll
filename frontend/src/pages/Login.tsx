@@ -62,7 +62,8 @@ export default function Login() {
       }
       // success
       const role = result.user.platform_role;
-      navigate(role === "admin" ? "/monitoring" : "/home", { replace: true });
+      localStorage.setItem("waf-sidebar-collapsed", "1");
+      navigate(role === "admin" ? "/monitoring" : "/", { replace: true });
     } catch (err) {
       // Any failed login attempt (wrong password, invalid totp, captcha
       // failure) also consumes the single-use Turnstile token — refresh it.

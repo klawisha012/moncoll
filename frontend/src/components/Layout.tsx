@@ -49,7 +49,7 @@ const CLIENT_NAV: NavSection[] = [
   {
     titleKey: "nav.overview",
     items: [
-      { path: "/home", labelKey: "nav.home", icon: <HomeIcon /> },
+      { path: "/", labelKey: "nav.home", icon: <HomeIcon /> },
       { path: "/dashboard", labelKey: "nav.dashboard", icon: <LayoutDashboard /> },
     ],
   },
@@ -145,7 +145,7 @@ export default function Layout(props: { children?: JSX.Element }) {
                   {(item) => (
                     <A
                       href={item.path}
-                      end={item.path === "/home"}
+                      end={item.path === "/"}
                       class="nav-link"
                       activeClass="active"
                     >

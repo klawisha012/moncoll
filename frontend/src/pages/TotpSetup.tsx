@@ -48,7 +48,8 @@ export default function TotpSetup() {
 
   const proceed = () => {
     const role = auth.user?.platform_role;
-    navigate(role === "admin" ? "/monitoring" : "/home", { replace: true });
+    localStorage.setItem("waf-sidebar-collapsed", "1");
+    navigate(role === "admin" ? "/monitoring" : "/", { replace: true });
   };
 
   const downloadCodes = () => {
