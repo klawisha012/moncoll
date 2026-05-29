@@ -413,6 +413,33 @@ export default function GeoipGlobe(props: Props) {
         }, 2000);
       }
 
+      // Directly update the DOM element if hit count changed
+      if (prev !== undefined && m.hits !== prev) {
+        const markerEl = document.querySelector(`.geoip-marker[data-geoip-key="${k.replace(/"/g, '\\"')}"]`);
+        if (markerEl) {
+          const color = colorFor(m.hits, minHits(), maxHits());
+
+          // 1. Update hit counter text
+          const hitsEl = markerEl.querySelector(".geoip-marker-hits");
+          if (hitsEl) {
+            hitsEl.setAttribute("style", `color:${color};`);
+            hitsEl.innerHTML = `${m.hits.toLocaleString()} <span style="color:#9aa3b4; font-weight:400;">${escapeHtml(props.requestsLabel)}</span>`;
+          }
+
+          // 2. Update pin SVG fill color
+          const pinPath = markerEl.querySelector(".geoip-marker-pin path");
+          if (pinPath) {
+            pinPath.setAttribute("fill", color);
+          }
+
+          // 3. Update card left border color
+          const cardEl = markerEl.querySelector(".geoip-marker-card") as HTMLElement;
+          if (cardEl) {
+            cardEl.style.borderLeft = `3px solid ${color}`;
+          }
+        }
+      }
+
       lastHits.set(k, m.hits);
     }
 

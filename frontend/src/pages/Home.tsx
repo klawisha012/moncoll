@@ -47,7 +47,26 @@ function GeoipMapPanel(props: {
     const data = props.data;
     const events = props.events;
     if (!data) return [];
-    if (!events || events.length === 0) return data;
+
+    // Group points by city key
+    const grouped = new globalThis.Map<string, EnrichedGeoPoint>();
+    for (const p of data) {
+      const cc = (p.country_code || "").toUpperCase();
+      const k = p.city_name
+        ? `${cc}|${p.city_name}`
+        : `${cc}|${p.latitude.toFixed(1)}|${p.longitude.toFixed(1)}`;
+      
+      const existing = grouped.get(k);
+      if (existing) {
+        existing.hits += p.hits;
+      } else {
+        grouped.set(k, { ...p });
+      }
+    }
+    const groupedData = Array.from(grouped.values());
+
+    if (!events || events.length === 0) return groupedData;
+
     const byCountry = new globalThis.Map<string, SecurityEvent[]>();
     for (const e of events) {
       const cc = (e.country || "").toUpperCase();
@@ -56,7 +75,8 @@ function GeoipMapPanel(props: {
       arr.push(e);
       byCountry.set(cc, arr);
     }
-    return data.map((p) => {
+
+    return groupedData.map((p) => {
       const cc = (p.country_code || "").toUpperCase();
       const evts = byCountry.get(cc) ?? [];
       if (evts.length === 0) return p;
