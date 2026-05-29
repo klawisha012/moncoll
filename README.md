@@ -44,7 +44,7 @@ flowchart TD
 
     Angie -->|Proxy Traffic| Origin["Customer Origin Server\n(Strict/Lenient TLS)"]
     Angie -.->|Ship Access Logs| ClickHouse
-    CrowdSec -.->|Sync Decisions (15s)| FastAPI
+    CrowdSec -.->|"Sync Decisions (15s)"| FastAPI
 ```
 
 ---
