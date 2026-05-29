@@ -53,7 +53,7 @@ import redis
 # polls every 15s * 19 panels — without this, every poll hits ClickHouse
 # from scratch and the heaviest queries (joins, ARRAY JOINs over the full
 # audit log) drove the container to 30+ cores.
-_QUERY_TTL_S = float(os.getenv("DASHBOARD_QUERY_TTL", "30"))
+_QUERY_TTL_S = float(os.getenv("DASHBOARD_QUERY_TTL", "2"))
 _redis_conn = None
 
 def _get_redis() -> redis.Redis | None:
