@@ -76,6 +76,23 @@ def _to_dict(row: ConnectionModel) -> dict:
     }
 
 
+async def _refresh_crowdsec_registry(session: AsyncSession) -> None:
+    """Refresh the CrowdSec connection registry so per-connection ban routing
+    reflects the current connection set immediately, without waiting for the
+    periodic sync tick. Best-effort: errors are logged, never raised.
+    """
+    try:
+        from ..crowdsec.service import _write_connections_registry
+
+        result = await session.execute(
+            select(ConnectionModel).where(ConnectionModel.enabled.is_(True))
+        )
+        conns = [_to_dict(row) for row in result.scalars().all()]
+        _write_connections_registry(conns)
+    except Exception:
+        logger.exception("Failed to refresh CrowdSec connection registry")
+
+
 def _reload_angie() -> None:
     """Best-effort `angie -s reload`. Errors are logged, never raised."""
     try:
@@ -249,6 +266,8 @@ async def create_connection(
     except Exception:
         logger.exception("Conn %d: failed to write/reload Angie config on create (tenant %d)", row.id, tenant.id)
 
+    await _refresh_crowdsec_registry(session)
+
     instructions = VerifyInstructions(
         txt_record_name=f"_waf-verify.{domain}",
         txt_record_value=verify_token,
@@ -282,6 +301,7 @@ async def update_connection(
         _reload_angie()
     except Exception:
         logger.exception("Conn %d: failed to apply Angie config on update", conn_id)
+    await _refresh_crowdsec_registry(session)
     return Connection.model_validate(_to_dict(row))
 
 
@@ -300,6 +320,7 @@ async def delete_connection(session: AsyncSession, tenant: Tenant, conn_id: int)
     await session.commit()
     angie_config.delete_config(tenant_id, conn_id)
     _reload_angie()
+    await _refresh_crowdsec_registry(session)
     return True
 
 
@@ -418,6 +439,7 @@ async def update_security(
     row.crowdsec_active = crowdsec_active
     await session.commit()
     await session.refresh(row)
+    await _refresh_crowdsec_registry(session)
     try:
         from ..crowdsec.service import _sync_blocked_ips_conf
         _sync_blocked_ips_conf()
@@ -452,4 +474,5 @@ async def reload_connections_config(session: AsyncSession) -> dict:
         except Exception:
             logger.exception("Conn %d (tenant %d): failed to write Angie config during reload", row.id, row.tenant_id)
     _reload_angie()
+    await _refresh_crowdsec_registry(session)
     return {"success": True, "message": f"Regenerated {len(rows)} connection configs"}

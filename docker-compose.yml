@@ -282,24 +282,10 @@ services:
       - "--collector.textfile.directory=/etc/node-exporter"
     restart: unless-stopped
 
-  blocked-ips-updater:
-    image: alpine:latest
-    command: sh -c "apk add --no-cache docker-cli bash jq && while true; do /scripts/update-blocked-ips.sh; sleep 15; done"
-    depends_on:
-      crowdsec:
-        condition: service_started
-        required: true
-    environment:
-      - COMPOSE_PROJECT_NAME=waf
-    restart: unless-stopped
-    volumes:
-      - type: bind
-        source: ./scripts/update-blocked-ips.sh
-        target: /scripts/update-blocked-ips.sh
-      - type: bind
-        source: ./configs/angie/http.d
-        target: /configs/angie/http.d
-      - /var/run/docker.sock:/var/run/docker.sock
+  # NOTE: the old `blocked-ips-updater` sidecar was removed. CrowdSec ban sync
+  # is now done in-process by the backend (run_blocked_ips_sync_forever in
+  # crowdsec/service.py), which routes bans per-connection instead of copying
+  # the full list onto every domain.
 
   cadvisor:
     image: gcr.io/cadvisor/cadvisor:latest

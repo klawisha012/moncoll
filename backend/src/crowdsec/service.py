@@ -1,5 +1,6 @@
 """CrowdSec service - manages decisions and scenarios via Docker SDK."""
 
+import asyncio
 import json
 import logging
 import os
@@ -20,7 +21,6 @@ logger = logging.getLogger(__name__)
 
 CROWDSEC_CONTAINER = "waf-crowdsec-1"
 ANGIE_CONTAINER = "waf-angie-1"
-BLOCKED_IPS_CONF = "/var/lib/angie/http.d/blocked_ips.list"
 
 # ClickHouse connection from environment
 CLICKHOUSE_ENDPOINT = os.getenv("CLICKHOUSE_ENDPOINT", "http://clickhouse:8123")
@@ -95,9 +95,52 @@ def _run_cscli_json(args: list[str]) -> dict:
 
 # ── Blocked IPs sync ───────────────────────────────────────
 
-CONNECTIONS_JSON = "/var/lib/angie/connections.json"
-CONNECTIONS_D_DIR = "/var/lib/angie/http.d"
-BLOCKED_IPS_MAPPING = "/var/lib/angie/blocked_ips_mapping.json"
+# Backend-writable state dir (backend-data volume). NOTE: /var/lib/angie itself
+# is read-only for the non-root `app` user — only the data/ mount is writable,
+# so backend-owned JSON state MUST live here, not directly under /var/lib/angie.
+_STATE_DIR = "/var/lib/angie/data"
+
+# Backend-internal registry of the live connection set. The CrowdSec sync runs
+# in synchronous, session-less contexts (e.g. add_decision), so it reads
+# connections from this JSON cache instead of the DB. It is refreshed from the
+# DB at startup, on every connection mutation, and on every periodic sync tick.
+CONNECTIONS_JSON = os.path.join(_STATE_DIR, "connections.json")
+BLOCKED_IPS_MAPPING = os.path.join(_STATE_DIR, "blocked_ips_mapping.json")
+
+# Per-tenant Angie config tree (backend's host-side view of the waf-tenants
+# volume). Angie mounts the same volume at /etc/angie/tenants/ and each
+# connection's server block includes
+# /etc/angie/tenants/<tid>/compose/conn_<id>/blocked_ips.conf — so blocked-IP
+# writes MUST land here, not under /var/lib/angie/http.d (which Angie does not
+# include per-connection). See connections/angie_config.py.
+TENANTS_BASE = "/var/lib/waf/tenants"
+
+
+def _conn_compose_dir(tenant_id: int, conn_id: int) -> str:
+    """Backend path Angie reads per-connection config from (incl. blocked_ips.conf)."""
+    return os.path.join(TENANTS_BASE, str(tenant_id), "compose", f"conn_{conn_id}")
+
+
+def _write_connections_registry(connections: list[dict]) -> None:
+    """Materialize the connection set into CONNECTIONS_JSON for the sync to read."""
+    payload = [
+        {
+            "id": c.get("id"),
+            "tenant_id": c.get("tenant_id"),
+            "name": c.get("name", ""),
+            "domain": c.get("domain"),
+            "domains": [c["domain"]] if c.get("domain") else list(c.get("domains") or []),
+            "enabled": bool(c.get("enabled", True)),
+            "status": c.get("status"),
+        }
+        for c in connections
+        if c.get("id") is not None
+    ]
+    os.makedirs(os.path.dirname(CONNECTIONS_JSON), exist_ok=True)
+    tmp = f"{CONNECTIONS_JSON}.tmp"
+    with open(tmp, "w") as f:
+        json.dump(payload, f)
+    os.replace(tmp, CONNECTIONS_JSON)
 
 
 def _load_connections() -> list[dict]:
@@ -120,17 +163,37 @@ def _load_connection_ids() -> list[int]:
     return [c["id"] for c in _load_connections() if c.get("enabled")]
 
 
+def _conn_domains(conn: dict) -> list[str]:
+    """All domains for a connection — supports both `domain` (str) and `domains` (list)."""
+    domains = list(conn.get("domains") or [])
+    single = conn.get("domain")
+    if single and single not in domains:
+        domains.append(single)
+    return domains
+
+
 def _build_domain_to_conn_map() -> dict[str, int]:
     """Build a mapping from domain name to connection ID (first match wins)."""
     mapping: dict[str, int] = {}
     for conn in _load_connections():
         if not conn.get("enabled"):
             continue
-        for domain in conn.get("domains", []):
+        for domain in _conn_domains(conn):
             domain_lower = domain.strip().lower()
             if domain_lower and domain_lower not in mapping:
                 mapping[domain_lower] = conn["id"]
     return mapping
+
+
+def _build_conn_tenant_map() -> dict[int, int]:
+    """Build a mapping from connection ID to its tenant ID."""
+    out: dict[int, int] = {}
+    for conn in _load_connections():
+        cid = conn.get("id")
+        tid = conn.get("tenant_id")
+        if cid is not None and tid is not None:
+            out[cid] = tid
+    return out
 
 
 def _load_blocked_ips_mapping() -> dict[str, list[int]]:
@@ -216,8 +279,14 @@ def _resolve_ip_connections(
 
 
 def _sync_blocked_ips_conf() -> None:
-    """Immediately sync ban decisions from CrowdSec to blocked_ips.conf
-    (global + per-connection, with domain-aware routing) and reload Angie.
+    """Sync CrowdSec ban decisions into per-connection blocked_ips.conf files
+    (domain-aware) and reload Angie.
+
+    Each connection's Angie server block includes
+    /etc/angie/tenants/<tenant_id>/compose/conn_<id>/blocked_ips.conf, so a ban
+    routed to one connection by _resolve_ip_connections lands only in that
+    connection's file and never leaks onto other domains. There is no global
+    deny list — scoping is per-connection by construction.
     """
     try:
         data = _run_cscli_json(["decisions", "list"])
@@ -236,43 +305,39 @@ def _sync_blocked_ips_conf() -> None:
                     if value:
                         ips.add(value)
 
-        header = (
-            "# Auto-generated by WAF backend — do not edit manually\n"
-            "# Updated on block/unblock actions and every 15s by blocked-ips-updater\n"
-        )
-        all_lines = [f"deny {ip};" for ip in sorted(ips)]
-        global_content = header + "\n".join(all_lines) + "\n"
-
-        # ── Global blocked_ips.conf (for default.conf) ──
-        os.makedirs(os.path.dirname(BLOCKED_IPS_CONF), exist_ok=True)
-        with open(BLOCKED_IPS_CONF, "w") as f:
-            f.write(global_content)
-
-        # ── Per-connection blocked_ips.conf (domain-aware) ──
         all_conn_ids = _load_connection_ids()
         manual_mapping = _load_blocked_ips_mapping()
         target_hosts = _extract_target_hosts_from_alerts(alerts)
         domain_to_conn = _build_domain_to_conn_map()
+        conn_tenant = _build_conn_tenant_map()
 
-        # Build per-connection IP sets
+        # Route each IP to the connection(s) it should block on.
         conn_ips: dict[int, set[str]] = {cid: set() for cid in all_conn_ids}
         for ip_val in ips:
-            target_conns = _resolve_ip_connections(
+            for cid in _resolve_ip_connections(
                 ip_val, manual_mapping, target_hosts, domain_to_conn, all_conn_ids
-            )
-            for cid in target_conns:
+            ):
                 conn_ips.setdefault(cid, set()).add(ip_val)
 
+        header = (
+            "# Auto-generated by WAF backend — do not edit manually\n"
+            "# Per-connection CrowdSec ban list; synced on block/unblock and periodically.\n"
+        )
+        written = 0
         for conn_id in all_conn_ids:
-            conn_blocked_ips = os.path.join(
-                CONNECTIONS_D_DIR, f"conn_{conn_id}", "blocked_ips.conf"
-            )
-            os.makedirs(os.path.dirname(conn_blocked_ips), exist_ok=True)
-            cid_ips = conn_ips.get(conn_id, set())
-            conn_lines = [f"deny {ip};" for ip in sorted(cid_ips)]
-            conn_content = header + "\n".join(conn_lines) + "\n"
-            with open(conn_blocked_ips, "w") as f:
-                f.write(conn_content)
+            tenant_id = conn_tenant.get(conn_id)
+            if tenant_id is None:
+                continue
+            conn_dir = _conn_compose_dir(tenant_id, conn_id)
+            # Skip connections whose config tree isn't materialized yet — writing
+            # there would create an orphan dir Angie never includes.
+            if not os.path.isdir(conn_dir):
+                continue
+            cid_ips = sorted(conn_ips.get(conn_id, set()))
+            content = header + "".join(f"deny {ip};\n" for ip in cid_ips)
+            with open(os.path.join(conn_dir, "blocked_ips.conf"), "w") as f:
+                f.write(content)
+            written += 1
 
         # Reload Angie to apply changes
         client = docker.from_env()
@@ -280,12 +345,47 @@ def _sync_blocked_ips_conf() -> None:
         angie.exec_run(["angie", "-s", "reload"])
 
         logger.info(
-            "Synced %d blocked IPs to blocked_ips.conf (global + %d connections)",
+            "Synced %d banned IPs into %d per-connection blocked_ips.conf files",
             len(ips),
-            len(all_conn_ids),
+            written,
         )
     except Exception:
         logger.exception("Failed to sync blocked_ips.conf")
+
+
+async def run_blocked_ips_sync_forever(stop_event: asyncio.Event, interval_seconds: int = 15) -> None:
+    """Periodically refresh the connection registry from the DB and re-sync
+    CrowdSec bans into per-connection blocked_ips.conf files.
+
+    Replaces the legacy scripts/update-blocked-ips.sh sidecar, which copied the
+    full ban list into every connection (blocking all domains) and relied on a
+    single-file bind mount that does not work reliably across hosts. Wired into
+    FastAPI's lifespan in main.py.
+    """
+    from sqlalchemy import select
+
+    from ..connections.service import _to_dict
+    from ..db.base import get_sessionmaker
+    from ..db.models import Connection
+
+    logger.info("CrowdSec blocked-IPs sync starting (interval=%ds)", interval_seconds)
+    while not stop_event.is_set():
+        try:
+            sessionmaker = get_sessionmaker()
+            async with sessionmaker() as session:
+                result = await session.execute(
+                    select(Connection).where(Connection.enabled.is_(True))
+                )
+                conns = [_to_dict(row) for row in result.scalars().all()]
+            _write_connections_registry(conns)
+            await asyncio.to_thread(_sync_blocked_ips_conf)
+        except Exception:
+            logger.exception("Blocked-IPs periodic sync tick failed")
+        try:
+            await asyncio.wait_for(stop_event.wait(), timeout=interval_seconds)
+        except TimeoutError:
+            pass
+    logger.info("CrowdSec blocked-IPs sync stopped")
 
 
 # ── Status ─────────────────────────────────────────────────
@@ -405,7 +505,7 @@ def get_decisions(connection_id: int | None = None) -> list[DecisionItem]:
             target_conn_ids = _resolve_ip_connections(
                 dec_value, manual_mapping, target_hosts, domain_to_conn, all_conn_ids
             )
-            
+
             # If a connection_id is specified, filter decisions that are not blocked on it
             if connection_id is not None and connection_id not in target_conn_ids:
                 continue

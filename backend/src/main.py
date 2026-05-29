@@ -22,6 +22,7 @@ from .auth.dependencies import require_admin, require_verified
 from .certificates import certificates_router
 from .connections import poller as connections_poller
 from .connections.router import connections_router
+from .crowdsec import service as crowdsec_service
 from .crowdsec.router import router as crowdsec_router
 from .dashboard.router import router as dashboard_router
 from .modsecurity import router as modsecurity_router
@@ -61,12 +62,26 @@ async def lifespan(app: FastAPI):
     realtime_stop = asyncio.Event()
     realtime_task = asyncio.create_task(realtime_consumer.run_forever(realtime_stop))
 
+    # ── CrowdSec blocked-IPs sync: periodically materializes the connection
+    #    registry from the DB and rewrites each connection's blocked_ips.conf
+    #    so CrowdSec bans are enforced per-connection (not globally across all
+    #    domains). Replaces the legacy scripts/update-blocked-ips.sh sidecar.
+    blocked_ips_stop = asyncio.Event()
+    blocked_ips_task = asyncio.create_task(
+        crowdsec_service.run_blocked_ips_sync_forever(blocked_ips_stop)
+    )
+
     try:
         yield
     finally:
         poller_stop.set()
         realtime_stop.set()
-        for name, task in (("poller", poller_task), ("realtime", realtime_task)):
+        blocked_ips_stop.set()
+        for name, task in (
+            ("poller", poller_task),
+            ("realtime", realtime_task),
+            ("blocked_ips", blocked_ips_task),
+        ):
             try:
                 await asyncio.wait_for(task, timeout=5.0)
             except (TimeoutError, asyncio.TimeoutError):
