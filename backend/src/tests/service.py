@@ -96,8 +96,8 @@ def _connection_url(conn: ConnectionModel) -> str:
     and possibly fail inside the compose network. Instead we hit Angie
     directly and let the Host header trigger the right vhost.
     """
-    # Domain-only data model: one domain per connection row (see Connection
-    # model). Caller sets Host header via httpx; the URL stays internal.
+    if conn.status == "active" and conn.ssl_cert_path and conn.ssl_key_path:
+        return os.getenv("WAF_TESTS_TARGET_URL_HTTPS", "https://angie")
     return _localhost_url()
 
 
@@ -107,10 +107,12 @@ def _host_header_for(conn: ConnectionModel | None) -> str | None:
     return conn.domain or None
 
 
-def build_request(test: TestCase, target_url: str, marker: str) -> dict[str, Any]:
+def build_request(test: TestCase, target_url: str, marker: str, client_ip: str | None = None) -> dict[str, Any]:
     """Translate a TestCase into kwargs for ``httpx.AsyncClient.request``."""
     headers = dict(test.headers or {})
     headers[MARKER_HEADER] = marker
+    if client_ip:
+        headers["X-Forwarded-For"] = client_ip
     return {
         "method": test.method,
         "url": target_url.rstrip("/") + test.path,
@@ -139,40 +141,109 @@ async def run_test(
             error=f"unknown test_id: {req.test_id}",
         )
 
-    target_url, conn = await resolve_target(session, req.connection_id, tenant_id)
+    # Determine connections to probe. If connection_id is None, probe all active tenant connections.
+    conns = []
+    if req.connection_id is None and tenant_id is not None:
+        stmt = select(ConnectionModel).where(
+            ConnectionModel.tenant_id == tenant_id,
+            ConnectionModel.enabled.is_(True)
+        )
+        result = await session.execute(stmt)
+        conns = list(result.scalars().all())
+
+    # Build target execution list
+    targets = []
+    if conns:
+        for conn in conns:
+            target_url = _localhost_url()
+            targets.append((target_url, conn))
+    else:
+        target_url, conn = await resolve_target(session, req.connection_id, tenant_id)
+        targets.append((target_url, conn))
+
     marker = str(uuid.uuid4())
-    request_kwargs = build_request(test, target_url, marker)
-
-    host_override = _host_header_for(conn)
-    if host_override:
-        request_kwargs["headers"]["Host"] = host_override
-
-    http_code: int | None = None
-    error: str | None = None
     started_ns = time.monotonic_ns()
-    try:
-        async with httpx.AsyncClient(timeout=_HTTP_TIMEOUT_S, follow_redirects=False) as client:
-            resp = await client.request(**request_kwargs)
-            http_code = resp.status_code
-    except httpx.TimeoutException as exc:
-        error = f"target timeout: {exc}"
-    except httpx.HTTPError as exc:
-        error = f"transport error: {exc}"
-    except OSError as exc:
-        error = f"socket error: {exc}"
-    finally:
-        latency_ms = int((time.monotonic_ns() - started_ns) / 1_000_000)
 
-    # If the HTTP layer itself blew up, no point polling — call it timeout.
-    if error is not None:
+    async def fire_one(target_url_str: str, conn_obj: ConnectionModel | None) -> tuple[int | None, str | None, str | None, str | None]:
+        request_kwargs = build_request(test, target_url_str, marker, client_ip=req.ip)
+        host_override = _host_header_for(conn_obj)
+        if host_override:
+            request_kwargs["headers"]["Host"] = host_override
+
+        # Construct raw request representation
+        try:
+            req_method = request_kwargs["method"]
+            req_url = request_kwargs["url"]
+            from urllib.parse import urlencode, urlparse
+            parsed = urlparse(req_url)
+            path_with_query = parsed.path or "/"
+            if parsed.query:
+                path_with_query += f"?{parsed.query}"
+            elif request_kwargs.get("params"):
+                path_with_query += f"?{urlencode(request_kwargs['params'])}"
+
+            req_lines = [f"{req_method} {path_with_query} HTTP/1.1"]
+            for k, v in request_kwargs["headers"].items():
+                req_lines.append(f"{k}: {v}")
+            req_lines.append("")
+            if request_kwargs.get("content"):
+                req_lines.append(str(request_kwargs["content"]))
+            request_raw = "\n".join(req_lines)
+        except Exception as exc:
+            request_raw = f"Error formatting request: {exc}"
+
+        try:
+            async with httpx.AsyncClient(timeout=_HTTP_TIMEOUT_S, verify=False, follow_redirects=False) as client:
+                resp = await client.request(**request_kwargs)
+                
+                # Format raw response
+                try:
+                    resp_lines = [f"HTTP/1.1 {resp.status_code} {resp.reason_phrase}"]
+                    for k, v in resp.headers.items():
+                        resp_lines.append(f"{k}: {v}")
+                    resp_lines.append("")
+                    resp_body = resp.text
+                    if len(resp_body) > 2000:
+                        resp_body = resp_body[:2000] + "\n... [truncated]"
+                    resp_lines.append(resp_body)
+                    response_raw = "\n".join(resp_lines)
+                except Exception as exc:
+                    response_raw = f"Error formatting response: {exc}"
+
+                return resp.status_code, None, request_raw, response_raw
+        except httpx.TimeoutException as exc:
+            return None, f"target timeout: {exc}", request_raw, f"Error: Timeout connecting to target\n{exc}"
+        except httpx.HTTPError as exc:
+            return None, f"transport error: {exc}", request_raw, f"Error: Transport error\n{exc}"
+        except OSError as exc:
+            return None, f"socket error: {exc}", request_raw, f"Error: Socket error\n{exc}"
+
+    import asyncio
+    fire_tasks = [fire_one(t_url, cn) for t_url, cn in targets]
+    fire_results = await asyncio.gather(*fire_tasks)
+    latency_ms = int((time.monotonic_ns() - started_ns) / 1_000_000)
+
+    http_codes = [code for code, err, _, _ in fire_results if code is not None]
+    errors = [err for code, err, _, _ in fire_results if err is not None]
+    
+    first_req_raw = fire_results[0][2] if fire_results else None
+    first_resp_raw = fire_results[0][3] if fire_results else None
+
+    # If all fired targets errored out/timed out
+    if len(errors) == len(targets):
         return RunResult(
             marker=marker,
             status="timeout",
-            http_code=http_code,
-            target_url=target_url,
+            http_code=http_codes[0] if http_codes else None,
+            target_url=", ".join(t_url for t_url, _ in targets),
             latency_ms=latency_ms,
-            error=error,
+            error=errors[0],
+            request_raw=first_req_raw,
+            response_raw=first_resp_raw,
         )
+
+    # Pick the most relevant HTTP code: 403 if blocked on any, else the first success code
+    http_code = 403 if 403 in http_codes else (http_codes[0] if http_codes else None)
 
     # Poll the WAF audit log for the marker. If it lands, ModSec inspected
     # the request (rule fired). If it does not, ModSec either skipped the
@@ -187,7 +258,9 @@ async def run_test(
         http_code=http_code,
         blocked_by=blocked_by,
         latency_ms=latency_ms,
-        target_url=target_url,
+        target_url=", ".join(t_url for t_url, _ in targets),
+        request_raw=first_req_raw,
+        response_raw=first_resp_raw,
     )
 
 

@@ -327,6 +327,7 @@ export type TestResultStatus =
 export interface TestRunRequest {
   test_id: string;
   connection_id: number | null;
+  ip?: string;
 }
 
 export interface TestRunResult {

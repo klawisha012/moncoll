@@ -1,4 +1,4 @@
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
@@ -64,6 +64,13 @@ class RunRequest(BaseModel):
             "localhost (default Angie vhost)."
         ),
     )
+    ip: str | None = Field(
+        default=None,
+        min_length=1,
+        max_length=45,
+        description="Optional client IP to emulate for the request (sent as X-Forwarded-For)"
+    )
+
 
 
 class RunResult(BaseModel):
@@ -85,6 +92,8 @@ class RunResult(BaseModel):
         default=None,
         description="Transport-level error string, if the HTTP request failed",
     )
+    request_raw: str | None = Field(default=None, description="Raw HTTP request sent")
+    response_raw: str | None = Field(default=None, description="Raw HTTP response received")
 
 
 class CrowdsecRunResult(BaseModel):
@@ -97,6 +106,7 @@ class CrowdsecRunResult(BaseModel):
     scenario: str
     source_ip: str
     started_at: str
-    decisions_after: list[str] = Field(default_factory=list)
+    decisions_before: list[Any] = Field(default_factory=list, description="Active decisions before the run")
+    decisions_after: list[Any] = Field(default_factory=list, description="Active decisions after the run")
     bursts_sent: int = 0
     target_url: str

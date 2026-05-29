@@ -231,6 +231,11 @@ const en: TranslationDict = {
   "tests.rateLimit": "Slow down — wait a second between runs.",
   "tests.unknownTest": "Unknown test id (was the catalog regenerated?)",
   "tests.runError": "Run failed: {msg}",
+  "tests.ip": "Client IP",
+  "tests.ipPlaceholder": "e.g. 8.8.8.8",
+  "tests.target.globalInfo": "Synced with the active dashboard connection filter.",
+  "tests.showDebug": "Debug Info",
+  "tests.debug.console": "Logs & Diagnostics Console",
 
   // CrowdSec sub-tab inside Tests
   "tests.crowdsec.empty": "CrowdSec test scenarios are not yet configured for the catalog.",
@@ -961,6 +966,11 @@ const ru: TranslationDict = {
   "tests.rateLimit": "Не так быстро — между тестами нужна секунда паузы.",
   "tests.unknownTest": "Неизвестный test id (каталог перегенерирован?)",
   "tests.runError": "Тест упал: {msg}",
+  "tests.ip": "IP клиента",
+  "tests.ipPlaceholder": "например, 8.8.8.8",
+  "tests.target.globalInfo": "Синхронизировано с активным фильтром подключения дашборда.",
+  "tests.showDebug": "Отладка",
+  "tests.debug.console": "Консоль отладки и логов",
 
   // CrowdSec sub-tab inside Tests
   "tests.crowdsec.empty": "Сценарии CrowdSec ещё не добавлены в каталог.",

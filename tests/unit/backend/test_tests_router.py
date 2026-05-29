@@ -142,6 +142,37 @@ def test_run_dispatches_to_runner_for_known_test(app: FastAPI):
     assert async_mock.await_args.kwargs.get("tenant_id") == 42
 
 
+def test_run_passes_ip_to_service_runner(app: FastAPI):
+    """Happy path: test run with explicit client IP passes it down to the service."""
+    app.dependency_overrides[require_verified] = lambda: _fake_user()
+    app.dependency_overrides[current_tenant] = lambda: _fake_tenant(tenant_id=42)
+    app.dependency_overrides[get_session] = lambda: None
+
+    fake_result = RunResult(
+        marker="00000000-0000-4000-8000-000000000000",
+        status="blocked",
+        http_code=403,
+        blocked_by="941100",
+        latency_ms=42,
+        target_url="http://angie",
+    )
+
+    async_mock = AsyncMock(return_value=fake_result)
+    with patch.object(tests_service, "run_test", new=async_mock):
+        try:
+            client = TestClient(app)
+            resp = client.post(
+                "/api/tests/run",
+                json={"test_id": "xss.941100", "ip": "8.8.8.8"}
+            )
+        finally:
+            app.dependency_overrides.clear()
+
+    assert resp.status_code == 200
+    # The router must forward RunRequest body with ip field set into the runner
+    assert async_mock.call_args[0][1].ip == "8.8.8.8"
+
+
 # ── rate limit ────────────────────────────────────────────────────────
 
 
@@ -211,6 +242,8 @@ def test_run_rate_limit_is_per_user(app: FastAPI):
 
 def test_crowdsec_run_rejects_empty_scenario_id(app: FastAPI):
     app.dependency_overrides[require_verified] = lambda: _fake_user()
+    app.dependency_overrides[current_tenant] = lambda: _fake_tenant()
+    app.dependency_overrides[get_session] = lambda: None
     try:
         client = TestClient(app)
         resp = client.post("/api/tests/crowdsec/run", json={"scenario_id": "  "})
@@ -223,6 +256,10 @@ def test_crowdsec_run_rejects_empty_scenario_id(app: FastAPI):
 
 def test_crowdsec_run_dispatches_to_runner(app: FastAPI):
     app.dependency_overrides[require_verified] = lambda: _fake_user()
+    app.dependency_overrides[current_tenant] = lambda: _fake_tenant()
+    app.dependency_overrides[get_session] = lambda: None
+
+    fake_conn = SimpleNamespace(domain="test.domain")
     fake = CrowdsecRunResult(
         scenario="crowdsecurity/http-probing",
         source_ip="self",
@@ -231,17 +268,23 @@ def test_crowdsec_run_dispatches_to_runner(app: FastAPI):
         bursts_sent=8,
         target_url="http://angie",
     )
-    with patch.object(crowdsec_runner, "run_scenario", new=AsyncMock(return_value=fake)):
-        try:
-            client = TestClient(app)
-            resp = client.post(
-                "/api/tests/crowdsec/run",
-                json={"scenario_id": "crowdsec.http-probing"},
-            )
-        finally:
-            app.dependency_overrides.clear()
+    with patch.object(crowdsec_runner, "run_scenario", new=AsyncMock(return_value=fake)) as mock_run:
+        with patch.object(tests_service, "resolve_target", new=AsyncMock(return_value=("https://angie", fake_conn))):
+            try:
+                client = TestClient(app)
+                resp = client.post(
+                    "/api/tests/crowdsec/run",
+                    json={"scenario_id": "crowdsec.http-probing", "connection_id": 123},
+                )
+            finally:
+                app.dependency_overrides.clear()
 
     assert resp.status_code == 200
     body = resp.json()
     assert body["bursts_sent"] == 8
     assert body["decisions_after"] == ["1.2.3.4"]
+    mock_run.assert_called_once_with(
+        "crowdsec.http-probing",
+        target_url="https://angie",
+        host_header="test.domain"
+    )

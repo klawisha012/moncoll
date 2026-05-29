@@ -69,6 +69,12 @@ def test_build_request_stamps_marker_header():
     assert req["headers"][MARKER_HEADER] == "marker-uuid"
 
 
+def test_build_request_adds_x_forwarded_for_header():
+    req = build_request(_tc(), "http://angie", "marker-uuid", client_ip="8.8.8.8")
+    assert req["headers"]["X-Forwarded-For"] == "8.8.8.8"
+    assert req["headers"][MARKER_HEADER] == "marker-uuid"
+
+
 def test_build_request_preserves_custom_headers():
     req = build_request(
         _tc(headers={"X-Custom": "v"}), "http://angie", "marker-1"
@@ -109,13 +115,13 @@ def test_host_header_for_returns_none_when_no_connection():
     assert _host_header_for(None) is None
 
 
-def test_host_header_for_returns_none_when_no_domains():
-    conn = SimpleNamespace(domains=[])
+def test_host_header_for_returns_none_when_no_domain():
+    conn = SimpleNamespace(domain="")
     assert _host_header_for(conn) is None
 
 
-def test_host_header_for_returns_first_domain():
-    conn = SimpleNamespace(domains=["a.test", "b.test"])
+def test_host_header_for_returns_domain():
+    conn = SimpleNamespace(domain="a.test")
     assert _host_header_for(conn) == "a.test"
 
 
@@ -132,12 +138,24 @@ def test_localhost_url_respects_env(monkeypatch):
     assert _localhost_url() == "http://other:8080"
 
 
-def test_connection_url_with_domains_still_targets_internal():
-    """Smoke: with or without domains, the URL stays internal — Host header
-    is what selects the vhost, not the URL host."""
-    conn_with = SimpleNamespace(domains=["x.test"])
-    conn_without = SimpleNamespace(domains=[])
-    assert _connection_url(conn_with) == _connection_url(conn_without)
+def test_connection_url_without_ssl():
+    conn = SimpleNamespace(
+        domain="x.test",
+        status="pending_dns",
+        ssl_cert_path=None,
+        ssl_key_path=None
+    )
+    assert _connection_url(conn) == "http://angie"
+
+
+def test_connection_url_with_ssl():
+    conn = SimpleNamespace(
+        domain="x.test",
+        status="active",
+        ssl_cert_path="/etc/ssl/cert.pem",
+        ssl_key_path="/etc/ssl/key.pem"
+    )
+    assert _connection_url(conn) == "https://angie"
 
 
 # ── find_test ─────────────────────────────────────────────────────────

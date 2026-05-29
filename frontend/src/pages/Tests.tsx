@@ -169,7 +169,7 @@ export default function Tests() {
       }
     });
 
-    const unsubTraffic = subscribe<{ traffic: any }>("dashboard:traffic", (payload) => {
+    const unsubTraffic = subscribe<{ traffic: any }>("dashboard:traffic:1.0", (payload) => {
       if (payload && payload.traffic) {
         setTraffic(payload.traffic);
       }
@@ -181,6 +181,8 @@ export default function Tests() {
     });
   });
 
+  const [clientIp, setClientIp] = createSignal<string>("");
+
   const onRun = async (test: TestCase) => {
     if (runningId()) return;
     setRunningId(test.id);
@@ -190,6 +192,7 @@ export default function Tests() {
       const res = await api.runTest({
         test_id: test.id,
         connection_id: connectionId(),
+        ip: clientIp().trim() || undefined,
       });
       setLastResult(res);
       // Automatically open the debug drawer console
@@ -364,6 +367,8 @@ export default function Tests() {
           catalogError={catalogError()}
           catalog={catalog()}
           translate={settings.t}
+          clientIp={clientIp()}
+          onClientIpChange={setClientIp}
         />
       </Show>
 
@@ -951,9 +956,10 @@ function ModSecCatalog(props: {
   catalogError: string | null;
   catalog: TestCase[] | null;
   translate: (key: string) => string;
+  clientIp: string;
+  onClientIpChange: (ip: string) => void;
 }) {
   const [selectedFamily, setSelectedFamily] = createSignal<string>("");
-  const [searchQuery, setSearchQuery] = createSignal<string>("");
 
   const uniqueFamilies = () => {
     const seen = new Set<TestFamily>();
@@ -977,18 +983,6 @@ function ModSecCatalog(props: {
       setSelectedFamily(families[0]);
     }
   });
-
-  const getFilteredTests = (tests: TestCase[]) => {
-    const query = searchQuery().toLowerCase().trim();
-    if (!query) return tests;
-    return tests.filter(
-      (t) =>
-        t.rule_id.toLowerCase().includes(query) ||
-        t.id.toLowerCase().includes(query) ||
-        (t.description && t.description.toLowerCase().includes(query)) ||
-        t.path.toLowerCase().includes(query)
-    );
-  };
 
   const displayedFamilies = () => {
     const fam = selectedFamily();
@@ -1079,7 +1073,7 @@ function ModSecCatalog(props: {
 
           <div style={{ display: "flex", "align-items": "center", gap: "10px", "flex": 1, "min-width": "260px" }}>
             <label
-              for="tests-search"
+              for="tests-ip"
               style={{
                 "font-family": "var(--font-cond)",
                 "font-weight": 700,
@@ -1089,14 +1083,14 @@ function ModSecCatalog(props: {
                 color: "var(--text-secondary)",
               }}
             >
-              {props.translate("tests.search")}
+              {props.translate("tests.ip")}
             </label>
             <input
-              id="tests-search"
+              id="tests-ip"
               type="text"
-              placeholder={props.translate("tests.searchPlaceholder")}
-              value={searchQuery()}
-              onInput={(e) => setSearchQuery(e.currentTarget.value)}
+              placeholder={props.translate("tests.ipPlaceholder")}
+              value={props.clientIp}
+              onInput={(e) => props.onClientIpChange(e.currentTarget.value)}
               style={{
                 padding: "8px 12px",
                 border: "2px solid var(--ink)",
@@ -1114,15 +1108,7 @@ function ModSecCatalog(props: {
         <div style={{ display: "flex", "flex-direction": "column", gap: "14px" }}>
           <For each={displayedFamilies()}>
             {(family) => {
-              const rawTests = props.grouped.get(family) ?? [];
-              const tests = getFilteredTests(rawTests);
-              if (tests.length === 0) {
-                return (
-                  <div class="card" style={{ padding: "32px", "text-align": "center", color: "var(--text-muted)" }}>
-                    {props.translate("tests.noMatches")}
-                  </div>
-                );
-              }
+              const tests = props.grouped.get(family) ?? [];
               return (
                 <details class="card" open style={{ "margin-bottom": 0 }}>
                   <summary
