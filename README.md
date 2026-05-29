@@ -1,111 +1,138 @@
-# WAF
+# 🛡️ WAF: Modern Multi-Tenant Web Application Firewall Edge
 
-## Quick start
+A high-performance, secure-by-default Web Application Firewall (WAF) edge service designed to act as a reverse proxy for tenant-owned origin servers. It integrates **Angie** (a modern Nginx fork) with **FastAPI**, **SolidJS**, **CrowdSec** (for tenant-isolated dynamic threat blocking), and **ClickHouse** (for real-time logging and analytics).
+
+---
+
+## 🚀 Key Features
+
+*   **Domain-Only Onboarding:** A streamlined 3-step setup wizard (Domain setup, TXT verification, and DNS routing) that does not require customer-side server modifications or volume mounts.
+*   **Tenant-Isolated Threat Blocking:** Prevents "cross-tenant leakage". CrowdSec dynamic bans are parsed and routed only to the specific tenant's virtual host configurations (`blocked_ips.conf`), ensuring that legitimate users sharing a NAT/VPN with a malicious bot are not globally blocked across all other tenant domains.
+*   **Strict Security Defaults:** Built-in defenses against loops and local network exfiltration (blocks RFC 1918, loopback, IPv6 ULA, and AWS IMDS `169.254.169.254` addresses). Strict origin SSL verification (`proxy_ssl_verify on`) is enabled by default.
+*   **Centralized Audit Logging:** High-throughput access log aggregation using ClickHouse for detailed security dashboards and instant forensic analysis.
+*   **Lightweight & Fast Frontend:** A beautiful, responsive admin control panel built with SolidJS, Vite, and TypeScript.
+
+---
+
+## 🗺️ System Architecture
+
+```mermaid
+flowchart TD
+    subgraph Edge ["Edge Layer"]
+        Angie["Angie (Nginx Fork)\nReverse Proxy / TLS Termination"]
+    end
+
+    subgraph Management ["Management Core"]
+        FastAPI["FastAPI Backend\nAPI & Orchestration"]
+        SolidJS["SolidJS Frontend\nAdmin Panel UI"]
+    end
+
+    subgraph Data ["Data & Security"]
+        Postgres[("PostgreSQL\nConfig Store")]
+        ClickHouse[("ClickHouse\nAudit & Access Logs")]
+        CrowdSec["CrowdSec LAPI\nThreat Intelligence"]
+    end
+
+    User(["Client / Visitor"]) -->|HTTPS| Angie
+    Admin(["Administrator"]) -->|Manage| SolidJS
+    SolidJS -->|REST API| FastAPI
+
+    FastAPI -->|Write Configs / SSL| Angie
+    FastAPI -->|Query/Write| Postgres
+    FastAPI -->|Query Analytics| ClickHouse
+    FastAPI -->|Manage Decisions & Scenarios| CrowdSec
+
+    Angie -->|Proxy Traffic| Origin["Customer Origin Server\n(Strict/Lenient TLS)"]
+    Angie -.->|Ship Access Logs| ClickHouse
+    CrowdSec -.->|Sync Decisions (15s)| FastAPI
+```
+
+---
+
+## 🛠️ Quick Start
+
+### 1. Clone & Spin up Local Stack
+
+To get a local development environment running with Docker Compose:
 
 ```bash
+# Clone the repository
 git clone https://github.com/Cringeneers/demo-repository.git waf
 cd ./waf
+
+# Generate fresh environment variables and keys
 ./scripts/generate-env.sh
+
+# Build and start all services
 docker compose up -d --build
 ```
 
-## Provisioning a new instance
+### 2. Provision the Admin Account
 
-1. `cp .env.example .env` and edit — or run `./scripts/generate-env.sh` to generate fresh secrets
-2. Edit `WAF_PUBLIC_BASE_URL` in `.env` to your real HTTPS domain
-3. `docker compose up -d --build`
-4. `docker compose exec backend alembic upgrade head`
-5. Create the first admin: `./scripts/create-admin.sh --email you@yourdomain.com`
-6. Browse to the panel, log in — you will be required to enrol TOTP before accessing admin pages
+1. Edit the newly created `.env` file and set `WAF_PUBLIC_BASE_URL` to your domain or `http://localhost:5173` (for local development).
+2. Run database migrations:
+   ```bash
+   docker compose exec backend alembic upgrade head
+   ```
+3. Create the initial administrative account:
+   ```bash
+   ./scripts/create-admin.sh --email you@yourdomain.com
+   ```
+4. Access the control panel, log in, and register your **TOTP (2FA)** application to unlock administrative endpoints.
 
-### Optional integrations
+---
 
-- **Cloudflare Turnstile** (anti-bot on signup/login): set `WAF_TURNSTILE_SITE_KEY` + `WAF_TURNSTILE_SECRET_KEY`. Without these, captcha is skipped (suitable for dev / private instances).
-- **SMTP** (email verification, password reset): set `WAF_SMTP_HOST`, `WAF_SMTP_PORT`, `WAF_SMTP_USERNAME`, `WAF_SMTP_PASSWORD`, `WAF_SMTP_FROM_EMAIL`. Without SMTP, verification and reset emails are logged to backend stdout — useful in dev mode, not suitable for production.
-- **Google OAuth**: set `WAF_OAUTH_GOOGLE_CLIENT_ID`, `WAF_OAUTH_GOOGLE_CLIENT_SECRET`, `WAF_OAUTH_GOOGLE_REDIRECT_URI`. Redirect URI format: `${WAF_PUBLIC_BASE_URL}/api/auth/oauth/google/callback`.
-- **GitHub OAuth**: set `WAF_OAUTH_GITHUB_CLIENT_ID`, `WAF_OAUTH_GITHUB_CLIENT_SECRET`, `WAF_OAUTH_GITHUB_REDIRECT_URI`. Redirect URI format: `${WAF_PUBLIC_BASE_URL}/api/auth/oauth/github/callback`.
+## ⚙️ Optional Integrations
 
-## Deploy
+*   **Cloudflare Turnstile (Anti-Bot):** Configure `WAF_TURNSTILE_SITE_KEY` and `WAF_TURNSTILE_SECRET_KEY` in `.env` to enforce anti-bot validation on login and registration pages. If omitted, captcha validation is automatically skipped.
+*   **SMTP (Email Delivery):** Set `WAF_SMTP_HOST`, `WAF_SMTP_PORT`, `WAF_SMTP_USERNAME`, `WAF_SMTP_PASSWORD`, and `WAF_SMTP_FROM_EMAIL`. In development, if SMTP configurations are missing, all transactional emails (verification, password resets) are printed to the backend's stdout.
+*   **Social Authentication (OAuth):** 
+    *   **Google:** Configure `WAF_OAUTH_GOOGLE_CLIENT_ID` and `WAF_OAUTH_GOOGLE_CLIENT_SECRET`.
+    *   **GitHub:** Configure `WAF_OAUTH_GITHUB_CLIENT_ID` and `WAF_OAUTH_GITHUB_CLIENT_SECRET`.
+    *   *Callback URL structure:* `${WAF_PUBLIC_BASE_URL}/api/auth/oauth/[provider]/callback`.
 
-```bash
-./deploy.sh
+---
+
+## 🔗 Connection & Onboarding Lifecycle
+
+Customers hook up their websites to the WAF without hosting code or mounting volumes. The onboarding process follows a strict 3-step verification model:
+
+```mermaid
+stateDiagram-v2
+    [*] --> pending_verification : Step 1: Add Domain & Verify Origin
+    pending_verification --> pending_dns : Step 2: Validate TXT Record (_waf-verify)
+    pending_dns --> provisioning_cert : Step 3: Switch A-Record DNS
+    provisioning_cert --> active : Step 4: ACME HTTP-01 Certificate Issued
+    provisioning_cert --> error : Cert Issuance Exhausted (5 Retries)
+    error --> provisioning_cert : Manual /probe triggered
+    active --> [*]
 ```
 
-## Connections
+### The 3-Step Wizard:
+1.  **Domain Setup:** The customer inputs their domain (e.g., `acme.com`) and origin details. The backend immediately runs basic checks, ensuring the origin is reachable and that the destination IP does not resolve to an RFC 1918 private address or loopback.
+2.  **TXT verification:** The customer creates a DNS `TXT` record `_waf-verify.acme.com` with a randomized 24-byte token generated by the platform. The background poller checks this record. Once matched, it moves the domain to step 3.
+3.  **DNS Switch:** The customer updates their main `A` record to point to `WAF_EDGE_IPV4`. Once the poller detects this change, it initiates automatic **ACME HTTP-01** certificate provisioning with exponential backoff (retrying up to 5 times). On success, the connection status becomes `active`.
 
-WAF runs as a reverse-proxy edge in front of customer-owned origin servers.
-Users connect their websites by **changing DNS** — the platform never hosts
-the site, never executes the customer's code, never mounts their volumes.
+---
 
-Full design: [docs/superpowers/specs/2026-05-22-connections-domain-only-design.md](docs/superpowers/specs/2026-05-22-connections-domain-only-design.md).
-Approved wizard mockup: [docs/wireframes/connections-wizard/index.html](docs/wireframes/connections-wizard/index.html).
+## 🔒 Security Architecture Details
 
-Onboarding (3 steps, Inset-Modal wizard in the admin UI):
+*   **AWS IMDS & SSRF Mitigation:** All resolved IP addresses pass through `is_blocked_ip` filters. RFC 1918, loopback, link-local, multicast, reserved ranges, IPv4 unspecified, and IPv6 ULA are strictly rejected. This prevents server-side requests from exfiltrating data via the cloud provider metadata service (`169.254.169.254`).
+*   **Domain Spoofing Prevention:** Ownership is strictly bound using random tokens in TXT records. Multi-tenant database foreign-key constraints prevent one administrator from hijacking or claiming another customer's domain.
+*   **Origin TLS Modes:** Operators can select **Strict** mode (`proxy_ssl_verify on` validating against system CAs) or fallback to **Lenient** mode for self-signed backends while still maintaining transport-layer encryption.
+*   **SQL Injection Hardening:** Domain filters interpolated within raw ClickHouse query strings are strictly sanitized by stripping `'`, `\` and `\x00` control characters (`_quote_domains` utility).
 
-1. **Domain** — user enters `acme.com` + name + Origin TLS mode (Strict or
-   Lenient). Backend resolves the current A record, verifies the origin is
-   reachable over HTTPS, and rejects any private/reserved/link-local
-   address (RFC 1918, AWS IMDS `169.254.169.254`, IPv6 ULA, etc.).
-2. **TXT verify** — user adds `_waf-verify.acme.com TXT <token>` to their
-   DNS. Backend polls every 10s; on match, advances to step 3.
-3. **DNS switch** — user points the `A` record of `acme.com` at
-   `WAF_EDGE_IPV4`. The background poller detects the flip, triggers an
-   ACME HTTP-01 cert issuance with exponential backoff (1m / 5m / 30m /
-   2h / 12h ±20% jitter, MAX_RETRIES=5), and the connection enters
-   `active` state.
+---
 
-State machine: `pending_verification` → `pending_dns` → `provisioning_cert`
-→ `active` (or → `error` after exhausted retries; manual `/probe` clears it).
+## 🧪 Testing
 
-### Security model
-
-The previous 4-mode source_type machinery (nginx_config / static_generate /
-container / docker_compose) was removed in the 2026-05-22 rewrite. The
-`admin` role no longer accepts arbitrary `docker-compose.yml` bodies — the
-host-root-equivalent threat vector that came with that feature is gone.
-
-What protects the platform now:
-
-- All connection endpoints (`/api/connections/*`) are gated by
-  `require_admin`. See [`backend/src/main.py`](backend/src/main.py).
-- Every IP the backend ever resolves passes through `is_blocked_ip` in
-  [`backend/src/connections/dns.py`](backend/src/connections/dns.py) before
-  it touches an HTTP probe or an Angie `proxy_pass`. RFC 1918, loopback,
-  link-local, multicast, reserved, IPv4 unspecified, and IPv6 ULA all
-  reject with `422`. Closes the AWS-IMDS-style exfil vector.
-- Domain ownership is proven via a TXT record (`_waf-verify.<domain>`)
-  with a random 24-byte URL-safe token before the connection becomes
-  active. Multi-tenant `user_id` FK on `connections` table means one
-  admin cannot claim another's domain (decision 1B in the design spec).
-- Origin TLS defaults to **strict** (`proxy_ssl_verify on` against the
-  system CA bundle); operators can opt individual origins down to
-  `lenient` for self-signed back-ends without losing channel encryption.
-
-#### What you must NOT do
-
-- Do **not** expose the WAF admin panel to untrusted networks. Put it
-  behind your own VPN or IP allow-list.
-- Do **not** loosen the `is_blocked_ip` deny-list without a security review.
-- Do **not** disable TXT verification — the multi-tenant security model
-  relies on it.
-
-### Other notable security defaults
-
-- Authentication: cookie-based sessions; auth/RBAC enforced in FastAPI
-  dependencies (`require_password_changed`, `require_admin`).
-- All dashboard / CrowdSec endpoints validate query parameters via
-  Pydantic ranges (`hours: float = Query(..., ge=0.0167, le=8760)`,
-  `connection_id: int = Query(..., ge=1)`).
-- ClickHouse queries that interpolate per-domain filters strip `'`, `\`
-  and `\x00` from domain names before building the SQL fragment
-  (`_quote_domains` in [`backend/src/dashboard/service.py`](backend/src/dashboard/service.py)).
-
-## Tests
+The test suite contains unit, integration, and end-to-end browser tests.
 
 ```bash
-# Unit + integration (no docker needed)
+# Run unit and integration tests locally (no Docker required)
 PYTHONPATH=backend pytest -m "unit or integration" tests/unit tests/integration -v
 
-# Full stack e2e (requires the docker-compose stack running)
+# Run full-stack end-to-end tests (requires active docker-compose stack)
 pytest -m e2e tests/e2e -v
 ```
+
