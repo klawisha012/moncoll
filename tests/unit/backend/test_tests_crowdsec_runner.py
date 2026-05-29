@@ -53,3 +53,37 @@ def test_scenario_paths_are_relative():
         for p in s["paths"]:
             assert p.startswith("/"), f"non-relative path in {s['id']}: {p}"
             assert "://" not in p, f"absolute URL in {s['id']}: {p}"
+
+
+@pytest.mark.asyncio
+async def test_run_scenario_passes_connection_id_to_add_decision():
+    from unittest.mock import patch, AsyncMock, MagicMock
+    from src.tests.crowdsec_runner import run_scenario
+    from src.crowdsec.schemas import DecisionCreate
+
+    # Mock decisions before/after
+    mock_get_decisions = MagicMock(return_value=[])
+    mock_add_decision = MagicMock(return_value={"success": True})
+
+    # Mock httpx AsyncClient
+    class FakeAsyncClient:
+        async def __aenter__(self):
+            return self
+        async def __aexit__(self, exc_type, exc_val, exc_tb):
+            pass
+        async def request(self, *args, **kwargs):
+            return MagicMock()
+
+    with patch("src.tests.crowdsec_runner.crowdsec_service.get_decisions", mock_get_decisions), \
+         patch("src.tests.crowdsec_runner.crowdsec_service.add_decision", mock_add_decision), \
+         patch("src.tests.crowdsec_runner.httpx.AsyncClient", return_value=FakeAsyncClient()), \
+         patch("src.tests.crowdsec_runner.asyncio.sleep", AsyncMock()):
+        
+        await run_scenario("crowdsec.http-probing", ip="1.2.3.4", connection_id=456)
+
+    mock_add_decision.assert_called_once()
+    decision_arg = mock_add_decision.call_args[0][0]
+    assert isinstance(decision_arg, DecisionCreate)
+    assert decision_arg.ip == "1.2.3.4"
+    assert decision_arg.connection_ids == [456]
+

@@ -287,7 +287,8 @@ def test_crowdsec_run_dispatches_to_runner(app: FastAPI):
         "crowdsec.http-probing",
         target_url="https://angie",
         host_header="test.domain",
-        ip=None
+        ip=None,
+        connection_id=123
     )
 
 
@@ -323,7 +324,8 @@ def test_crowdsec_run_passes_ip_to_runner(app: FastAPI):
         "crowdsec.http-probing",
         target_url="https://angie",
         host_header="test.domain",
-        ip="8.8.8.8"
+        ip="8.8.8.8",
+        connection_id=123
     )
 
 

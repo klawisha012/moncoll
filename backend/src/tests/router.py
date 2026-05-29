@@ -131,6 +131,7 @@ async def run_crowdsec_scenario(
         scenario_id,
         target_url=target_url,
         host_header=host_header,
-        ip=ip
+        ip=ip,
+        connection_id=connection_id
     )
 

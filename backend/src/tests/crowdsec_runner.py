@@ -136,6 +136,7 @@ async def run_scenario(
     target_url: str | None = None,
     host_header: str | None = None,
     ip: str | None = None,
+    connection_id: int | None = None,
 ) -> CrowdsecRunResult:
     """Fire the burst, add forceful ban decision and snapshot decisions after a short wait."""
     s = _find_scenario(scenario_id)
@@ -191,7 +192,8 @@ async def run_scenario(
                 ip=ip,
                 duration="5m",
                 reason=s["scenario"],
-                type="ban"
+                type="ban",
+                connection_ids=[connection_id] if connection_id is not None else None
             )
             crowdsec_service.add_decision(req)
             logger.info("Forcefully added CrowdSec decision for IP %s during test run", ip)
