@@ -415,7 +415,18 @@ export default function GeoipGlobe(props: Props) {
 
       // Directly update the DOM element if hit count changed
       if (prev !== undefined && m.hits !== prev) {
-        const markerEl = document.querySelector(`.geoip-marker[data-geoip-key="${k.replace(/"/g, '\\"')}"]`);
+        let markerEl = document.querySelector(`.geoip-marker[data-geoip-key="${k.replace(/"/g, '\\"')}"]`) as HTMLElement | null;
+        if (!markerEl) {
+          // Fallback search through all markers to bypass selector escaping limits
+          const allMarkers = document.querySelectorAll<HTMLElement>(".geoip-marker");
+          for (const el of allMarkers) {
+            if (el.dataset.geoipKey === k) {
+              markerEl = el;
+              break;
+            }
+          }
+        }
+
         if (markerEl) {
           const color = colorFor(m.hits, minHits(), maxHits());
 

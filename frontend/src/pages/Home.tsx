@@ -34,6 +34,8 @@ function classifyUnresolvedIp(ip: string): { kind: string; reason: string } {
   return { kind: "Public", reason: "Missing from MaxMind GeoLite2." };
 }
 
+const cityCoordinatesCache = new Map<string, { latitude: number; longitude: number }>();
+
 function GeoipMapPanel(props: {
   data: GeoipMapPoint[] | null;
   loading: boolean;
@@ -48,7 +50,7 @@ function GeoipMapPanel(props: {
     const events = props.events;
     if (!data) return [];
 
-    // Group points by city key
+    // Group points by city key with stable coordinates
     const grouped = new globalThis.Map<string, EnrichedGeoPoint>();
     for (const p of data) {
       const cc = (p.country_code || "").toUpperCase();
@@ -56,11 +58,20 @@ function GeoipMapPanel(props: {
         ? `${cc}|${p.city_name}`
         : `${cc}|${p.latitude.toFixed(1)}|${p.longitude.toFixed(1)}`;
       
+      if (!cityCoordinatesCache.has(k)) {
+        cityCoordinatesCache.set(k, { latitude: p.latitude, longitude: p.longitude });
+      }
+
+      const coords = cityCoordinatesCache.get(k)!;
       const existing = grouped.get(k);
       if (existing) {
         existing.hits += p.hits;
       } else {
-        grouped.set(k, { ...p });
+        grouped.set(k, { 
+          ...p,
+          latitude: coords.latitude,
+          longitude: coords.longitude
+        });
       }
     }
     const groupedData = Array.from(grouped.values());
