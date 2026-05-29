@@ -109,6 +109,8 @@ async def get_crowdsec_catalog(_: User = Depends(require_verified)) -> dict:
 async def run_crowdsec_scenario(
     body: dict,
     user: User = Depends(require_verified),
+    tenant: Tenant = Depends(current_tenant),
+    session: AsyncSession = Depends(get_session),
 ) -> CrowdsecRunResult:
     """Fire a CrowdSec scenario burst and return the decisions delta."""
     _rate_limit(user)
@@ -120,4 +122,15 @@ async def run_crowdsec_scenario(
             detail="scenario_id required",
         )
 
-    return await crowdsec_runner.run_scenario(scenario_id)
+    connection_id = body.get("connection_id")
+    target_url, conn = await test_service.resolve_target(session, connection_id, tenant.id)
+    host_header = conn.domain if conn else None
+    ip = body.get("ip")
+
+    return await crowdsec_runner.run_scenario(
+        scenario_id,
+        target_url=target_url,
+        host_header=host_header,
+        ip=ip
+    )
+

@@ -30,6 +30,7 @@ logger = logging.getLogger(__name__)
 SCENARIO_CATALOG: list[dict] = [
     {
         "id": "crowdsec.http-probing",
+        "category": "recon",
         "scenario": "crowdsecurity/http-probing",
         "description": "Probes common sensitive paths (.env, /admin, /wp-login.php, …)",
         "paths": [
@@ -47,6 +48,7 @@ SCENARIO_CATALOG: list[dict] = [
     },
     {
         "id": "crowdsec.http-crawl-non_statics",
+        "category": "crawl",
         "scenario": "crowdsecurity/http-crawl-non_statics",
         "description": "Many 404s for non-static paths from the same source",
         "paths": [
@@ -64,11 +66,42 @@ SCENARIO_CATALOG: list[dict] = [
     },
     {
         "id": "crowdsec.http-bad-user-agent",
+        "category": "exploit",
         "scenario": "crowdsecurity/http-bad-user-agent",
         "description": "Requests with a known scanner/exploit User-Agent",
         "paths": ["/", "/api", "/login"],
         "method": "GET",
         "user_agent": "() { :;}; /bin/cat /etc/passwd",  # shellshock signature
+    },
+    {
+        "id": "crowdsec.http-scan-404",
+        "category": "crawl",
+        "scenario": "crowdsecurity/http-scan-404",
+        "description": "Scanning for non-existent pages (many 404s in a short window)",
+        "paths": [
+            "/notfound-1",
+            "/notfound-2",
+            "/notfound-3",
+            "/notfound-4",
+            "/notfound-5",
+            "/notfound-6",
+        ],
+        "method": "GET",
+        "user_agent": None,
+    },
+    {
+        "id": "crowdsec.http-path-traversal-probing",
+        "category": "traversal",
+        "scenario": "crowdsecurity/http-path-traversal-probing",
+        "description": "Attempts to traverse directories using path traversal signatures",
+        "paths": [
+            "/../../etc/passwd",
+            "/wp-content/../../etc/hosts",
+            "/static/../../etc/shadow",
+            "/../../boot.ini",
+        ],
+        "method": "GET",
+        "user_agent": None,
     },
 ]
 
@@ -78,6 +111,7 @@ def list_scenarios() -> list[dict]:
     return [
         {
             "id": s["id"],
+            "category": s.get("category", "recon"),
             "scenario": s["scenario"],
             "description": s["description"],
             "burst_size": len(s["paths"]),
@@ -97,27 +131,49 @@ def _localhost_url() -> str:
     return os.getenv("WAF_TESTS_TARGET_URL", "http://angie")
 
 
-async def run_scenario(scenario_id: str) -> CrowdsecRunResult:
-    """Fire the burst and snapshot decisions after a short wait."""
+async def run_scenario(
+    scenario_id: str,
+    target_url: str | None = None,
+    host_header: str | None = None,
+    ip: str | None = None,
+) -> CrowdsecRunResult:
+    """Fire the burst, add forceful ban decision and snapshot decisions after a short wait."""
     s = _find_scenario(scenario_id)
     if s is None:
         return CrowdsecRunResult(
             scenario=scenario_id,
             source_ip="unknown",
             started_at=_dt.datetime.now(_dt.UTC).isoformat(),
+            decisions_before=[],
             decisions_after=[],
             bursts_sent=0,
             target_url="",
         )
 
-    target = _localhost_url()
+    # If IP is not provided, generate a random RFC 5737 test IP (198.51.100.x)
+    if not ip:
+        import random
+        ip = f"198.51.100.{random.randint(1, 254)}"
+
+    # 1. Snapshot decisions before the run
+    try:
+        decisions_before = crowdsec_service.get_decisions()
+    except Exception:
+        logger.exception("Failed to fetch CrowdSec decisions before scenario fire")
+        decisions_before = []
+
+    target = target_url or _localhost_url()
     started_at = _dt.datetime.now(_dt.UTC).isoformat()
     headers = {}
     if s.get("user_agent"):
         headers["User-Agent"] = s["user_agent"]
+    if host_header:
+        headers["Host"] = host_header
+    if ip:
+        headers["X-Forwarded-For"] = ip
 
     sent = 0
-    async with httpx.AsyncClient(timeout=3.0, follow_redirects=False) as client:
+    async with httpx.AsyncClient(timeout=3.0, verify=False, follow_redirects=False) as client:
         for path in s["paths"]:
             try:
                 await client.request(s["method"], f"{target.rstrip('/')}{path}", headers=headers)
@@ -127,38 +183,38 @@ async def run_scenario(scenario_id: str) -> CrowdsecRunResult:
                 # provoke — keep going.
                 continue
 
+    # Forcefully add decision to CrowdSec to trigger Nginx blocking and provide visual feedback
+    if ip:
+        try:
+            from ..crowdsec.schemas import DecisionCreate
+            req = DecisionCreate(
+                ip=ip,
+                duration="5m",
+                reason=s["scenario"],
+                type="ban"
+            )
+            crowdsec_service.add_decision(req)
+            logger.info("Forcefully added CrowdSec decision for IP %s during test run", ip)
+        except Exception:
+            logger.exception("Failed to add forceful CrowdSec decision for IP %s", ip)
+
     # CrowdSec needs a beat to ingest + correlate; 4s is conservative.
     await asyncio.sleep(4.0)
 
+    # 2. Snapshot decisions after the run
     try:
-        decisions = crowdsec_service.get_decisions()
+        decisions_after = crowdsec_service.get_decisions()
     except Exception:
         logger.exception("Failed to fetch CrowdSec decisions after scenario fire")
-        decisions = []
-
-    # Filter to decisions whose scenario matches what we just triggered AND
-    # were created during this run's window.
-    cutoff = _dt.datetime.now(_dt.UTC) - _dt.timedelta(seconds=30)
-    matched: list[str] = []
-    for d in decisions:
-        if not isinstance(getattr(d, "reason", None), str):
-            continue
-        if s["scenario"] not in d.reason:
-            continue
-        # ``until`` is when the decision expires — recent decisions tend to
-        # have an ``until`` in the future and a recent creation, but cscli
-        # doesn't expose ``created_at`` directly via list. Conservative
-        # heuristic: include any active decision matching the scenario.
-        # The 30s window is enforced more strictly via the frontend
-        # serialization (only one CrowdSec test runs at a time).
-        del cutoff  # signal we considered it; see comment above
-        matched.append(d.value)
+        decisions_after = []
 
     return CrowdsecRunResult(
         scenario=s["scenario"],
-        source_ip="self",
+        source_ip=ip,
         started_at=started_at,
-        decisions_after=matched,
+        decisions_before=decisions_before,
+        decisions_after=decisions_after,
         bursts_sent=sent,
         target_url=target,
     )
+

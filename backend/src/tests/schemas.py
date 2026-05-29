@@ -96,6 +96,22 @@ class RunResult(BaseModel):
     response_raw: str | None = Field(default=None, description="Raw HTTP response received")
 
 
+class CrowdsecScenario(BaseModel):
+    """One CrowdSec scenario metadata entry."""
+
+    id: str
+    category: str = Field(..., description="CrowdSec scenario category (recon, crawl, exploit, traversal)")
+    scenario: str
+    description: str
+    burst_size: int
+
+
+class CrowdsecCatalog(BaseModel):
+    """CrowdSec catalog returned to the frontend."""
+
+    scenarios: list[CrowdsecScenario]
+
+
 class CrowdsecRunResult(BaseModel):
     """CrowdSec subcatalog run result.
 
@@ -110,3 +126,4 @@ class CrowdsecRunResult(BaseModel):
     decisions_after: list[Any] = Field(default_factory=list, description="Active decisions after the run")
     bursts_sent: int = 0
     target_url: str
+
