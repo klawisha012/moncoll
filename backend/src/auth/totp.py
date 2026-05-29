@@ -24,7 +24,8 @@ def _get_fernet() -> Fernet:
 
 
 def encrypt_secret(plain_secret: str) -> str:
-    return plain_secret
+    f = _get_fernet()
+    return f.encrypt(plain_secret.encode()).decode()
 
 
 def decrypt_secret(encrypted_secret: str | None) -> str | None:
