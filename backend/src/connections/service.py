@@ -182,9 +182,43 @@ async def create_connection(
     if existing.scalar_one_or_none() is not None:
         raise HTTPException(status_code=409, detail=f"Domain {domain} is already onboarded")
 
-    origin_ips, ttl = await _resolve_and_validate_origin(domain)
+    # If manual origin hosts are supplied, use them (and validate against SSRF)
+    if conn_in.origin_hosts:
+        origin_ips = [ip.strip() for ip in conn_in.origin_hosts if ip.strip()]
+        if not origin_ips:
+            raise HTTPException(status_code=422, detail="origin_hosts list is empty")
+        for ip in origin_ips:
+            if is_blocked_ip(ip):
+                raise HTTPException(
+                    status_code=422,
+                    detail=f"Origin host IP {ip} is private/reserved; refusing to proxy.",
+                )
+        ttl = 60
+    else:
+        origin_ips, ttl = await _resolve_and_validate_origin(domain)
+
+    # Check if domain already points to our edge IP
+    edge = _edge_ipv4()
+    points_to_edge = False
+    if edge:
+        try:
+            resolved_ips, _ = await resolve_a(domain)
+            if edge in resolved_ips:
+                points_to_edge = True
+        except Exception:
+            pass
 
     verify_token = secrets.token_urlsafe(24)
+
+    if points_to_edge:
+        status = "provisioning_cert"
+        status_detail = "Domain already points to WAF edge; ownership verified instantly."
+        verified_at = _now()
+    else:
+        status = "pending_verification"
+        status_detail = "Add the TXT record shown to verify ownership."
+        verified_at = None
+
     row = ConnectionModel(
         tenant_id=tenant.id,
         name=conn_in.name,
@@ -193,8 +227,9 @@ async def create_connection(
         origin_port=conn_in.origin_port or 443,
         origin_tls_mode=conn_in.origin_tls_mode,
         verify_token=verify_token,
-        status="pending_verification",
-        status_detail="Add the TXT record shown to verify ownership.",
+        verified_at=verified_at,
+        status=status,
+        status_detail=status_detail,
         dns_ttl_seconds=ttl,
         http_versions=conn_in.http_versions or "h1,h2",
         compression_algo=conn_in.compression_algo or "auto",

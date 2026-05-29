@@ -59,9 +59,6 @@ function TrafficChartInner(props: {
   };
 
   onMount(() => {
-    if (!chartRef) return;
-    chart = echarts.init(chartRef);
-
     const handleResize = () => {
       chart?.resize();
     };
@@ -69,12 +66,17 @@ function TrafficChartInner(props: {
 
     onCleanup(() => {
       window.removeEventListener("resize", handleResize);
-      chart?.dispose();
+      if (chart) {
+        chart.dispose();
+      }
     });
   });
 
   createEffect(() => {
-    if (!chart) return;
+    if (!chartRef) return;
+    if (!chart) {
+      chart = echarts.init(chartRef);
+    }
 
     const theme = settings.theme;
     const isDark = theme === "dark";

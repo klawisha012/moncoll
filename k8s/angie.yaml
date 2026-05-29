@@ -120,8 +120,8 @@ data:
 
         if ($http_x_waf_loop) { return 508; }
 
-        access_log /var/log/angie/geoip.log with_geoip_json if=$not_clean;
-        access_log /var/log/angie/access.log combined if=$not_clean;
+        access_log /var/log/angie/geoip.log with_geoip_json;
+        access_log /var/log/angie/access.log combined;
 
         location = /healthz {
             access_log off;

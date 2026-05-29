@@ -6,7 +6,7 @@ class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_prefix="WAF_", case_sensitive=False, extra="ignore")
 
     public_base_url: str = "http://localhost"
-    cookie_secure: bool = False
+    cookie_secure: bool = True
     paseto_key: str | None = None
 
     turnstile_site_key: str | None = None

@@ -217,6 +217,13 @@ transforms:
       # Server-name / Host header — used for per-domain dashboard filtering
       .host = to_string(.host) ?? ""
 
+  # Filter attacks for real-time threat map (exclude 2xx/3xx clean requests)
+  filter_realtime_attacks:
+    type: filter
+    inputs:
+      - parse_geoip_access
+    condition: "(to_int(.status) ?? 0) < 200 || (to_int(.status) ?? 0) >= 400"
+
 # Sinks: Define where logs go
 sinks:
   # Sink for WAF audit logs to ClickHouse
@@ -276,7 +283,7 @@ sinks:
   geoip_realtime_sink:
     type: redis
     inputs:
-      - parse_geoip_access
+      - filter_realtime_attacks
     url: "redis://redis:6379/0"
     key: "attacks:raw"
     data_type: channel

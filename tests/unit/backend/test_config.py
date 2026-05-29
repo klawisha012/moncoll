@@ -35,7 +35,7 @@ def test_settings_defaults(monkeypatch):
     get_settings.cache_clear()
     s = get_settings()
     assert s.public_base_url == "http://localhost"
-    assert s.cookie_secure is False
+    assert s.cookie_secure is True
     assert s.smtp_port == 587
     assert s.smtp_from_email == "noreply@localhost"
     assert s.smtp_starttls is True

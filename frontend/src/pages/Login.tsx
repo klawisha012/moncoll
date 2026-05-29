@@ -17,10 +17,10 @@ export default function Login() {
   const [password, setPassword] = createSignal("");
   const [showPassword, setShowPassword] = createSignal(false);
   const [captchaToken, setCaptchaToken] = createSignal("e2e-test-bypass");
-  // Bumped to force the Turnstile widget to remount and issue a fresh,
+  // Toggled to force the Turnstile widget to unmount and remount, issuing a fresh,
   // single-use token after the previous one was consumed by a backend call
   // that didn't fully complete the login (e.g. totp_required).
-  const [captchaResetKey, setCaptchaResetKey] = createSignal(1);
+  const [captchaVisible, setCaptchaVisible] = createSignal(true);
   const [totpCode, setTotpCode] = createSignal("");
   const [totpRequired, setTotpRequired] = createSignal(false);
   const [submitting, setSubmitting] = createSignal(false);
@@ -55,7 +55,8 @@ export default function Login() {
         // 'timeout-or-duplicate' and the second submit fails with
         // 'captcha failed' even though the widget still shows "Успешно".
         setCaptchaToken("");
-        setCaptchaResetKey((k) => k + 1);
+        setCaptchaVisible(false);
+        setTimeout(() => setCaptchaVisible(true), 0);
         setSubmitting(false);
         return;
       }
@@ -66,7 +67,8 @@ export default function Login() {
       // Any failed login attempt (wrong password, invalid totp, captcha
       // failure) also consumes the single-use Turnstile token — refresh it.
       setCaptchaToken("");
-      setCaptchaResetKey((k) => k + 1);
+      setCaptchaVisible(false);
+      setTimeout(() => setCaptchaVisible(true), 0);
       setError(() => err instanceof Error ? err.message : settings.t("general.error"));
     } finally {
       setSubmitting(false);
@@ -223,13 +225,11 @@ export default function Login() {
           <Show when={providers()?.captcha_site_key}>
             {(siteKey) => (
               <div class="cv-captcha">
-                <Show when={captchaResetKey()}>
-                  {(key) => (
-                    <TurnstileWidget
-                      siteKey={siteKey()}
-                      onToken={handleToken}
-                    />
-                  )}
+                <Show when={captchaVisible()}>
+                  <TurnstileWidget
+                    siteKey={siteKey()}
+                    onToken={handleToken}
+                  />
                 </Show>
                 <Show when={providers()?.captcha_dev_mode}>
                   <span class="cv-captcha-dev-tag">{settings.t("auth.captcha.devMode")}</span>

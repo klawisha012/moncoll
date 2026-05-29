@@ -28,18 +28,24 @@ router = APIRouter(prefix="/api/crowdsec", tags=["crowdsec"])
 
 
 @router.get("/status", response_model=CrowdSecStatus)
-async def get_status(_: User = Depends(require_verified)):
+async def get_status(
+    connection_id: int | None = Query(default=None),
+    _: User = Depends(require_verified)
+):
     """Get CrowdSec overall status (version, counts)."""
-    return crowdsec_service.get_status()
+    return crowdsec_service.get_status(connection_id)
 
 
 # ── Decisions ──────────────────────────────────────────────
 
 
 @router.get("/decisions", response_model=list[DecisionItem])
-async def get_decisions(_: User = Depends(require_verified)):
+async def get_decisions(
+    connection_id: int | None = Query(default=None),
+    _: User = Depends(require_verified)
+):
     """List all active decisions (blocks)."""
-    return crowdsec_service.get_decisions()
+    return crowdsec_service.get_decisions(connection_id)
 
 
 @router.post("/decisions")

@@ -1,9 +1,10 @@
-import { onMount } from "solid-js";
+import { onMount, onCleanup } from "solid-js";
 
 declare global {
   interface Window {
     turnstile?: {
-      render: (container: HTMLElement, options: { sitekey: string; callback: (token: string) => void }) => void;
+      render: (container: HTMLElement, options: { sitekey: string; callback: (token: string) => void }) => string;
+      remove: (widgetId: string) => void;
     };
   }
 }
@@ -15,9 +16,11 @@ export default function TurnstileWidget(props: {
   let ref: HTMLDivElement | undefined;
 
   onMount(() => {
+    let widgetId: string | undefined;
+
     const renderWidget = () => {
       if (!ref || !window.turnstile) return;
-      window.turnstile.render(ref, { sitekey: props.siteKey, callback: props.onToken });
+      widgetId = window.turnstile.render(ref, { sitekey: props.siteKey, callback: props.onToken });
     };
 
     if (window.turnstile) {
@@ -29,6 +32,16 @@ export default function TurnstileWidget(props: {
       s.onload = renderWidget;
       document.head.appendChild(s);
     }
+
+    onCleanup(() => {
+      if (widgetId && window.turnstile) {
+        try {
+          window.turnstile.remove(widgetId);
+        } catch (e) {
+          console.error("Failed to remove turnstile widget:", e);
+        }
+      }
+    });
   });
 
   return <div ref={ref} />;

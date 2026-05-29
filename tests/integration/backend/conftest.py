@@ -45,17 +45,37 @@ def event_loop():
 
 @pytest_asyncio.fixture
 async def db_session():
+    from backend.src.db.base import get_engine, get_sessionmaker
+    
+    # 1. Cleanly dispose of any cached engine to close its connection pool and avoid leaks
+    try:
+        engine = get_engine()
+        await engine.dispose()
+    except Exception:
+        pass
+        
+    # 2. Clear caches so a fresh engine is created for the current event loop
+    get_engine.cache_clear()
+    get_sessionmaker.cache_clear()
+    
     url = os.environ.get(
         "TEST_DATABASE_URL", "postgresql+asyncpg://waf:waf@localhost:5432/waf_test"
     )
-    engine = create_async_engine(url, future=True)
+    os.environ["DATABASE_URL"] = url
+    
+    engine = get_engine()
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.drop_all)
         await conn.run_sync(Base.metadata.create_all)
+        
     Session = async_sessionmaker(engine, expire_on_commit=False)
     async with Session() as session:
         yield session
+        
+    # 3. Cleanly dispose at the end of the test as well
     await engine.dispose()
+    get_engine.cache_clear()
+    get_sessionmaker.cache_clear()
 
 
 # ---------------------------------------------------------------------------

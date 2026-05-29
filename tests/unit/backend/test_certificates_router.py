@@ -53,6 +53,7 @@ def _fake_connection(connection_id: int = 1, domain: str = "example.com") -> Con
             "compression_algo": "auto",
             "enabled": True,
             "modsec_state": "blocking",
+            "crowdsec_active": False,
             "geoip_denied_countries": [],
             "ssl_cert_path": None,
             "ssl_key_path": None,
@@ -91,7 +92,7 @@ def test_regenerate_wraps_singular_domain_into_san_list(app: FastAPI):
     assert resp.status_code == 200, resp.text
     assert resp.json() == ssl_result
     # The SAN-aware service must receive the singular domain wrapped as a list.
-    mock_regen.assert_called_once_with(42, ["foo.example.com"])
+    mock_regen.assert_called_once_with(42, ["foo.example.com"], tenant_id=1)
 
 
 def test_request_uses_body_domains_without_touching_conn_domains(app: FastAPI):
@@ -120,4 +121,4 @@ def test_request_uses_body_domains_without_touching_conn_domains(app: FastAPI):
             app.dependency_overrides.clear()
 
     assert resp.status_code == 200, resp.text
-    mock_acme.assert_called_once_with(7, ["bar.example.com"])
+    mock_acme.assert_called_once_with(7, ["bar.example.com"], tenant_id=1)

@@ -39,6 +39,7 @@ write_blocked_ips() {
     if [ -s "$TMP_FILE" ]; then
         if ! diff -q "$TMP_FILE" "$target" > /dev/null 2>&1; then
             cp "$TMP_FILE" "$target"
+            chmod 666 "$target" 2>/dev/null || true
             return 0
         fi
     fi

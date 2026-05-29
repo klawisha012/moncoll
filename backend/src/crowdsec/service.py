@@ -291,7 +291,7 @@ def _sync_blocked_ips_conf() -> None:
 # ── Status ─────────────────────────────────────────────────
 
 
-def get_status() -> CrowdSecStatus:
+def get_status(connection_id: int | None = None) -> CrowdSecStatus:
     """Get CrowdSec status."""
     try:
         _exit_code, stdout, _ = _run_cscli(["version"])
@@ -304,12 +304,37 @@ def get_status() -> CrowdSecStatus:
         # Count decisions
         decisions_data = _run_cscli_json(["decisions", "list"])
         decisions_count = 0
-        if isinstance(decisions_data, list):
-            for alert in decisions_data:
-                if isinstance(alert, dict):
-                    decisions_count += len(alert.get("decisions", []) or [])
-        elif isinstance(decisions_data, dict):
-            decisions_count = len(decisions_data.get("decisions", []) or [])
+        alerts = decisions_data if isinstance(decisions_data, list) else []
+
+        if connection_id is not None:
+            # Resolve connections for each IP
+            all_conn_ids = _load_connection_ids()
+            manual_mapping = _load_blocked_ips_mapping()
+            target_hosts = _extract_target_hosts_from_alerts(alerts)
+            domain_to_conn = _build_domain_to_conn_map()
+
+            for alert in alerts:
+                if not isinstance(alert, dict):
+                    continue
+                source = alert.get("source", {}) or {}
+                ip_value = source.get("value", "") if isinstance(source, dict) else ""
+                nested_decisions = alert.get("decisions", []) or []
+                for dec in nested_decisions:
+                    if not isinstance(dec, dict):
+                        continue
+                    dec_value = dec.get("value", ip_value)
+                    target_conn_ids = _resolve_ip_connections(
+                        dec_value, manual_mapping, target_hosts, domain_to_conn, all_conn_ids
+                    )
+                    if connection_id in target_conn_ids:
+                        decisions_count += 1
+        else:
+            if isinstance(decisions_data, list):
+                for alert in decisions_data:
+                    if isinstance(alert, dict):
+                        decisions_count += len(alert.get("decisions", []) or [])
+            elif isinstance(decisions_data, dict):
+                decisions_count = len(decisions_data.get("decisions", []) or [])
 
 
         # Count scenarios
@@ -343,7 +368,7 @@ def get_status() -> CrowdSecStatus:
 # ── Decisions ──────────────────────────────────────────────
 
 
-def get_decisions() -> list[DecisionItem]:
+def get_decisions(connection_id: int | None = None) -> list[DecisionItem]:
     """Get all active decisions with per-connection blocking info."""
     data = _run_cscli_json(["decisions", "list"])
     # cscli decisions list -o json returns a list of alert objects:
@@ -380,6 +405,11 @@ def get_decisions() -> list[DecisionItem]:
             target_conn_ids = _resolve_ip_connections(
                 dec_value, manual_mapping, target_hosts, domain_to_conn, all_conn_ids
             )
+            
+            # If a connection_id is specified, filter decisions that are not blocked on it
+            if connection_id is not None and connection_id not in target_conn_ids:
+                continue
+
             blocked_on = [conn_id_to_name.get(cid, f"conn_{cid}") for cid in target_conn_ids]
             decisions.append(
                 DecisionItem(

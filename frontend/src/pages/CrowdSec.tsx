@@ -116,9 +116,10 @@ export default function CrowdSec() {
   const loadData = async () => {
     setLoading(true);
     try {
+      const connId = filters.connectionId;
       const [s, d, sc, ml, svc, conns] = await Promise.all([
-        api.getCrowdSecStatus(),
-        api.getCrowdSecDecisions(),
+        api.getCrowdSecStatus(connId),
+        api.getCrowdSecDecisions(connId),
         api.getCrowdSecScenarios(),
         api.getCrowdSecManualBlocks(50, filters.selectedHours),
         api.getCrowdSecServiceStatus().catch(() => ({ enabled: true })),

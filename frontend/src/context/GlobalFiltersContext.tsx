@@ -4,8 +4,11 @@ import {
   createSignal,
   createEffect,
   createMemo,
+  onCleanup,
   type JSX,
 } from "solid-js";
+import { api } from "../api/client";
+import { useAuth } from "./AuthContext";
 import type { Connection } from "../api/client";
 
 export type TimeUnit = "minutes" | "hours" | "days";
@@ -71,12 +74,36 @@ const Ctx = createContext<GlobalFiltersValue | null>(null);
 
 export function GlobalFiltersProvider(props: { children: JSX.Element }) {
   const initial = loadPersisted();
+  const auth = useAuth();
+  
   const [connectionId, setConnectionIdState] = createSignal<number | null>(
     initial.connectionId,
   );
   const [timeValue, setTimeValueState] = createSignal<number>(initial.timeValue);
   const [timeUnit, setTimeUnitState] = createSignal<TimeUnit>(initial.timeUnit);
   const [connections, setConnections] = createSignal<Connection[]>([]);
+
+  // Globally fetch connections for logged-in clients
+  createEffect(() => {
+    const usr = auth.user;
+    if (!usr) return;
+    if (usr.platform_role !== "client") return;
+    if (connections().length > 0) return;
+
+    let cancelled = false;
+    api
+      .getConnections()
+      .then((cs) => {
+        if (!cancelled) setConnections(cs);
+      })
+      .catch(() => {
+        // Silent fallback
+      });
+
+    onCleanup(() => {
+      cancelled = true;
+    });
+  });
 
   createEffect(() => {
     try {

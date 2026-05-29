@@ -48,6 +48,7 @@ async def test_verify_or_raise_failure(monkeypatch):
     from fastapi import HTTPException
 
     class FakeReq:
+        headers = {}
         client = type("c", (), {"host": "1.2.3.4"})()
 
     with pytest.raises(HTTPException) as exc:

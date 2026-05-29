@@ -58,7 +58,7 @@ def _patch_google(monkeypatch, access_token: str = "tok-abc"):
     )
     monkeypatch.setattr(
         "backend.src.auth.routers.oauth.redirect_uri",
-        lambda provider: GOOGLE_REDIRECT_URI if provider == "google" else None,
+        lambda provider, request=None: GOOGLE_REDIRECT_URI if provider == "google" else None,
     )
     return mock_client
 
@@ -90,7 +90,7 @@ async def test_oauth_signup_new_account(db_session, monkeypatch):
             )
 
     assert r.status_code == 303, r.text
-    assert r.headers["location"] == "/home"
+    assert r.headers["location"] == "https://testserver/home"
     assert SESSION_COOKIE in r.cookies
 
     # Verify DB rows
@@ -150,8 +150,8 @@ async def test_oauth_signup_email_collision(db_session, monkeypatch):
                 params={"code": "auth-code", "state": state},
             )
 
-    assert r.status_code == 409, r.text
-    assert "email already in use" in r.json()["detail"]
+    assert r.status_code == 303, r.text
+    assert r.headers["location"] == "https://testserver/signup?oauth_error=email_in_use"
 
     app.dependency_overrides.clear()
     security._cached_key = None
@@ -237,8 +237,8 @@ async def test_oauth_login_no_account(db_session, monkeypatch):
                 params={"code": "auth-code", "state": state},
             )
 
-    assert r.status_code == 404, r.text
-    assert "no account" in r.json()["detail"]
+    assert r.status_code == 303, r.text
+    assert r.headers["location"] == "https://testserver/home"
 
     app.dependency_overrides.clear()
     security._cached_key = None
@@ -265,8 +265,8 @@ async def test_oauth_email_not_verified(db_session, monkeypatch):
                 params={"code": "auth-code", "state": state},
             )
 
-    assert r.status_code == 400, r.text
-    assert "email not verified" in r.json()["detail"]
+    assert r.status_code == 303, r.text
+    assert r.headers["location"] == "https://testserver/signup?oauth_error=email_not_verified"
 
     app.dependency_overrides.clear()
     security._cached_key = None
@@ -289,8 +289,8 @@ async def test_oauth_invalid_state_cookie(db_session, monkeypatch):
             params={"code": "auth-code", "state": state},
         )
 
-    assert r.status_code == 400, r.text
-    assert "invalid oauth state" in r.json()["detail"]
+    assert r.status_code == 303, r.text
+    assert r.headers["location"] == "https://testserver/signup?oauth_error=state_mismatch"
 
     app.dependency_overrides.clear()
     security._cached_key = None
@@ -312,8 +312,8 @@ async def test_oauth_start_provider_unavailable(db_session, monkeypatch):
             params={"intent": "signup", "tenant_name": "corp"},
         )
 
-    assert r.status_code == 400, r.text
-    assert "provider unavailable" in r.json()["detail"]
+    assert r.status_code == 303, r.text
+    assert r.headers["location"] == "https://testserver/signup?oauth_error=provider_unavailable"
 
     cfg_mod.get_settings.cache_clear()
     app.dependency_overrides.clear()

@@ -20,6 +20,18 @@ async def _create_admin(db_session, email="admin@example.com", password="adminpa
     return await auth_service.create_admin(db_session, email=email, password=password)
 
 
+@pytest.fixture(autouse=True)
+def clear_settings_cache(monkeypatch):
+    monkeypatch.setenv("WAF_COOKIE_SECURE", "false")
+    from backend.src.config import get_settings
+    from backend.src.auth import security
+    get_settings.cache_clear()
+    security._cached_key = None
+    yield
+    get_settings.cache_clear()
+    security._cached_key = None
+
+
 @pytest.mark.asyncio
 async def test_admin_first_login_returns_enrol_cookie(db_session, monkeypatch):
     """Admin without TOTP secret → 403 totp_enrol_required + enrol cookie set."""
@@ -59,12 +71,10 @@ async def test_totp_setup_with_enrol_cookie(db_session, monkeypatch):
         )
         assert login_r.status_code == 403
         enrol_cookie = login_r.cookies[TOTP_ENROL_COOKIE]
+        c.cookies.set(TOTP_ENROL_COOKIE, enrol_cookie)
 
         # POST /totp/setup using the enrol cookie
-        setup_r = await c.post(
-            "/api/auth/totp/setup",
-            cookies={TOTP_ENROL_COOKIE: enrol_cookie},
-        )
+        setup_r = await c.post("/api/auth/totp/setup")
         assert setup_r.status_code == 200, setup_r.text
         data = setup_r.json()
         assert "secret_base32" in data
@@ -94,12 +104,10 @@ async def test_totp_confirm_issues_session(db_session, monkeypatch):
         )
         assert login_r.status_code == 403
         enrol_cookie = login_r.cookies[TOTP_ENROL_COOKIE]
+        c.cookies.set(TOTP_ENROL_COOKIE, enrol_cookie)
 
         # Step 2: setup → get secret
-        setup_r = await c.post(
-            "/api/auth/totp/setup",
-            cookies={TOTP_ENROL_COOKIE: enrol_cookie},
-        )
+        setup_r = await c.post("/api/auth/totp/setup")
         assert setup_r.status_code == 200
         secret = setup_r.json()["secret_base32"]
 
@@ -108,7 +116,6 @@ async def test_totp_confirm_issues_session(db_session, monkeypatch):
         confirm_r = await c.post(
             "/api/auth/totp/confirm",
             json={"code": valid_code},
-            cookies={TOTP_ENROL_COOKIE: enrol_cookie},
         )
         assert confirm_r.status_code == 200, confirm_r.text
         assert confirm_r.json()["ok"] is True
@@ -186,16 +193,13 @@ async def test_login_missing_totp_code(db_session, monkeypatch):
             json={"email": "missing_totp@example.com", "password": "adminpass1", "captcha_token": "tok"},
         )
         enrol_cookie = login_r.cookies[TOTP_ENROL_COOKIE]
-        setup_r = await c.post(
-            "/api/auth/totp/setup",
-            cookies={TOTP_ENROL_COOKIE: enrol_cookie},
-        )
+        c.cookies.set(TOTP_ENROL_COOKIE, enrol_cookie)
+        setup_r = await c.post("/api/auth/totp/setup")
         secret = setup_r.json()["secret_base32"]
         code = pyotp.TOTP(secret).now()
         await c.post(
             "/api/auth/totp/confirm",
             json={"code": code},
-            cookies={TOTP_ENROL_COOKIE: enrol_cookie},
         )
 
         # Login without TOTP code
@@ -226,10 +230,8 @@ async def test_login_with_recovery_code(db_session, monkeypatch):
             json={"email": "recovery@example.com", "password": "adminpass1", "captcha_token": "tok"},
         )
         enrol_cookie = login_r.cookies[TOTP_ENROL_COOKIE]
-        setup_r = await c.post(
-            "/api/auth/totp/setup",
-            cookies={TOTP_ENROL_COOKIE: enrol_cookie},
-        )
+        c.cookies.set(TOTP_ENROL_COOKIE, enrol_cookie)
+        setup_r = await c.post("/api/auth/totp/setup")
         data = setup_r.json()
         secret = data["secret_base32"]
         recovery_codes = data["recovery_codes"]
@@ -238,7 +240,6 @@ async def test_login_with_recovery_code(db_session, monkeypatch):
         await c.post(
             "/api/auth/totp/confirm",
             json={"code": code},
-            cookies={TOTP_ENROL_COOKIE: enrol_cookie},
         )
 
         # Login using a recovery code
@@ -274,10 +275,8 @@ async def test_recovery_code_single_use(db_session, monkeypatch):
             json={"email": "oneuse@example.com", "password": "adminpass1", "captcha_token": "tok"},
         )
         enrol_cookie = login_r.cookies[TOTP_ENROL_COOKIE]
-        setup_r = await c.post(
-            "/api/auth/totp/setup",
-            cookies={TOTP_ENROL_COOKIE: enrol_cookie},
-        )
+        c.cookies.set(TOTP_ENROL_COOKIE, enrol_cookie)
+        setup_r = await c.post("/api/auth/totp/setup")
         data = setup_r.json()
         secret = data["secret_base32"]
         recovery_codes = data["recovery_codes"]
@@ -286,7 +285,6 @@ async def test_recovery_code_single_use(db_session, monkeypatch):
         await c.post(
             "/api/auth/totp/confirm",
             json={"code": code},
-            cookies={TOTP_ENROL_COOKIE: enrol_cookie},
         )
 
         # First use of recovery code — should succeed

@@ -729,11 +729,19 @@ export const api = {
 
   // ── CrowdSec API ──────────────────────────────────────────
 
-  getCrowdSecStatus: () =>
-    fetchApi<CrowdSecStatus>("/api/crowdsec/status"),
+  getCrowdSecStatus: (connectionId?: number | null) => {
+    const params = new URLSearchParams();
+    if (connectionId != null) params.set("connection_id", String(connectionId));
+    const qs = params.toString();
+    return fetchApi<CrowdSecStatus>(`/api/crowdsec/status${qs ? `?${qs}` : ""}`);
+  },
 
-  getCrowdSecDecisions: () =>
-    fetchApi<DecisionItem[]>("/api/crowdsec/decisions"),
+  getCrowdSecDecisions: (connectionId?: number | null) => {
+    const params = new URLSearchParams();
+    if (connectionId != null) params.set("connection_id", String(connectionId));
+    const qs = params.toString();
+    return fetchApi<DecisionItem[]>(`/api/crowdsec/decisions${qs ? `?${qs}` : ""}`);
+  },
 
   addCrowdSecDecision: (req: DecisionCreate) =>
     fetchApi<DecisionResponse>("/api/crowdsec/decisions", {

@@ -64,7 +64,7 @@ async def test_client_can_get_crowdsec_status(db_session, monkeypatch):
     monkeypatch.setattr(
         crowdsec_service,
         "get_status",
-        lambda: CrowdSecStatus(
+        lambda connection_id=None: CrowdSecStatus(
             running=True,
             version="v1.test",
             decisions_count=0,
@@ -87,7 +87,7 @@ async def test_client_can_get_crowdsec_decisions(db_session, monkeypatch):
     """Verified client → 200 on GET /api/crowdsec/decisions."""
     from backend.src.crowdsec import service as crowdsec_service
 
-    monkeypatch.setattr(crowdsec_service, "get_decisions", lambda: [])
+    monkeypatch.setattr(crowdsec_service, "get_decisions", lambda connection_id=None: [])
 
     token = await _client_token(db_session, monkeypatch, suffix="cs-dec")
     async with AsyncClient(

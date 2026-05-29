@@ -21,6 +21,7 @@ class ConnectionCreate(BaseModel):
 
     name: str = Field(..., min_length=1, max_length=128)
     domain: str = Field(..., min_length=3, max_length=253)
+    origin_hosts: list[str] | None = None
     # Defaults to 443 — the convention for HTTPS origins. Override when the
     # origin serves on a non-standard port (e.g. dev/staging, or when 443
     # on the origin server is already taken by another service like a VPN).
