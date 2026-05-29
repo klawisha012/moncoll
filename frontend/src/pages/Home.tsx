@@ -247,29 +247,7 @@ export default function Home() {
         </For>
       </div>
 
-      <Show when={unresolvedList().length > 0}>
-        <aside class="home-settings">
-          <div class="home-settings-section">
-            <label class="home-settings-label">
-              {unresolvedList().length} {settings.t("dashboard.unresolvedIP")}{unresolvedList().length === 1 ? "" : "s"} · {unresolvedTotal().toLocaleString()} {settings.t("dashboard.hit")}{unresolvedTotal() === 1 ? "" : "s"}
-            </label>
-            <div class="home-settings-unresolved">
-              <For each={unresolvedList().slice(0, 8)}>
-                {(d) => {
-                  const cls = classifyUnresolvedIp(d.ip);
-                  return (
-                    <div title={cls.reason} class="home-settings-unresolved-row">
-                      <span class="home-settings-ip">{d.ip}</span>
-                      <span class="home-settings-tag">{cls.kind}</span>
-                      <span class="home-settings-count">{d.hits.toLocaleString()}</span>
-                    </div>
-                  );
-                }}
-              </For>
-            </div>
-          </div>
-        </aside>
-      </Show>
+
     </>
   );
 }

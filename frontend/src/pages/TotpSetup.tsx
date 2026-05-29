@@ -48,6 +48,7 @@ export default function TotpSetup() {
 
   const proceed = () => {
     const role = auth.user?.platform_role;
+    localStorage.setItem("waf-sidebar-collapsed", "1");
     navigate(role === "admin" ? "/monitoring" : "/home", { replace: true });
   };
 
