@@ -305,9 +305,12 @@ def get_status() -> CrowdSecStatus:
         decisions_data = _run_cscli_json(["decisions", "list"])
         decisions_count = 0
         if isinstance(decisions_data, list):
-            decisions_count = len(decisions_data)
+            for alert in decisions_data:
+                if isinstance(alert, dict):
+                    decisions_count += len(alert.get("decisions", []) or [])
         elif isinstance(decisions_data, dict):
             decisions_count = len(decisions_data.get("decisions", []) or [])
+
 
         # Count scenarios
         scenarios_data = _run_cscli_json(["scenarios", "list"])
