@@ -19,12 +19,14 @@ def test_list_scenarios_non_empty():
 
 @pytest.mark.parametrize("entry", list_scenarios())
 def test_list_scenarios_entry_shape(entry):
-    """Each subcatalog entry must carry the four fields the frontend renders."""
-    assert set(entry.keys()) >= {"id", "scenario", "description", "burst_size"}
+    """Each subcatalog entry must carry the fields the frontend renders."""
+    assert set(entry.keys()) >= {"id", "category", "scenario", "description", "burst_size"}
     assert isinstance(entry["id"], str) and entry["id"].startswith("crowdsec.")
+    assert isinstance(entry["category"], str) and entry["category"] in {"recon", "crawl", "exploit", "traversal"}
     assert isinstance(entry["scenario"], str) and "/" in entry["scenario"]
     assert isinstance(entry["description"], str) and entry["description"]
     assert isinstance(entry["burst_size"], int) and entry["burst_size"] > 0
+
 
 
 def test_list_scenarios_ids_are_unique():

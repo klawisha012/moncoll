@@ -286,5 +286,44 @@ def test_crowdsec_run_dispatches_to_runner(app: FastAPI):
     mock_run.assert_called_once_with(
         "crowdsec.http-probing",
         target_url="https://angie",
-        host_header="test.domain"
+        host_header="test.domain",
+        ip=None
     )
+
+
+def test_crowdsec_run_passes_ip_to_runner(app: FastAPI):
+    app.dependency_overrides[require_verified] = lambda: _fake_user()
+    app.dependency_overrides[current_tenant] = lambda: _fake_tenant()
+    app.dependency_overrides[get_session] = lambda: None
+
+    fake_conn = SimpleNamespace(domain="test.domain")
+    fake = CrowdsecRunResult(
+        scenario="crowdsecurity/http-probing",
+        source_ip="8.8.8.8",
+        started_at="2026-05-21T20:00:00+00:00",
+        decisions_after=["8.8.8.8"],
+        bursts_sent=8,
+        target_url="http://angie",
+    )
+    with patch.object(crowdsec_runner, "run_scenario", new=AsyncMock(return_value=fake)) as mock_run:
+        with patch.object(tests_service, "resolve_target", new=AsyncMock(return_value=("https://angie", fake_conn))):
+            try:
+                client = TestClient(app)
+                resp = client.post(
+                    "/api/tests/crowdsec/run",
+                    json={"scenario_id": "crowdsec.http-probing", "connection_id": 123, "ip": "8.8.8.8"},
+                )
+            finally:
+                app.dependency_overrides.clear()
+
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["source_ip"] == "8.8.8.8"
+    mock_run.assert_called_once_with(
+        "crowdsec.http-probing",
+        target_url="https://angie",
+        host_header="test.domain",
+        ip="8.8.8.8"
+    )
+
+
