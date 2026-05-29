@@ -75,7 +75,12 @@ def test_exclusion_after_crs(setup_teardown, test_name, endpoint):
     try:
         response = requests.get(f"http://localhost{endpoint}", timeout=10)
     except requests.RequestException as e:
-        pytest.fail(f"Request failed: {e}")
+        # If the connection was aborted, reset, or closed by WAF, proceed to check logs
+        err_msg = str(e)
+        if any(msg in err_msg for msg in ["Connection aborted", "Connection reset", "RemoteDisconnected", "Remote end closed"]):
+            pass
+        else:
+            pytest.fail(f"Request failed: {e}")
 
     time.sleep(1)
 
@@ -93,14 +98,18 @@ def test_exclusion_after_crs(setup_teardown, test_name, endpoint):
 
     if log_content:
         # Parse JSON log
-        try:
-            log_data = json.loads(log_content)
-        except json.JSONDecodeError as e:
-            pytest.fail(f"Error parsing JSON log: {e}")
+    try:
+        log_data = json.loads(log_content.splitlines()[-1])
+    except json.JSONDecodeError as e:
+        pytest.fail(f"Error parsing JSON log: {e}")
 
         # Extract messages with ruleId
-        messages = log_data.get("messages", [])
-        rule_ids_in_log = [msg.get("ruleId") for msg in messages if "ruleId" in msg]
+    messages = log_data.get("transaction", {}).get("messages", []) or log_data.get("messages", [])
+    rule_ids_in_log = []
+    for m in messages:
+        rid = m.get("ruleId") or m.get("details", {}).get("ruleId")
+        if rid:
+            rule_ids_in_log.append(rid)
 
         # For exclusion tests, we would verify that excluded rules are NOT triggered
         # and that modified actions work as expected

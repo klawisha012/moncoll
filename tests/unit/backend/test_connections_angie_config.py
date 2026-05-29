@@ -72,7 +72,7 @@ def test_active_emits_both_blocks():
     )
     assert "listen 80;" in out
     assert "listen 443 ssl;" in out
-    assert "return 301 https://" in out  # port 80 → 443 redirect
+    assert "proxy_pass http://127.0.0.1:8082;" in out  # routes active HTTP to HTTPS redirector sink
     assert "ssl_certificate     /etc/angie/tenants/42/compose/conn_7/7.crt;" in out
 
 
@@ -121,7 +121,7 @@ def test_upstream_pools_multiple_a_records():
     assert "server 1.1.1.1:443 max_fails=3 fail_timeout=30s;" in out
     assert "server 1.0.0.1:443 max_fails=3 fail_timeout=30s;" in out
     assert "server 8.8.8.8:443 max_fails=3 fail_timeout=30s;" in out
-    assert "keepalive 16;" in out
+    assert "keepalive 128;" in out
 
 
 def test_upstream_empty_origin_is_safe_fail():

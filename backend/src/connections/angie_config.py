@@ -233,8 +233,8 @@ def render(conn: dict) -> str:
     lines.append(f"    server_name {domain};")
     lines.append("    if ($http_x_waf_loop) { return 508; }")
     lines.append("")
-    lines.append("    access_log /var/log/angie/geoip.log with_geoip_json if=$not_clean;")
-    lines.append("    access_log /var/log/angie/access.log combined if=$not_clean;")
+    lines.append("    access_log /var/log/angie/geoip.log with_geoip_json;")
+    lines.append("    access_log /var/log/angie/access.log combined;")
     lines.append("")
     if crowdsec_active:
         lines.append(blocked_ips_include)
@@ -248,11 +248,13 @@ def render(conn: dict) -> str:
     lines.append("")
     if has_cert:
         # Active: port 80 only serves ACME + redirects everything else.
-        # GeoIP deny applies to the redirect too — no point handing out
-        # a 301 to a country we'd block at the TLS server anyway.
+        # To let ModSecurity check and block attacks on port 80 (instead of
+        # short-circuiting), we proxy_pass to the loopback HTTPS redirector sink (127.0.0.1:8082).
         lines.append("    location / {")
         lines.extend(_emit_geoip_deny(geoip_denied))
-        lines.append("        return 301 https://$host$request_uri;")
+        lines.append("        proxy_pass http://127.0.0.1:8082;")
+        lines.append("        proxy_set_header Host $host;")
+        lines.append("        proxy_http_version 1.1;")
         lines.append("    }")
     else:
         # Pre-active: HTTP-only proxy so traffic flows immediately after DNS flip.
@@ -298,8 +300,8 @@ def render(conn: dict) -> str:
                 "    # HSTS suppressed: cert is self-signed; emitting it would lock browsers out."
             )
         lines.append("")
-        lines.append("    access_log /var/log/angie/geoip.log with_geoip_json if=$not_clean;")
-        lines.append("    access_log /var/log/angie/access.log combined if=$not_clean;")
+        lines.append("    access_log /var/log/angie/geoip.log with_geoip_json;")
+        lines.append("    access_log /var/log/angie/access.log combined;")
         if crowdsec_active:
             lines.append(blocked_ips_include)
         lines.append("")

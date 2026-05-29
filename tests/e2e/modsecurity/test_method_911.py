@@ -40,7 +40,12 @@ def test_method_enforcement_rule_trigger(setup_teardown, rule_id, method):
     try:
         response = requests.request(method, "http://localhost/?param=test", timeout=10)
     except requests.RequestException as e:
-        pytest.fail(f"Request failed: {e}")
+        # If the connection was aborted, reset, or closed by WAF, proceed to check logs
+        err_msg = str(e)
+        if any(msg in err_msg for msg in ["Connection aborted", "Connection reset", "RemoteDisconnected", "Remote end closed"]):
+            pass
+        else:
+            pytest.fail(f"Request failed: {e}")
 
     time.sleep(1)
 
@@ -61,13 +66,17 @@ def test_method_enforcement_rule_trigger(setup_teardown, rule_id, method):
 
     # Parse JSON log
     try:
-        log_data = json.loads(log_content)
+        log_data = json.loads(log_content.splitlines()[-1])
     except json.JSONDecodeError as e:
         pytest.fail(f"Error parsing JSON log: {e}")
 
     # Extract messages with ruleId
-    messages = log_data.get("messages", [])
-    rule_ids_in_log = [msg.get("ruleId") for msg in messages if "ruleId" in msg]
+    messages = log_data.get("transaction", {}).get("messages", []) or log_data.get("messages", [])
+    rule_ids_in_log = []
+    for m in messages:
+        rid = m.get("ruleId") or m.get("details", {}).get("ruleId")
+        if rid:
+            rule_ids_in_log.append(rid)
 
     # Assert that the expected rule_id is triggered
     assert rule_id in rule_ids_in_log, f"Rule {rule_id} not triggered for method {method}. Found rules: {rule_ids_in_log}"
