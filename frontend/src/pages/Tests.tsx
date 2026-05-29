@@ -647,6 +647,9 @@ function CrowdsecCatalog(props: {
   const [lastResult, setLastResult] = createSignal<CrowdsecRunResult | null>(null);
   const [error, setError] = createSignal<string | null>(null);
 
+  const [selectedCategory, setSelectedCategory] = createSignal<string>("");
+  const [clientIp, setClientIp] = createSignal<string>("");
+
   onMount(() => {
     let cancelled = false;
     api
@@ -659,12 +662,42 @@ function CrowdsecCatalog(props: {
       });
   });
 
+  const uniqueCategories = createMemo(() => {
+    const scens = scenarios();
+    if (!scens) return [];
+    const seen = new Set<string>();
+    const list: string[] = [];
+    for (const s of scens) {
+      if (s.category && !seen.has(s.category)) {
+        seen.add(s.category);
+        list.push(s.category);
+      }
+    }
+    return list;
+  });
+
+  // Set default selected category to the first available once loaded
+  createEffect(() => {
+    const cats = uniqueCategories();
+    if (cats.length > 0 && (!selectedCategory() || !cats.includes(selectedCategory()))) {
+      setSelectedCategory(cats[0]);
+    }
+  });
+
+  const filteredScenarios = createMemo(() => {
+    const cat = selectedCategory();
+    const scens = scenarios();
+    if (!scens) return [];
+    if (!cat) return scens;
+    return scens.filter((s) => s.category === cat);
+  });
+
   const onRun = async (s: CrowdsecScenario) => {
     if (runningId()) return;
     setRunningId(s.id);
     setError(null);
     try {
-      const res = await api.runCrowdsecScenario(s.id, props.connectionId);
+      const res = await api.runCrowdsecScenario(s.id, props.connectionId, clientIp().trim() || undefined);
       setLastResult(res);
       props.onResult(res);
     } catch (e) {
@@ -706,6 +739,96 @@ function CrowdsecCatalog(props: {
         }
       >
         <div style={{ display: "flex", "flex-direction": "column", gap: "14px" }}>
+          {/* Category & IP filter card */}
+          <div
+            class="card"
+            style={{
+              padding: "14px 16px",
+              "margin-bottom": "8px",
+              display: "flex",
+              "align-items": "center",
+              gap: "14px",
+              "flex-wrap": "wrap",
+              background: "var(--bg-elevated)",
+            }}
+          >
+            <div style={{ display: "flex", "align-items": "center", gap: "10px", "flex": 1, "min-width": "260px" }}>
+              <label
+                for="crowdsec-tests-category"
+                style={{
+                  "font-family": "var(--font-cond)",
+                  "font-weight": 700,
+                  "font-size": "12px",
+                  "letter-spacing": "0.12em",
+                  "text-transform": "uppercase",
+                  color: "var(--text-secondary)",
+                }}
+              >
+                {props.translate("tests.category")}
+              </label>
+              <select
+                id="crowdsec-tests-category"
+                value={selectedCategory()}
+                onChange={(e) => setSelectedCategory(e.currentTarget.value)}
+                style={{
+                  padding: "8px 12px",
+                  border: "2px solid var(--ink)",
+                  "border-radius": "0",
+                  background: "var(--card-bg)",
+                  color: "var(--text-primary)",
+                  "font-family": "var(--font-mono)",
+                  "font-size": "13px",
+                  "min-width": "200px",
+                  "flex": 1,
+                }}
+              >
+                <For each={uniqueCategories()}>
+                  {(category) => {
+                    const count = scenarios()?.filter((s) => s.category === category).length ?? 0;
+                    return (
+                      <option value={category}>
+                        {props.translate(`tests.crowdsec.category.${category}`)} ({count})
+                      </option>
+                    );
+                  }}
+                </For>
+              </select>
+            </div>
+
+            <div style={{ display: "flex", "align-items": "center", gap: "10px", "flex": 1, "min-width": "260px" }}>
+              <label
+                for="crowdsec-tests-ip"
+                style={{
+                  "font-family": "var(--font-cond)",
+                  "font-weight": 700,
+                  "font-size": "12px",
+                  "letter-spacing": "0.12em",
+                  "text-transform": "uppercase",
+                  color: "var(--text-secondary)",
+                }}
+              >
+                {props.translate("tests.ip")}
+              </label>
+              <input
+                id="crowdsec-tests-ip"
+                type="text"
+                placeholder={props.translate("tests.ipPlaceholder")}
+                value={clientIp()}
+                onInput={(e) => setClientIp(e.currentTarget.value)}
+                style={{
+                  padding: "8px 12px",
+                  border: "2px solid var(--ink)",
+                  "border-radius": "0",
+                  background: "var(--card-bg)",
+                  color: "var(--text-primary)",
+                  "font-family": "var(--font-mono)",
+                  "font-size": "13px",
+                  "flex": 1,
+                }}
+              />
+            </div>
+          </div>
+
           <Show when={lastResult()}>
             {(res) => (
               <div
@@ -734,7 +857,7 @@ function CrowdsecCatalog(props: {
                 </div>
                 <Show when={res().decisions_after.length > 0}>
                   <div style={{ "font-family": "var(--font-mono)", "font-size": "12px", color: "var(--text-secondary)" }}>
-                    {res().decisions_after.join(", ")}
+                    {res().decisions_after.map((d: any) => typeof d === 'object' ? `${d.value} (${d.reason})` : String(d)).join(", ")}
                   </div>
                 </Show>
                 <div
@@ -773,7 +896,7 @@ function CrowdsecCatalog(props: {
               gap: "12px",
             }}
           >
-            <For each={scenarios()}>
+            <For each={filteredScenarios()}>
               {(s) => (
                 <div
                   title={`${s.scenario} · ${s.description} · burst=${s.burst_size}`}

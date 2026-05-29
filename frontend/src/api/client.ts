@@ -360,6 +360,7 @@ export interface TestTrafficResponse {
 
 export interface CrowdsecScenario {
   id: string;
+  category: string;
   scenario: string;
   description: string;
   burst_size: number;
@@ -669,10 +670,10 @@ export const api = {
   getTestTrafficByMarker: (marker: string) =>
     fetchApi<TestTrafficResponse>(`/api/dashboard/test-traffic/${encodeURIComponent(marker)}`),
   getCrowdsecTestCatalog: () => fetchApi<CrowdsecCatalog>("/api/tests/crowdsec/catalog"),
-  runCrowdsecScenario: (scenario_id: string, connection_id: number | null) =>
+  runCrowdsecScenario: (scenario_id: string, connection_id: number | null, ip?: string) =>
     fetchApi<CrowdsecRunResult>("/api/tests/crowdsec/run", {
       method: "POST",
-      body: JSON.stringify({ scenario_id, connection_id }),
+      body: JSON.stringify({ scenario_id, connection_id, ip }),
     }),
 
   // ── Connections API (domain-only model; spec §4) ─────────────
