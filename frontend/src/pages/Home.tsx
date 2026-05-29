@@ -9,7 +9,6 @@ import { useSettings } from "../context/SettingsContext";
 import { useGlobalFilters } from "../context/GlobalFiltersContext";
 import { EmptyState } from "../components/charts/chart-utils";
 import GeoipGlobe from "../components/GeoipGlobe";
-import Geoip2DMap from "../components/Geoip2DMap";
 import { injectionLabel } from "../utils/ruleNames";
 import { subscribe, type GeoipMapDelta } from "../realtime/client";
 
@@ -18,7 +17,7 @@ interface EnrichedGeoPoint extends GeoipMapPoint {
   topAttacks?: string[];
 }
 
-type View = "2d" | "3d";
+
 
 function classifyUnresolvedIp(ip: string): { kind: string; reason: string } {
   const parts = ip.split(".").map(Number);
@@ -39,7 +38,7 @@ function GeoipMapPanel(props: {
   data: GeoipMapPoint[] | null;
   loading: boolean;
   events: SecurityEvent[] | null;
-  view: View;
+  autoRotate: boolean;
 }) {
   const settings = useSettings();
   const isLight = () => settings.theme === "light";
@@ -99,11 +98,7 @@ function GeoipMapPanel(props: {
         </Show>
       }
     >
-      <Show when={props.view === "3d"} fallback={
-        <Geoip2DMap data={enriched()} theme={settings.theme} requestsLabel={settings.t("dashboard.tooltip.requests")} />
-      }>
-        <GeoipGlobe data={enriched()} theme={settings.theme} requestsLabel={settings.t("dashboard.tooltip.requests")} />
-      </Show>
+      <GeoipGlobe data={enriched()} theme={settings.theme} requestsLabel={settings.t("dashboard.tooltip.requests")} autoRotate={props.autoRotate} />
     </Show>
   );
 }
@@ -112,7 +107,7 @@ export default function Home() {
   const settings = useSettings();
   const filters = useGlobalFilters();
   const hours = createMemo(() => Math.max(1, Math.round(filters.selectedHours)));
-  const [view, setView] = createSignal<View>("3d");
+  const [autoRotate, setAutoRotate] = createSignal(true);
   const [data, setData] = createSignal<GeoipMapPoint[] | null>(null);
   const [unresolved, setUnresolved] = createSignal<UnresolvedIp[] | null>(null);
   const [events, setEvents] = createSignal<SecurityEvent[] | null>(null);
@@ -199,22 +194,22 @@ export default function Home() {
   return (
     <>
       <div class="home-canvas">
-        <GeoipMapPanel data={data()} loading={loading()} events={events()} view={view()} />
+        <GeoipMapPanel data={data()} loading={loading()} events={events()} autoRotate={autoRotate()} />
       </div>
 
-      <div role="tablist" aria-label={settings.t("dashboard.geoMap.toggle")} class="home-view-toggle">
-        <For each={["2d", "3d"] as const}>
-          {(m) => {
-            const active = () => view() === m;
+      <div role="tablist" aria-label={settings.t("dashboard.geoMap.rotation")} class="home-view-toggle">
+        <For each={[true, false] as const}>
+          {(active) => {
+            const isCurrent = () => autoRotate() === active;
             return (
               <button
                 type="button"
                 role="tab"
-                aria-selected={active()}
-                onClick={() => setView(m)}
-                class={`home-view-tab ${active() ? "active" : ""}`}
+                aria-selected={isCurrent()}
+                onClick={() => setAutoRotate(active)}
+                class={`home-view-tab ${isCurrent() ? "active" : ""}`}
               >
-                {m === "2d" ? settings.t("dashboard.geoMap.view2d") : settings.t("dashboard.geoMap.view3d")}
+                {active ? settings.t("dashboard.geoMap.rotation.on") : settings.t("dashboard.geoMap.rotation.off")}
               </button>
             );
           }}

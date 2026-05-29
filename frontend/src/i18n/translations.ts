@@ -482,10 +482,13 @@ const en: TranslationDict = {
   "dashboard.geoMap.view2d": "2D",
   "dashboard.geoMap.view3d": "3D Globe",
   "dashboard.geoMap.toggle": "Switch view",
+  "dashboard.geoMap.rotation": "Rotation",
+  "dashboard.geoMap.rotation.on": "ON",
+  "dashboard.geoMap.rotation.off": "OFF",
 
   // Home page
   "home.title": "GeoIP Attack Origins",
-  "home.subtitle": "Live map of attacking source IPs — switch between flat and globe view.",
+  "home.subtitle": "Live map of attacking source IPs — dynamic globe visualization.",
 
   // Sidebar collapse
   "sidebar.collapse": "Collapse sidebar",
@@ -1209,10 +1212,13 @@ const ru: TranslationDict = {
   "dashboard.geoMap.view2d": "2D",
   "dashboard.geoMap.view3d": "3D Глобус",
   "dashboard.geoMap.toggle": "Сменить вид",
+  "dashboard.geoMap.rotation": "Вращение",
+  "dashboard.geoMap.rotation.on": "ВКЛ",
+  "dashboard.geoMap.rotation.off": "ВЫКЛ",
 
   // Home page
   "home.title": "Источники атак GeoIP",
-  "home.subtitle": "Живая карта IP-источников атак — переключайтесь между плоской и глобусом.",
+  "home.subtitle": "Карта атакующих IP-адресов в реальном времени — динамическая 3D визуализация.",
 
   // Sidebar collapse
   "sidebar.collapse": "Свернуть боковую панель",

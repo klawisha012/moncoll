@@ -14,6 +14,7 @@ interface Props {
   data: GlobeMarker[];
   theme: "light" | "dark";
   requestsLabel: string;
+  autoRotate: boolean;
 }
 
 type CountryFeature = Feature<Geometry, { name: string }>;
@@ -537,7 +538,7 @@ export default function GeoipGlobe(props: Props) {
 
     const controls = globeInstance.controls();
     if (controls) {
-      controls.autoRotate = true;
+      controls.autoRotate = props.autoRotate;
       controls.autoRotateSpeed = 0.3;
       controls.enableZoom = true;
       controls.enableDamping = true;
@@ -586,6 +587,16 @@ export default function GeoipGlobe(props: Props) {
       // Subscribe to pulseTimestamps changes to forcefully redraw HTML markers on pulse!
       pulseTimestamps();
       globeInstance.htmlElementsData(props.data);
+    }
+  });
+
+  // React to auto-rotation change
+  createEffect(() => {
+    if (globeInstance) {
+      const controls = globeInstance.controls();
+      if (controls) {
+        controls.autoRotate = props.autoRotate;
+      }
     }
   });
 
