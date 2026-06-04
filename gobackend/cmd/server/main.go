@@ -16,6 +16,7 @@ import (
 	"google.golang.org/grpc"
 
 	adminv1 "github.com/zwarder/waf/gobackend/gen/admin/v1"
+	connectionsv1 "github.com/zwarder/waf/gobackend/gen/connections/v1"
 	crowdsecv1 "github.com/zwarder/waf/gobackend/gen/crowdsec/v1"
 	dashboardv1 "github.com/zwarder/waf/gobackend/gen/dashboard/v1"
 	modsecurityv1 "github.com/zwarder/waf/gobackend/gen/modsecurity/v1"
@@ -27,6 +28,8 @@ import (
 	"github.com/zwarder/waf/gobackend/internal/certs"
 	"github.com/zwarder/waf/gobackend/internal/chdash"
 	"github.com/zwarder/waf/gobackend/internal/config"
+	"github.com/zwarder/waf/gobackend/internal/conndns"
+	"github.com/zwarder/waf/gobackend/internal/connectionsapi"
 	"github.com/zwarder/waf/gobackend/internal/crowdsec"
 	"github.com/zwarder/waf/gobackend/internal/crowdsecapi"
 	"github.com/zwarder/waf/gobackend/internal/cscli"
@@ -146,6 +149,19 @@ func main() {
 		sslv1.SSLService_GetCertificateStatus_FullMethodName:  auth.LevelVerified,
 		sslv1.SSLService_RequestCertificate_FullMethodName:    auth.LevelVerified,
 		sslv1.SSLService_RegenerateCertificate_FullMethodName: auth.LevelVerified,
+		// connections: require_verified (tenant-scoped; service enforces TenantID)
+		// GetEdgeInfo is also public-ish (no sensitive data) but we keep it
+		// consistent with the other 10 methods.
+		connectionsv1.ConnectionsService_GetEdgeInfo_FullMethodName:              auth.LevelVerified,
+		connectionsv1.ConnectionsService_ListConnections_FullMethodName:           auth.LevelVerified,
+		connectionsv1.ConnectionsService_GetConnection_FullMethodName:             auth.LevelVerified,
+		connectionsv1.ConnectionsService_CreateConnection_FullMethodName:          auth.LevelVerified,
+		connectionsv1.ConnectionsService_UpdateConnection_FullMethodName:          auth.LevelVerified,
+		connectionsv1.ConnectionsService_DeleteConnection_FullMethodName:          auth.LevelVerified,
+		connectionsv1.ConnectionsService_ProbeConnection_FullMethodName:           auth.LevelVerified,
+		connectionsv1.ConnectionsService_ReloadConnections_FullMethodName:         auth.LevelVerified,
+		connectionsv1.ConnectionsService_GetConnectionSecurity_FullMethodName:     auth.LevelVerified,
+		connectionsv1.ConnectionsService_UpdateConnectionSecurity_FullMethodName:  auth.LevelVerified,
 		// monitoring + admin: absent from map → default LevelAdmin (fail closed)
 	}
 	grpcSrv := grpc.NewServer(grpc.ChainUnaryInterceptor(auth.NewInterceptor(dec, policy, authLevels)))
@@ -163,6 +179,28 @@ func main() {
 	// ── SSL / certificates ────────────────────────────────────────────────────
 	certManager := certs.New()
 	sslv1.RegisterSSLServiceServer(grpcSrv, sslapi.New(st, certManager))
+
+	// ── Connections (domain proxy lifecycle + ACME orchestration) ─────────────
+	connSvc := connectionsapi.New(
+		connStoreAdapter{st},
+		conndns.NetResolver{},
+		connectionsapi.AngiecfgAdapter{},
+		connectionsapi.CertsManagerAdapter{M: certManager},
+		angieReloader{log: log},
+		log,
+	)
+	connectionsv1.RegisterConnectionsServiceServer(grpcSrv, connSvc)
+
+	// Start the background connections poller (best-effort, never crashes server)
+	connPoller := connectionsapi.NewPoller(
+		connStoreAdapter{st},
+		conndns.NetResolver{},
+		connectionsapi.AngiecfgAdapter{},
+		connectionsapi.CertsManagerAdapter{M: certManager},
+		angieReloader{log: log},
+		log,
+	)
+	go connPoller.Run(ctx)
 
 	go func() {
 		log.Info("grpc serving", "addr", grpcAddr)
@@ -325,4 +363,39 @@ func getenvOr(k, def string) string {
 		return v
 	}
 	return def
+}
+
+// connStoreAdapter adapts *store.Store to connectionsapi.Store.
+// The adapter just delegates — both use identical method signatures.
+type connStoreAdapter struct{ s *store.Store }
+
+func (a connStoreAdapter) ListConnectionsFull(ctx context.Context, tenantID int64) ([]store.Connection, error) {
+	return a.s.ListConnectionsFull(ctx, tenantID)
+}
+func (a connStoreAdapter) GetConnectionFull(ctx context.Context, tenantID, connID int64) (*store.Connection, error) {
+	return a.s.GetConnectionFull(ctx, tenantID, connID)
+}
+func (a connStoreAdapter) GetConnectionInternal(ctx context.Context, connID int64) (*store.Connection, error) {
+	return a.s.GetConnectionInternal(ctx, connID)
+}
+func (a connStoreAdapter) CreateConnection(ctx context.Context, c *store.Connection) (*store.Connection, error) {
+	return a.s.CreateConnection(ctx, c)
+}
+func (a connStoreAdapter) UpdateConnection(ctx context.Context, tenantID, connID int64, upd store.ConnectionUpdate) (*store.Connection, error) {
+	return a.s.UpdateConnection(ctx, tenantID, connID, upd)
+}
+func (a connStoreAdapter) DeleteConnection(ctx context.Context, tenantID, connID int64) error {
+	return a.s.DeleteConnection(ctx, tenantID, connID)
+}
+func (a connStoreAdapter) UpdateSecurity(ctx context.Context, tenantID, connID int64, modsecState string, geoipDenied []string, crowdsecActive bool) (*store.Connection, error) {
+	return a.s.UpdateSecurity(ctx, tenantID, connID, modsecState, geoipDenied, crowdsecActive)
+}
+func (a connStoreAdapter) UpdateProbeState(ctx context.Context, tenantID, connID int64, p store.PollerState) (*store.Connection, error) {
+	return a.s.UpdateProbeState(ctx, tenantID, connID, p)
+}
+func (a connStoreAdapter) ListConnectionsForPoll(ctx context.Context) ([]store.Connection, error) {
+	return a.s.ListConnectionsForPoll(ctx)
+}
+func (a connStoreAdapter) UpdatePollerState(ctx context.Context, connID int64, p store.PollerState) (*store.Connection, error) {
+	return a.s.UpdatePollerState(ctx, connID, p)
 }

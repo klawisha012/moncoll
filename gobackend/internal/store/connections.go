@@ -103,6 +103,32 @@ func (s *Store) ListConnections(ctx context.Context) ([]Connection, error) {
 // Full row reads (tenant-scoped and internal).
 // ─────────────────────────────────────────────────────────────────────────────
 
+// ListConnectionsFull returns full rows for all connections belonging to
+// tenantID, ordered by id.
+//
+// Mirrors service.list_connections(session, tenant) in Python.
+func (s *Store) ListConnectionsFull(ctx context.Context, tenantID int64) ([]Connection, error) {
+	q := `SELECT ` + connFullColumns + `
+	      FROM connections
+	      WHERE tenant_id = $1
+	      ORDER BY id`
+	rows, err := s.pool.Query(ctx, q, tenantID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var out []Connection
+	for rows.Next() {
+		var c Connection
+		if err := scanConnectionFull(rows.Scan, &c); err != nil {
+			return nil, err
+		}
+		out = append(out, c)
+	}
+	return out, rows.Err()
+}
+
 // GetConnectionFull returns the full row for a connection that belongs to
 // tenantID.  Returns *NotFoundError when the row does not exist OR when it
 // belongs to a different tenant (no existence leak).

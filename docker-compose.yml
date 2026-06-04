@@ -271,6 +271,12 @@ services:
       # Redis for ClickHouse query result cache (same instance as backend).
       REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
       DASHBOARD_QUERY_TTL: ${DASHBOARD_QUERY_TTL:-2}
+      # Connections: WAF edge IPv4 (used by DNS verify + edge-info endpoint).
+      WAF_EDGE_IPV4: ${WAF_EDGE_IPV4:-}
+      # ACME email for Let's Encrypt certificate requests.
+      ACME_EMAIL: ${ACME_EMAIL:-admin@localhost}
+      # Connections poller tick interval (seconds; default 60).
+      WAF_POLLER_TICK_SECONDS: ${WAF_POLLER_TICK_SECONDS:-60}
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       # backend-data is mounted read-write so the crowdsec sync loop can write

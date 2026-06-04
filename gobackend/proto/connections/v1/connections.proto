@@ -1,0 +1,210 @@
+syntax = "proto3";
+
+package connections.v1;
+
+import "google/api/annotations.proto";
+import "google/protobuf/timestamp.proto";
+import "google/protobuf/empty.proto";
+import "google/protobuf/wrappers.proto";
+
+// ConnectionsService exposes the 11 connection-management endpoints consumed by
+// the SPA (prefix /api/connections). Mirrors backend/src/connections/router.py.
+// Security: all user-facing RPCs are gated at LevelVerified; the service
+// enforces tenant ownership (current_tenant equivalent). The /reload RPC is
+// admin-only at the policy level.
+service ConnectionsService {
+  // GET /api/connections/edge-info
+  rpc GetEdgeInfo(EdgeInfoRequest) returns (EdgeInfoResponse) {
+    option (google.api.http) = {get: "/api/connections/edge-info"};
+  }
+
+  // GET /api/connections/
+  // response_body: "connections" emits the bare JSON array the frontend
+  // expects (matches Python list[Connection] direct serialisation).
+  rpc ListConnections(ListConnectionsRequest) returns (ListConnectionsResponse) {
+    option (google.api.http) = {get: "/api/connections", response_body: "connections"};
+  }
+
+  // GET /api/connections/{id}
+  rpc GetConnection(GetConnectionRequest) returns (Connection) {
+    option (google.api.http) = {get: "/api/connections/{id}"};
+  }
+
+  // POST /api/connections  → 201 CreateResponse
+  rpc CreateConnection(CreateConnectionRequest) returns (CreateConnectionResponse) {
+    option (google.api.http) = {
+      post: "/api/connections"
+      body: "*"
+    };
+  }
+
+  // PATCH /api/connections/{id}
+  rpc UpdateConnection(UpdateConnectionRequest) returns (Connection) {
+    option (google.api.http) = {
+      patch: "/api/connections/{id}"
+      body: "*"
+    };
+  }
+
+  // DELETE /api/connections/{id}  → 204
+  rpc DeleteConnection(DeleteConnectionRequest) returns (google.protobuf.Empty) {
+    option (google.api.http) = {delete: "/api/connections/{id}"};
+  }
+
+  // POST /api/connections/{id}/probe
+  rpc ProbeConnection(ProbeConnectionRequest) returns (Connection) {
+    option (google.api.http) = {
+      post: "/api/connections/{id}/probe"
+      body: "*"
+    };
+  }
+
+  // POST /api/connections/reload  (admin-only; cross-tenant bulk config regen)
+  rpc ReloadConnections(ReloadConnectionsRequest) returns (ReloadResponse) {
+    option (google.api.http) = {
+      post: "/api/connections/reload"
+      body: "*"
+    };
+  }
+
+  // GET /api/connections/{id}/security
+  rpc GetConnectionSecurity(GetConnectionSecurityRequest) returns (SecurityConfig) {
+    option (google.api.http) = {get: "/api/connections/{id}/security"};
+  }
+
+  // PUT /api/connections/{id}/security
+  rpc UpdateConnectionSecurity(UpdateConnectionSecurityRequest) returns (SecurityConfig) {
+    option (google.api.http) = {
+      put: "/api/connections/{id}/security"
+      body: "*"
+    };
+  }
+}
+
+// ── Core domain object ────────────────────────────────────────────────────────
+
+// Connection mirrors all columns returned by the Python GET endpoints.
+// Nullable timestamps use google.protobuf.Timestamp (nil → omitted / null in JSON).
+message Connection {
+  int64 id = 1;
+  int64 tenant_id = 2;
+  string name = 3;
+  string domain = 4;
+  repeated string origin_hosts = 5;
+  int32 origin_port = 6;
+  string origin_tls_mode = 7;
+  string verify_token = 8;
+  google.protobuf.Timestamp verified_at = 9;          // nullable
+  string status = 10;
+  string status_detail = 11;                           // empty string when null
+  int32 acme_retry_count = 12;
+  google.protobuf.Timestamp acme_next_retry_at = 13;  // nullable
+  google.protobuf.Timestamp next_poll_at = 14;         // nullable
+  int32 dns_ttl_seconds = 15;
+  google.protobuf.Timestamp last_checked_at = 16;     // nullable
+  string http_versions = 17;
+  string compression_algo = 18;
+  bool enabled = 19;
+  string modsec_state = 20;
+  repeated string geoip_denied_countries = 21;
+  bool crowdsec_active = 22;
+  string ssl_cert_path = 23;                          // empty string when null
+  string ssl_key_path = 24;                           // empty string when null
+  google.protobuf.Timestamp created_at = 25;
+  google.protobuf.Timestamp updated_at = 26;
+}
+
+// ── Request / response messages ───────────────────────────────────────────────
+
+message EdgeInfoRequest {}
+
+message EdgeInfoResponse {
+  string edge_ipv4 = 1;
+}
+
+message ListConnectionsRequest {}
+
+// response_body: "connections" → gateway emits the bare JSON array.
+message ListConnectionsResponse {
+  repeated Connection connections = 1;
+}
+
+message GetConnectionRequest {
+  int64 id = 1;
+}
+
+// CreateConnectionRequest mirrors ConnectionCreate in schemas.py.
+message CreateConnectionRequest {
+  string name = 1;
+  string domain = 2;
+  repeated string origin_hosts = 3;  // optional; resolved via DNS if absent
+  int32 origin_port = 4;             // default 443
+  string origin_tls_mode = 5;       // "strict" | "lenient"; default "strict"
+  string http_versions = 6;         // default "h1,h2"
+  string compression_algo = 7;      // default "auto"
+}
+
+// VerifyInstructions carries the TXT record name, token and edge IP the wizard
+// shows in step 2 / step 3.
+message VerifyInstructions {
+  string txt_record_name = 1;
+  string txt_record_value = 2;
+  string edge_ipv4 = 3;
+}
+
+// CreateConnectionResponse wraps Connection + VerifyInstructions, matching the
+// Python CreateResponse schema. grpc-gateway will serialise the flat message
+// so the frontend receives { connection: {...}, instructions: {...} }.
+message CreateConnectionResponse {
+  Connection connection = 1;
+  VerifyInstructions instructions = 2;
+}
+
+// UpdateConnectionRequest mirrors ConnectionUpdate in schemas.py.
+// Only non-zero fields are treated as updates (partial-update pattern).
+message UpdateConnectionRequest {
+  int64 id = 1;
+  // Optional fields: zero value means "not provided" (Go service checks
+  // presence via wrapper types or a mask). We use google.protobuf.StringValue /
+  // BoolValue for true optional semantics on bool.
+  google.protobuf.StringValue name = 2;
+  google.protobuf.BoolValue enabled = 3;
+  google.protobuf.Int32Value origin_port = 4;
+  google.protobuf.StringValue origin_tls_mode = 5;
+  google.protobuf.StringValue http_versions = 6;
+  google.protobuf.StringValue compression_algo = 7;
+}
+
+message DeleteConnectionRequest {
+  int64 id = 1;
+}
+
+message ProbeConnectionRequest {
+  int64 id = 1;
+}
+
+message ReloadConnectionsRequest {}
+
+message ReloadResponse {
+  bool success = 1;
+  string message = 2;
+}
+
+// SecurityConfig mirrors the Python SecurityConfig (modsec_state + geoip
+// denied countries + crowdsec_active).
+message SecurityConfig {
+  string modsec_state = 1;
+  repeated string geoip_denied_countries = 2;
+  bool crowdsec_active = 3;
+}
+
+message GetConnectionSecurityRequest {
+  int64 id = 1;
+}
+
+message UpdateConnectionSecurityRequest {
+  int64 id = 1;
+  string modsec_state = 2;
+  repeated string geoip_denied_countries = 3;
+  bool crowdsec_active = 4;
+}
