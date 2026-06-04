@@ -262,6 +262,15 @@ services:
       WAF_POSTGRES_DSN: postgres://${POSTGRES_USER:-waf}:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD missing - run scripts/generate-env.sh}@postgres:5432/${POSTGRES_DB:-waf}?sslmode=disable
       WAF_PASETO_KEY: ${WAF_PASETO_KEY:-}
       LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      # ClickHouse connection (mirrors Python backend env vars exactly).
+      CLICKHOUSE_ENDPOINT: ${CLICKHOUSE_ENDPOINT:-http://clickhouse:8123}
+      CLICKHOUSE_NATIVE_PORT: ${CLICKHOUSE_NATIVE_PORT:-9000}
+      CLICKHOUSE_USER: ${CLICKHOUSE_USER:-default}
+      CLICKHOUSE_PASSWORD: ${CLICKHOUSE_PASSWORD:-}
+      CLICKHOUSE_DB: ${CLICKHOUSE_DB:-logs}
+      # Redis for ClickHouse query result cache (same instance as backend).
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
+      DASHBOARD_QUERY_TTL: ${DASHBOARD_QUERY_TTL:-2}
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       # backend-data is mounted read-write so the crowdsec sync loop can write
@@ -273,6 +282,10 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+      clickhouse:
+        condition: service_started
+      redis:
+        condition: service_started
     restart: unless-stopped
     env_file:
       - .env

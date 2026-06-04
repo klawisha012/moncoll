@@ -17,15 +17,18 @@ import (
 
 	adminv1 "github.com/zwarder/waf/gobackend/gen/admin/v1"
 	crowdsecv1 "github.com/zwarder/waf/gobackend/gen/crowdsec/v1"
+	dashboardv1 "github.com/zwarder/waf/gobackend/gen/dashboard/v1"
 	modsecurityv1 "github.com/zwarder/waf/gobackend/gen/modsecurity/v1"
 	monitoringv1 "github.com/zwarder/waf/gobackend/gen/monitoring/v1"
 	"github.com/zwarder/waf/gobackend/internal/admin"
 	"github.com/zwarder/waf/gobackend/internal/angie"
 	"github.com/zwarder/waf/gobackend/internal/auth"
+	"github.com/zwarder/waf/gobackend/internal/chdash"
 	"github.com/zwarder/waf/gobackend/internal/config"
 	"github.com/zwarder/waf/gobackend/internal/crowdsec"
 	"github.com/zwarder/waf/gobackend/internal/crowdsecapi"
 	"github.com/zwarder/waf/gobackend/internal/cscli"
+	"github.com/zwarder/waf/gobackend/internal/dashboardapi"
 	"github.com/zwarder/waf/gobackend/internal/modsec"
 	"github.com/zwarder/waf/gobackend/internal/modsecurity"
 	"github.com/zwarder/waf/gobackend/internal/monitoring"
@@ -114,6 +117,28 @@ func main() {
 		crowdsecv1.CrowdSecService_ToggleScenario_FullMethodName:     auth.LevelVerified,
 		crowdsecv1.CrowdSecService_GetAlerts_FullMethodName:          auth.LevelVerified,
 		crowdsecv1.CrowdSecService_Reload_FullMethodName:             auth.LevelVerified,
+		// dashboard: require_verified (tenants see their own data via host-filter scoping)
+		dashboardv1.DashboardService_GetMetrics_FullMethodName:              auth.LevelVerified,
+		dashboardv1.DashboardService_GetTraffic_FullMethodName:              auth.LevelVerified,
+		dashboardv1.DashboardService_GetGeoipMap_FullMethodName:             auth.LevelVerified,
+		dashboardv1.DashboardService_GetGeoipUnresolved_FullMethodName:      auth.LevelVerified,
+		dashboardv1.DashboardService_GetThreatOrigins_FullMethodName:        auth.LevelVerified,
+		dashboardv1.DashboardService_GetEvents_FullMethodName:               auth.LevelVerified,
+		dashboardv1.DashboardService_GetWafEventsTimeline_FullMethodName:    auth.LevelVerified,
+		dashboardv1.DashboardService_GetTopRules_FullMethodName:             auth.LevelVerified,
+		dashboardv1.DashboardService_GetSeverityDistribution_FullMethodName: auth.LevelVerified,
+		dashboardv1.DashboardService_GetTopAttackingIps_FullMethodName:      auth.LevelVerified,
+		dashboardv1.DashboardService_GetAnomalyScore_FullMethodName:         auth.LevelVerified,
+		dashboardv1.DashboardService_GetTopTags_FullMethodName:              auth.LevelVerified,
+		dashboardv1.DashboardService_GetTopUris_FullMethodName:              auth.LevelVerified,
+		dashboardv1.DashboardService_GetTopRuleFiles_FullMethodName:         auth.LevelVerified,
+		dashboardv1.DashboardService_GetStatusCodes_FullMethodName:          auth.LevelVerified,
+		dashboardv1.DashboardService_GetTopUserAgents_FullMethodName:        auth.LevelVerified,
+		dashboardv1.DashboardService_GetTrafficVolume_FullMethodName:        auth.LevelVerified,
+		dashboardv1.DashboardService_GetRequestsPerSecond_FullMethodName:    auth.LevelVerified,
+		dashboardv1.DashboardService_GetRequestsByCountry_FullMethodName:    auth.LevelVerified,
+		dashboardv1.DashboardService_GetTopClientIps_FullMethodName:         auth.LevelVerified,
+		dashboardv1.DashboardService_GetTestTraffic_FullMethodName:          auth.LevelVerified,
 		// monitoring + admin: absent from map → default LevelAdmin (fail closed)
 	}
 	grpcSrv := grpc.NewServer(grpc.ChainUnaryInterceptor(auth.NewInterceptor(dec, policy, authLevels)))
@@ -123,6 +148,11 @@ func main() {
 	msCfg := modsec.New(getenvOr("WAF_MODSEC_DIR", "/app/etc/angie/modsecurity"))
 	modsecurityv1.RegisterModSecurityServiceServer(grpcSrv, modsecurity.NewService(msCfg, modsecReloader{}))
 	crowdsecv1.RegisterCrowdSecServiceServer(grpcSrv, csSvc)
+	// ── Dashboard (ClickHouse analytics) ─────────────────────────────────────
+	// chdash.NewClient is non-fatal: Redis unavailability is logged but not
+	// fatal. ClickHouse is opened per-query, so boot succeeds without CH.
+	chClient := chdash.NewClient()
+	dashboardv1.RegisterDashboardServiceServer(grpcSrv, dashboardapi.New(chClient, st))
 
 	go func() {
 		log.Info("grpc serving", "addr", grpcAddr)

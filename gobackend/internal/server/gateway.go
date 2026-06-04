@@ -16,6 +16,7 @@ import (
 
 	adminv1 "github.com/zwarder/waf/gobackend/gen/admin/v1"
 	crowdsecv1 "github.com/zwarder/waf/gobackend/gen/crowdsec/v1"
+	dashboardv1 "github.com/zwarder/waf/gobackend/gen/dashboard/v1"
 	modsecurityv1 "github.com/zwarder/waf/gobackend/gen/modsecurity/v1"
 	monitoringv1 "github.com/zwarder/waf/gobackend/gen/monitoring/v1"
 )
@@ -48,6 +49,9 @@ func NewGatewayMux(ctx context.Context, grpcAddr string) (*runtime.ServeMux, err
 		return nil, err
 	}
 	if err := crowdsecv1.RegisterCrowdSecServiceHandlerFromEndpoint(ctx, mux, grpcAddr, opts); err != nil {
+		return nil, err
+	}
+	if err := dashboardv1.RegisterDashboardServiceHandlerFromEndpoint(ctx, mux, grpcAddr, opts); err != nil {
 		return nil, err
 	}
 	return mux, nil
