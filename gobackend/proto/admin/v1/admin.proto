@@ -1,0 +1,65 @@
+syntax = "proto3";
+
+package admin.v1;
+
+import "google/api/annotations.proto";
+import "google/protobuf/timestamp.proto";
+import "google/protobuf/empty.proto";
+
+service AdminService {
+  rpc ListTenants(ListTenantsRequest) returns (ListTenantsResponse) {
+    // response_body: "tenants" => gateway emits a BARE JSON ARRAY (frontend
+    // types this as TenantRow[]).
+    option (google.api.http) = {get: "/api/admin/tenants", response_body: "tenants"};
+  }
+  rpc GetTenant(GetTenantRequest) returns (TenantDetail) {
+    option (google.api.http) = {get: "/api/admin/tenants/{tenant_id}"};
+  }
+  rpc SuspendTenant(TenantIdRequest) returns (SuspendResponse) {
+    option (google.api.http) = {post: "/api/admin/tenants/{tenant_id}/suspend"};
+  }
+  rpc UnsuspendTenant(TenantIdRequest) returns (SuspendResponse) {
+    option (google.api.http) = {post: "/api/admin/tenants/{tenant_id}/unsuspend"};
+  }
+  rpc DeleteTenant(DeleteTenantRequest) returns (google.protobuf.Empty) {
+    option (google.api.http) = {delete: "/api/admin/tenants/{tenant_id}"};
+  }
+}
+
+message ListTenantsRequest {}
+message GetTenantRequest { int64 tenant_id = 1; }
+message TenantIdRequest { int64 tenant_id = 1; }
+message DeleteTenantRequest { int64 tenant_id = 1; string confirm = 2; }
+
+message TenantSummary {
+  int64 id = 1;
+  string name = 2;
+  string display_name = 3;
+  string owner_email = 4;
+  int64 user_count = 5;
+  int64 connection_count = 6;
+  google.protobuf.Timestamp created_at = 7;
+  google.protobuf.Timestamp suspended_at = 8;
+  google.protobuf.Timestamp last_activity = 9;
+}
+message ListTenantsResponse { repeated TenantSummary tenants = 1; }
+
+message TenantUser {
+  int64 id = 1;
+  string email = 2;
+  string tenant_role = 3;
+  google.protobuf.Timestamp last_login_at = 4;
+  bool email_verified = 5;
+  bool totp_enabled = 6;
+}
+message TenantConnection { int64 id = 1; string name = 2; string domain = 3; string status = 4; }
+message TenantCore {
+  int64 id = 1; string name = 2; string display_name = 3;
+  google.protobuf.Timestamp created_at = 4; google.protobuf.Timestamp suspended_at = 5;
+}
+message TenantDetail {
+  TenantCore tenant = 1;
+  repeated TenantUser users = 2;
+  repeated TenantConnection connections = 3;
+}
+message SuspendResponse { google.protobuf.Timestamp suspended_at = 1; }
