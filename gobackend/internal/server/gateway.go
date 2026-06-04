@@ -11,7 +11,10 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/status"
+	"google.golang.org/protobuf/proto"
+	"google.golang.org/protobuf/types/known/emptypb"
 
+	adminv1 "github.com/zwarder/waf/gobackend/gen/admin/v1"
 	monitoringv1 "github.com/zwarder/waf/gobackend/gen/monitoring/v1"
 )
 
@@ -25,9 +28,18 @@ func NewGatewayMux(ctx context.Context, grpcAddr string) (*runtime.ServeMux, err
 			MarshalOptions: protoJSONMarshal(),
 		}),
 		runtime.WithErrorHandler(detailErrorHandler),
+		runtime.WithForwardResponseOption(func(ctx context.Context, w http.ResponseWriter, resp proto.Message) error {
+			if _, ok := resp.(*emptypb.Empty); ok {
+				w.WriteHeader(http.StatusNoContent)
+			}
+			return nil
+		}),
 	)
 	opts := []grpc.DialOption{grpc.WithTransportCredentials(insecure.NewCredentials())}
 	if err := monitoringv1.RegisterMonitoringServiceHandlerFromEndpoint(ctx, mux, grpcAddr, opts); err != nil {
+		return nil, err
+	}
+	if err := adminv1.RegisterAdminServiceHandlerFromEndpoint(ctx, mux, grpcAddr, opts); err != nil {
 		return nil, err
 	}
 	return mux, nil

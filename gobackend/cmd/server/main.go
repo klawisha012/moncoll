@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"errors"
+	"log/slog"
 	"net"
 	"net/http"
 	"os"
@@ -12,13 +13,17 @@ import (
 
 	"google.golang.org/grpc"
 
+	adminv1 "github.com/zwarder/waf/gobackend/gen/admin/v1"
 	monitoringv1 "github.com/zwarder/waf/gobackend/gen/monitoring/v1"
+	"github.com/zwarder/waf/gobackend/internal/admin"
+	"github.com/zwarder/waf/gobackend/internal/angie"
 	"github.com/zwarder/waf/gobackend/internal/auth"
 	"github.com/zwarder/waf/gobackend/internal/config"
 	"github.com/zwarder/waf/gobackend/internal/monitoring"
 	"github.com/zwarder/waf/gobackend/internal/observability"
 	"github.com/zwarder/waf/gobackend/internal/server"
 	"github.com/zwarder/waf/gobackend/internal/store"
+	"github.com/zwarder/waf/gobackend/internal/tenantfs"
 )
 
 func main() {
@@ -56,6 +61,8 @@ func main() {
 	}
 	grpcSrv := grpc.NewServer(grpc.ChainUnaryInterceptor(auth.AdminInterceptor(dec, policy)))
 	monitoringv1.RegisterMonitoringServiceServer(grpcSrv, monitoring.NewService(engine))
+	tfs := tenantfs.New(getenvOr("WAF_TENANTS_DIR", "/var/lib/waf/tenants"))
+	adminv1.RegisterAdminServiceServer(grpcSrv, admin.NewService(st, tfs, angieReloader{log: log}))
 	go func() {
 		log.Info("grpc serving", "addr", grpcAddr)
 		if err := grpcSrv.Serve(grpcLis); err != nil {
@@ -87,4 +94,17 @@ func main() {
 	_ = rest.Shutdown(shutdownCtx)
 	_ = metrics.Shutdown(shutdownCtx)
 	grpcSrv.GracefulStop()
+}
+
+// angieReloader wraps angie.Reload to satisfy admin.Reloader.
+type angieReloader struct{ log *slog.Logger }
+
+func (a angieReloader) Reload(ctx context.Context) { angie.Reload(ctx, a.log) }
+
+// getenvOr returns the environment variable k or def if it is empty/unset.
+func getenvOr(k, def string) string {
+	if v := os.Getenv(k); v != "" {
+		return v
+	}
+	return def
 }
