@@ -5,12 +5,12 @@ managed:
     - file_option: go_package_prefix
       value: github.com/zwarder/waf/gobackend/gen
 plugins:
-  - remote: buf.build/protocolbuffers/go
+  - local: protoc-gen-go
     out: gen
     opt: paths=source_relative
-  - remote: buf.build/grpc/go
+  - local: protoc-gen-go-grpc
     out: gen
     opt: paths=source_relative
-  - remote: buf.build/grpc-ecosystem/gateway
+  - local: protoc-gen-grpc-gateway
     out: gen
     opt: paths=source_relative

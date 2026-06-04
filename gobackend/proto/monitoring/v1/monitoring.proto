@@ -1,0 +1,41 @@
+syntax = "proto3";
+
+package monitoring.v1;
+
+import "google/api/annotations.proto";
+
+service MonitoringService {
+  rpc GetMetrics(GetMetricsRequest) returns (MetricsResponse) {
+    option (google.api.http) = {get: "/api/monitoring/metrics"};
+  }
+  rpc ListContainers(ListContainersRequest) returns (ListContainersResponse) {
+    option (google.api.http) = {get: "/api/monitoring/containers"};
+  }
+}
+
+message GetMetricsRequest {}
+message ListContainersRequest {}
+
+message ContainerMetrics {
+  string name = 1;
+  double cpu = 2;
+  double memory = 3;
+  double memory_percent = 4;
+  double network_rx = 5;
+  double network_tx = 6;
+}
+
+message MetricsResponse {
+  repeated ContainerMetrics containers = 1;
+}
+
+message ContainerInfo {
+  string id = 1;
+  string name = 2;
+  string status = 3;
+  string image = 4;
+}
+
+message ListContainersResponse {
+  repeated ContainerInfo containers = 1;
+}

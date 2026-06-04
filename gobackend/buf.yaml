@@ -4,8 +4,10 @@ modules:
 lint:
   use:
     - STANDARD
+  ignore:
+    - google/api
 breaking:
   use:
     - FILE
-deps:
-  - buf.build/googleapis/googleapis
+  ignore:
+    - google/api
