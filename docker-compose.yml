@@ -241,6 +241,31 @@ services:
     env_file:
       - .env
 
+  # Go re-implementation of the monitoring module (strangler migration,
+  # sub-project #1). Serves /api/monitoring/* on :8080 via grpc-gateway.
+  # NOTE: set WAF_PASETO_KEY in .env so this service shares the Python
+  # backend's session key — the mounted .paseto_key file may be unreadable
+  # to this container's non-root uid.
+  gobackend:
+    build: ./gobackend
+    expose:
+      - "8080"
+    group_add:
+      - "${DOCKER_GID:-999}"
+    environment:
+      WAF_POSTGRES_DSN: postgres://${POSTGRES_USER:-waf}:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD missing - run scripts/generate-env.sh}@postgres:5432/${POSTGRES_DB:-waf}?sslmode=disable
+      WAF_PASETO_KEY: ${WAF_PASETO_KEY:-}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - backend-data:/var/lib/angie/data:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+    env_file:
+      - .env
+
   frontend:
     build: ./frontend
     ports:
