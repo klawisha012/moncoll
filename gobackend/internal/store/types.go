@@ -30,6 +30,23 @@ type Reader interface {
 	GetTenantByID(ctx context.Context, id int64) (*Tenant, error)
 }
 
+// Connection mirrors the columns of the connections table that the crowdsec
+// sync requires.  The domain field is the canonical single domain; OriginHosts
+// stores the JSON array from the DB (origin_hosts) but is not used by the sync
+// itself — the sync only needs the domain column for its domain→conn map.
+//
+// Fields reflect exactly what _write_connections_registry / _load_connections
+// in backend/src/crowdsec/service.py consume:
+//   id, tenant_id, name, domain, enabled, status.
+type Connection struct {
+	ID       int64
+	TenantID int64
+	Name     string
+	Domain   string // lowercase IDNA-normalised unique domain
+	Enabled  bool
+	Status   string
+}
+
 // NotFoundError is returned when a row does not exist.
 type NotFoundError struct{ Entity string }
 
