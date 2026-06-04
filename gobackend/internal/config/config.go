@@ -53,7 +53,10 @@ func loadPasetoKey() ([]byte, error) {
 	path := getenv("WAF_PASETO_KEY_FILE", defaultKeyFile)
 	raw, err := os.ReadFile(path)
 	if err != nil {
-		return nil, fmt.Errorf("cannot read PASETO key file %s: %w", path, err)
+		return nil, fmt.Errorf(
+			"cannot read PASETO key file %s (%w); set WAF_PASETO_KEY (64 hex chars) in the environment to share the Python backend's session key",
+			path, err,
+		)
 	}
 	if len(raw) != 32 {
 		return nil, fmt.Errorf("PASETO key file %s must contain 32 bytes, got %d", path, len(raw))

@@ -18,7 +18,14 @@ type containerSummary struct {
 
 // dockerSource abstracts the Docker engine for testability.
 type dockerSource interface {
+	// listProjectContainers returns only containers belonging to the current
+	// compose project (with fallback to all running when the project is
+	// undetectable). Used by GetMetrics to scope metrics to this deployment.
 	listProjectContainers(ctx context.Context) ([]containerSummary, error)
+	// listRunningContainers returns ALL running containers on the host with no
+	// compose-project filter. Used by ListContainers to mirror the Python
+	// client.containers.list() behaviour.
+	listRunningContainers(ctx context.Context) ([]containerSummary, error)
 	containerStats(ctx context.Context, id string) ([]byte, error)
 }
 
@@ -55,7 +62,9 @@ func (s *Service) GetMetrics(ctx context.Context, _ *monitoringv1.GetMetricsRequ
 }
 
 func (s *Service) ListContainers(ctx context.Context, _ *monitoringv1.ListContainersRequest) (*monitoringv1.ListContainersResponse, error) {
-	containers, err := s.docker.listProjectContainers(ctx)
+	// Use the unfiltered running list — mirrors Python client.containers.list()
+	// which returns all running containers host-wide (no compose-project filter).
+	containers, err := s.docker.listRunningContainers(ctx)
 	if err != nil {
 		return nil, err
 	}

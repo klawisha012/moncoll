@@ -76,6 +76,27 @@ func (d *DockerEngine) listProjectContainers(ctx context.Context) ([]containerSu
 	return out, nil
 }
 
+// listRunningContainers returns ALL running containers on the host with no
+// compose-project filter, mirroring the Python client.containers.list() call
+// (which by default returns only running containers).
+func (d *DockerEngine) listRunningContainers(ctx context.Context) ([]containerSummary, error) {
+	// ContainerList with default options already returns only running containers.
+	list, err := d.cli.ContainerList(ctx, container.ListOptions{})
+	if err != nil {
+		return nil, err
+	}
+	out := make([]containerSummary, 0, len(list))
+	for _, c := range list {
+		out = append(out, containerSummary{
+			ID:     c.ID,
+			Name:   normalizeName(c.Names),
+			Status: c.State,
+			Image:  c.Image,
+		})
+	}
+	return out, nil
+}
+
 // containerStats performs a one-shot stats read and returns the raw JSON bytes.
 // The caller (statsToMetrics) is responsible for parsing the payload.
 func (d *DockerEngine) containerStats(ctx context.Context, id string) ([]byte, error) {

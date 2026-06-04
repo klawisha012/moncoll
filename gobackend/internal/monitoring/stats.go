@@ -64,6 +64,11 @@ func statsToMetrics(name string, raw []byte) ContainerMetrics {
 	systemDelta := s.CPUStats.SystemCPUUsage - s.PreCPUStats.SystemCPUUsage
 	numCPUs := s.CPUStats.OnlineCPUs
 	if numCPUs == 0 {
+		// Python defaults online_cpus to 1 only when the key is ABSENT from the
+		// payload, not when it is explicitly 0. In practice the outcomes are
+		// identical here because the downstream guard (systemDelta > 0 &&
+		// numCPUs > 0) prevents division by zero in either case, so we keep
+		// the simpler form.
 		numCPUs = 1
 	}
 	cpuPercent := 0.0
