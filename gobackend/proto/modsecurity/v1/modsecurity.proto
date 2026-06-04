@@ -1,0 +1,99 @@
+syntax = "proto3";
+
+package modsecurity.v1;
+
+import "google/api/annotations.proto";
+import "google/protobuf/empty.proto";
+import "google/protobuf/wrappers.proto";
+
+service ModSecurityService {
+  rpc GetConfig(Empty2) returns (ConfigResponse) {
+    option (google.api.http) = {get: "/api/modsecurity/config"};
+  }
+  rpc GetRules(Empty2) returns (ConfigResponse) {
+    option (google.api.http) = {get: "/api/modsecurity/rules"};
+  }
+  rpc ListRules(Empty2) returns (ListRulesResponse) {
+    option (google.api.http) = {
+      get: "/api/modsecurity/rules/list"
+      response_body: "rules"
+    };
+  }
+  rpc UpdateConfig(ConfigUpdate) returns (ConfigResponse) {
+    option (google.api.http) = {
+      put: "/api/modsecurity/config"
+      body: "*"
+    };
+  }
+  rpc UpdateRules(ConfigUpdate) returns (ConfigResponse) {
+    option (google.api.http) = {
+      put: "/api/modsecurity/rules"
+      body: "*"
+    };
+  }
+  rpc AddRule(RuleCreate) returns (RuleResponse) {
+    option (google.api.http) = {
+      post: "/api/modsecurity/rules"
+      body: "*"
+    };
+  }
+  rpc DeleteRule(DeleteRuleRequest) returns (google.protobuf.Empty) {
+    option (google.api.http) = {delete: "/api/modsecurity/rules/{rule_id}"};
+  }
+  rpc Reload(Empty2) returns (ReloadResponse) {
+    option (google.api.http) = {
+      post: "/api/modsecurity/reload"
+      body: "*"
+    };
+  }
+}
+
+// Empty2 is a local empty request (avoid clashing with well-known Empty as a
+// request type that the gateway can't populate from path/query).
+message Empty2 {}
+
+message ConfigResponse {
+  string content = 1;
+  string file_path = 2;
+}
+
+message ConfigUpdate {
+  string content = 1;
+}
+
+message RuleCreate {
+  string rule = 1;
+}
+
+message DeleteRuleRequest {
+  int64 rule_id = 1;
+}
+
+// RuleResponse mirrors the Python RuleResponse schema.
+// id uses Int64Value (nullable wrapper) because Python returns id: int | None.
+message RuleResponse {
+  string rule = 1;
+  google.protobuf.Int64Value id = 2;
+  bool success = 3;
+  string message = 4;
+}
+
+// RuleItem mirrors the Python RuleItem schema.
+// phase and severity use Int64Value (nullable wrappers) because Python returns int | None.
+message RuleItem {
+  int64 id = 1;
+  string rule = 2;
+  string message = 3;
+  google.protobuf.Int64Value phase = 4;
+  string action = 5;
+  google.protobuf.Int64Value severity = 6;
+}
+
+message ListRulesResponse {
+  repeated RuleItem rules = 1;
+}
+
+message ReloadResponse {
+  bool success = 1;
+  string message = 2;
+}
