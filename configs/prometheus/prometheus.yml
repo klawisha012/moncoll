@@ -15,6 +15,8 @@ scrape_configs:
     static_configs:
       - targets: ["cadvisor:8080"]
 
-  - job_name: "backend"
+  # App metrics now come from the Go backend, which serves Prometheus
+  # metrics on a dedicated port (:9100, WAF_GO_METRICS_ADDR default).
+  - job_name: "gobackend"
     static_configs:
-      - targets: ["backend:8000"]
+      - targets: ["gobackend:9100"]

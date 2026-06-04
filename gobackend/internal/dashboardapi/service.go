@@ -14,8 +14,12 @@ import (
 	"fmt"
 	"log/slog"
 	"math"
+	"regexp"
 	"strings"
 	"time"
+
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 
 	dashboardv1 "github.com/zwarder/waf/gobackend/gen/dashboard/v1"
 	"github.com/zwarder/waf/gobackend/internal/auth"
@@ -231,6 +235,20 @@ func secSeverityLabel(sev int64) string {
 	}
 	return "info"
 }
+
+// uuid4RE is the strict UUID4 validator for the test-traffic marker. It mirrors
+// the Python router's _UUID4_RE (backend/src/dashboard/router.py) exactly:
+//   - case-insensitive (?i)
+//   - version nibble fixed to 4, variant nibble in [89ab]
+//   - anchored with \A ... \z (NOT $) so a trailing newline cannot smuggle a
+//     payload like "<uuid>\n; DROP ..." past the check.
+//
+// Validation runs BEFORE any SQL is constructed — it is the SQL-injection
+// barrier for GetTestTraffic, which interpolates the marker into a ClickHouse
+// query string.
+var uuid4RE = regexp.MustCompile(
+	`(?i)\A[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\z`,
+)
 
 // safeMarker strips characters that could break ClickHouse string parsing.
 // Mirrors Python safe_marker in get_test_traffic_by_marker.
@@ -1142,6 +1160,14 @@ func (s *Service) GetTopClientIps(ctx context.Context, req *dashboardv1.Dashboar
 // ─── 21. GetTestTraffic ───────────────────────────────────────────────────────
 
 func (s *Service) GetTestTraffic(ctx context.Context, req *dashboardv1.TestTrafficRequest) (*dashboardv1.TestTrafficResponse, error) {
+	// SQL-injection barrier: the marker is interpolated into the ClickHouse
+	// query below, so it MUST be a strict UUID4 and nothing else. Reject any
+	// non-conforming value with InvalidArgument (→ HTTP 400 via the gateway)
+	// BEFORE building any SQL — mirrors the Python router's _UUID4_RE guard.
+	if !uuid4RE.MatchString(req.GetMarker()) {
+		return nil, status.Error(codes.InvalidArgument, "marker must be a UUID4")
+	}
+
 	tid := tenantID(ctx)
 	// Resolve domains for tenant scoping (connection_id is always nil for test traffic).
 	doms := s.domains(ctx, nil, tid)

@@ -11,6 +11,8 @@ import (
 
 	dashboardv1 "github.com/zwarder/waf/gobackend/gen/dashboard/v1"
 	"github.com/zwarder/waf/gobackend/internal/auth"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/types/known/wrapperspb"
 )
 
@@ -258,6 +260,10 @@ func TestGetTraffic_MergeTimestamps(t *testing.T) {
 	assert.Equal(t, int64(0), points[1].GetMalicious())
 }
 
+// validMarker is a canonical UUID4 used by the test-traffic tests below.
+// (version nibble 4, variant nibble in [89ab].)
+const validMarker = "550e8400-e29b-41d4-a716-446655440000"
+
 // TestGetTestTraffic_UsesQueryNotQueryCached verifies that GetTestTraffic calls
 // Query (bypass cache) rather than QueryCached.
 func TestGetTestTraffic_UsesQueryNotQueryCached(t *testing.T) {
@@ -265,29 +271,55 @@ func TestGetTestTraffic_UsesQueryNotQueryCached(t *testing.T) {
 	dr := &fakeDomainResolver{domains: nil}
 	svc := newWithDeps(ex, dr)
 
-	_, err := svc.GetTestTraffic(adminCtx(), &dashboardv1.TestTrafficRequest{Marker: "test-uuid"})
+	_, err := svc.GetTestTraffic(adminCtx(), &dashboardv1.TestTrafficRequest{Marker: validMarker})
 	require.NoError(t, err)
 
 	assert.NotEmpty(t, ex.lastQuery, "GetTestTraffic must call Query (not QueryCached)")
 	assert.Empty(t, ex.lastCached, "GetTestTraffic must NOT call QueryCached")
-	assert.Contains(t, ex.lastQuery, "test-uuid", "marker must appear in the SQL")
+	assert.Contains(t, ex.lastQuery, validMarker, "marker must appear in the SQL")
 	assert.Contains(t, ex.lastQuery, testMarkerHeader, "test marker header must appear in SQL")
 }
 
-// TestGetTestTraffic_MarkerSanitized verifies that dangerous characters in the
-// marker are stripped before being embedded in the SQL.
-func TestGetTestTraffic_MarkerSanitized(t *testing.T) {
-	ex := &fakeExecutor{queryRows: nil}
-	dr := &fakeDomainResolver{domains: nil}
-	svc := newWithDeps(ex, dr)
+// TestGetTestTraffic_UUID4Validation is the SQL-injection barrier test: a valid
+// UUID4 passes; anything else (non-uuid, SQL fragment, trailing newline) is
+// rejected with InvalidArgument BEFORE any SQL is built.
+func TestGetTestTraffic_UUID4Validation(t *testing.T) {
+	cases := []struct {
+		name      string
+		marker    string
+		wantValid bool
+	}{
+		{"valid uuid4 lowercase", "550e8400-e29b-41d4-a716-446655440000", true},
+		{"valid uuid4 uppercase", "550E8400-E29B-41D4-A716-446655440000", true},
+		{"empty", "", false},
+		{"not-a-uuid", "test-uuid", false},
+		{"sql injection", "'; DROP TABLE waf_audit_log; --", false},
+		{"uuid with trailing sql", "550e8400-e29b-41d4-a716-446655440000'; DROP", false},
+		{"uuid with trailing newline payload", "550e8400-e29b-41d4-a716-446655440000\n; DROP", false},
+		{"wrong version nibble", "550e8400-e29b-11d4-a716-446655440000", false},   // v1, not v4
+		{"wrong variant nibble", "550e8400-e29b-41d4-c716-446655440000", false},   // variant 'c' not in [89ab]
+		{"too short", "550e8400-e29b-41d4-a716", false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			ex := &fakeExecutor{queryRows: nil}
+			dr := &fakeDomainResolver{domains: nil}
+			svc := newWithDeps(ex, dr)
 
-	_, err := svc.GetTestTraffic(adminCtx(), &dashboardv1.TestTrafficRequest{
-		Marker: "abc'def\\ghi\x00jkl",
-	})
-	require.NoError(t, err)
-	// The SQL should not contain single quotes, backslashes, or NUL bytes from the marker.
-	assert.NotContains(t, ex.lastQuery, "'def")
-	assert.NotContains(t, ex.lastQuery, "\\ghi")
+			_, err := svc.GetTestTraffic(adminCtx(), &dashboardv1.TestTrafficRequest{Marker: tc.marker})
+
+			if tc.wantValid {
+				require.NoError(t, err, "valid UUID4 must pass validation")
+				assert.NotEmpty(t, ex.lastQuery, "valid marker must reach the SQL builder")
+				return
+			}
+
+			require.Error(t, err, "invalid marker must be rejected")
+			assert.Equal(t, codes.InvalidArgument, status.Code(err),
+				"invalid marker must map to InvalidArgument (→ HTTP 400)")
+			assert.Empty(t, ex.lastQuery, "no SQL may be built for a rejected marker")
+		})
+	}
 }
 
 // TestGetSeverityDistribution_RowMapping verifies severity name translation.
