@@ -1,0 +1,238 @@
+syntax = "proto3";
+
+package auth.v1;
+
+import "google/api/annotations.proto";
+import "google/protobuf/empty.proto";
+
+// AuthService exposes the 11 auth endpoints consumed by the SPA (prefix
+// /api/auth). Mirrors backend/src/auth/routers/{password,totp,oauth}.py.
+//
+// Security model: every method is LevelPublic at the interceptor — public
+// endpoints (login/signup/...) have no session yet, and the cookie-validating
+// endpoints (me, totp/setup, totp/confirm) read + verify their OWN cookie
+// inside the handler. Set-Cookie and 302 redirects are emitted via response
+// metadata (x-set-cookie / x-redirect) and translated to HTTP by the gateway's
+// ForwardResponseOption.
+service AuthService {
+  // GET /api/auth/providers → feature flags.
+  rpc GetProviders(ProvidersRequest) returns (ProvidersResponse) {
+    option (google.api.http) = {get: "/api/auth/providers"};
+  }
+
+  // POST /api/auth/signup → 202 {message, dev_verify_url?, smtp_send_failed?}
+  rpc Signup(SignupRequest) returns (SignupResponse) {
+    option (google.api.http) = {
+      post: "/api/auth/signup"
+      body: "*"
+    };
+  }
+
+  // POST /api/auth/verify-email → LoginResponse (sets session cookie).
+  rpc VerifyEmail(VerifyEmailRequest) returns (LoginResponse) {
+    option (google.api.http) = {
+      post: "/api/auth/verify-email"
+      body: "*"
+    };
+  }
+
+  // POST /api/auth/login → LoginResponse (sets session cookie).
+  rpc Login(LoginRequest) returns (LoginResponse) {
+    option (google.api.http) = {
+      post: "/api/auth/login"
+      body: "*"
+    };
+  }
+
+  // POST /api/auth/logout → 204 (clears session cookie).
+  rpc Logout(LogoutRequest) returns (google.protobuf.Empty) {
+    option (google.api.http) = {
+      post: "/api/auth/logout"
+      body: "*"
+    };
+  }
+
+  // GET /api/auth/me → UserPublic (reads session cookie).
+  rpc Me(MeRequest) returns (UserPublic) {
+    option (google.api.http) = {get: "/api/auth/me"};
+  }
+
+  // POST /api/auth/password/forgot → 202 {message, dev_reset_url?}
+  rpc ForgotPassword(ForgotPasswordRequest) returns (ForgotPasswordResponse) {
+    option (google.api.http) = {
+      post: "/api/auth/password/forgot"
+      body: "*"
+    };
+  }
+
+  // POST /api/auth/password/reset → 204
+  rpc ResetPassword(ResetPasswordRequest) returns (google.protobuf.Empty) {
+    option (google.api.http) = {
+      post: "/api/auth/password/reset"
+      body: "*"
+    };
+  }
+
+  // POST /api/auth/totp/setup → {secret_base32, qr_code_data_uri, recovery_codes}
+  // Reads session-or-enrol cookie; sets the pending-secret cookie.
+  rpc TotpSetup(TotpSetupRequest) returns (TotpSetupResponse) {
+    option (google.api.http) = {
+      post: "/api/auth/totp/setup"
+      body: "*"
+    };
+  }
+
+  // POST /api/auth/totp/confirm → {ok, user} (sets session cookie). Rate-limited.
+  rpc TotpConfirm(TotpConfirmRequest) returns (TotpConfirmResponse) {
+    option (google.api.http) = {
+      post: "/api/auth/totp/confirm"
+      body: "*"
+    };
+  }
+
+  // GET /api/auth/oauth/{provider}/start → 302 redirect (sets state cookie).
+  rpc OauthStart(OauthStartRequest) returns (OauthRedirect) {
+    option (google.api.http) = {get: "/api/auth/oauth/{provider}/start"};
+  }
+
+  // GET /api/auth/oauth/{provider}/callback → 302 redirect (sets session cookie).
+  rpc OauthCallback(OauthCallbackRequest) returns (OauthRedirect) {
+    option (google.api.http) = {get: "/api/auth/oauth/{provider}/callback"};
+  }
+}
+
+// ── Shared user shape ──────────────────────────────────────────────────────────
+
+// UserPublic mirrors schemas.py UserPublic.
+message UserPublic {
+  int64 id = 1;
+  string email = 2;
+  string display_name = 3;
+  string platform_role = 4; // "admin" | "client"
+  // tenant_id / tenant_role are nullable in Python. Emitted as null when absent
+  // via the wrapper fields below; -1 / "" sentinels are NOT used (gateway emits
+  // proto3 zero values, so we expose explicit has_* flags instead).
+  int64 tenant_id = 5;
+  bool has_tenant_id = 6;
+  string tenant_role = 7;
+  bool has_tenant_role = 8;
+  bool email_verified = 9;
+  bool totp_enabled = 10;
+}
+
+message LoginResponse {
+  UserPublic user = 1;
+}
+
+// ── providers ──────────────────────────────────────────────────────────────────
+
+message ProvidersRequest {}
+
+message ProvidersResponse {
+  bool google = 1;
+  bool github = 2;
+  string captcha_site_key = 3;
+  bool captcha_dev_mode = 4;
+  bool smtp_dev_mode = 5;
+}
+
+// ── signup ───────────────────────────────────────────────────────────────────
+
+message SignupRequest {
+  string email = 1;
+  string password = 2;
+  string tenant_name = 3;
+  string display_name = 4;  // optional
+  string captcha_token = 5;
+}
+
+// SignupResponse mirrors the dict returned by the Python signup endpoint.
+message SignupResponse {
+  string message = 1;
+  string dev_verify_url = 2;  // only set when smtp not configured or send failed
+  bool smtp_send_failed = 3;
+}
+
+// ── verify-email ───────────────────────────────────────────────────────────────
+
+message VerifyEmailRequest {
+  string token = 1;
+}
+
+// ── login ──────────────────────────────────────────────────────────────────────
+
+message LoginRequest {
+  string email = 1;
+  string password = 2;
+  string captcha_token = 3;
+  string totp_code = 4;  // optional
+}
+
+// ── logout ───────────────────────────────────────────────────────────────────
+
+message LogoutRequest {}
+
+// ── me ─────────────────────────────────────────────────────────────────────────
+
+message MeRequest {}
+
+// ── password/forgot ──────────────────────────────────────────────────────────
+
+message ForgotPasswordRequest {
+  string email = 1;
+  string captcha_token = 2;
+}
+
+message ForgotPasswordResponse {
+  string message = 1;
+  string dev_reset_url = 2;  // only set when smtp not configured (dev)
+}
+
+// ── password/reset ───────────────────────────────────────────────────────────
+
+message ResetPasswordRequest {
+  string token = 1;
+  string new_password = 2;
+}
+
+// ── totp/setup ────────────────────────────────────────────────────────────────
+
+message TotpSetupRequest {}
+
+message TotpSetupResponse {
+  string secret_base32 = 1;
+  string qr_code_data_uri = 2;
+  repeated string recovery_codes = 3;
+}
+
+// ── totp/confirm ─────────────────────────────────────────────────────────────
+
+message TotpConfirmRequest {
+  string code = 1;
+}
+
+message TotpConfirmResponse {
+  bool ok = 1;
+  UserPublic user = 2;
+}
+
+// ── oauth ────────────────────────────────────────────────────────────────────
+
+message OauthStartRequest {
+  string provider = 1;     // path param
+  string intent = 2;       // "signup" | "login"
+  string tenant_name = 3;  // optional
+}
+
+message OauthCallbackRequest {
+  string provider = 1;  // path param
+  string code = 2;
+  string state = 3;
+}
+
+// OauthRedirect is a minimal message; the actual 302 + Set-Cookie are carried
+// via response metadata (x-redirect / x-set-cookie). The body is never read by
+// the browser on a 302.
+message OauthRedirect {
+  string location = 1;
+}

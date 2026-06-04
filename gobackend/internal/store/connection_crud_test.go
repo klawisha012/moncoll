@@ -97,22 +97,22 @@ func TestConnectionCreate(t *testing.T) {
 	st, ctx := newIntegrationStore(t)
 
 	in := &Connection{
-		TenantID:      1,
-		Name:          "main",
-		Domain:        "acme.example.com",
-		OriginHosts:   []string{"1.2.3.4"},
-		OriginPort:    443,
-		OriginTLSMode: "strict",
-		VerifyToken:   "tok123",
-		Status:        "pending_verification",
-		StatusDetail:  strPtr("Add the TXT record to verify ownership."),
-		DNSTTLSeconds: 60,
-		HTTPVersions:  "h1,h2",
-		CompressionAlgo: "auto",
-		Enabled:       true,
-		ModsecState:   "detection_only",
+		TenantID:             1,
+		Name:                 "main",
+		Domain:               "acme.example.com",
+		OriginHosts:          []string{"1.2.3.4"},
+		OriginPort:           443,
+		OriginTLSMode:        "strict",
+		VerifyToken:          "tok123",
+		Status:               "pending_verification",
+		StatusDetail:         strPtr("Add the TXT record to verify ownership."),
+		DNSTTLSeconds:        60,
+		HTTPVersions:         "h1,h2",
+		CompressionAlgo:      "auto",
+		Enabled:              true,
+		ModsecState:          "detection_only",
 		GeoipDeniedCountries: []string{},
-		CrowdsecActive: true,
+		CrowdsecActive:       true,
 	}
 
 	got, err := st.CreateConnection(ctx, in)
@@ -321,7 +321,7 @@ func TestListConnectionsForPoll(t *testing.T) {
 		DNSTTLSeconds: 60, HTTPVersions: "h1,h2", CompressionAlgo: "auto",
 		Enabled: true, ModsecState: "detection_only", CrowdsecActive: true,
 		GeoipDeniedCountries: []string{},
-		NextPollAt: &past,
+		NextPollAt:           &past,
 	}
 	_, err := st.CreateConnection(ctx, due)
 	require.NoError(t, err)
@@ -334,7 +334,7 @@ func TestListConnectionsForPoll(t *testing.T) {
 		DNSTTLSeconds: 60, HTTPVersions: "h1,h2", CompressionAlgo: "auto",
 		Enabled: true, ModsecState: "detection_only", CrowdsecActive: true,
 		GeoipDeniedCountries: []string{},
-		NextPollAt: &future,
+		NextPollAt:           &future,
 	}
 	_, err = st.CreateConnection(ctx, notDue)
 	require.NoError(t, err)

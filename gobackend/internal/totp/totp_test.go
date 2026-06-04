@@ -123,9 +123,9 @@ func TestVerify_KnownVector(t *testing.T) {
 	// Now verify using pquerna's Validate with the same timestamp window.
 	// (We use gototp.ValidateCustom to pin the time rather than time.Now())
 	ok, err := gototp.ValidateCustom(code, knownSecret, ts, gototp.ValidateOpts{
-		Period:    30,
-		Skew:      1,
-		Digits:    6,
+		Period: 30,
+		Skew:   1,
+		Digits: 6,
 	})
 	if err != nil {
 		t.Fatalf("ValidateCustom: %v", err)

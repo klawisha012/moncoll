@@ -277,6 +277,24 @@ services:
       ACME_EMAIL: ${ACME_EMAIL:-admin@localhost}
       # Connections poller tick interval (seconds; default 60).
       WAF_POLLER_TICK_SECONDS: ${WAF_POLLER_TICK_SECONDS:-60}
+      # ── Auth service (mirrors the Python backend's auth env block) ──────────
+      WAF_PUBLIC_BASE_URL: ${WAF_PUBLIC_BASE_URL:-}
+      WAF_COOKIE_SECURE: ${WAF_COOKIE_SECURE:-false}
+      WAF_TURNSTILE_SITE_KEY: ${WAF_TURNSTILE_SITE_KEY:-}
+      WAF_TURNSTILE_SECRET_KEY: ${WAF_TURNSTILE_SECRET_KEY:-}
+      WAF_SMTP_HOST: ${WAF_SMTP_HOST:-}
+      WAF_SMTP_PORT: ${WAF_SMTP_PORT:-587}
+      WAF_SMTP_USERNAME: ${WAF_SMTP_USERNAME:-}
+      WAF_SMTP_PASSWORD: ${WAF_SMTP_PASSWORD:-}
+      WAF_SMTP_FROM_EMAIL: ${WAF_SMTP_FROM_EMAIL:-}
+      WAF_SMTP_FROM_NAME: ${WAF_SMTP_FROM_NAME:-}
+      WAF_SMTP_STARTTLS: ${WAF_SMTP_STARTTLS:-true}
+      WAF_OAUTH_GOOGLE_CLIENT_ID: ${WAF_OAUTH_GOOGLE_CLIENT_ID:-}
+      WAF_OAUTH_GOOGLE_CLIENT_SECRET: ${WAF_OAUTH_GOOGLE_CLIENT_SECRET:-}
+      WAF_OAUTH_GOOGLE_REDIRECT_URI: ${WAF_OAUTH_GOOGLE_REDIRECT_URI:-}
+      WAF_OAUTH_GITHUB_CLIENT_ID: ${WAF_OAUTH_GITHUB_CLIENT_ID:-}
+      WAF_OAUTH_GITHUB_CLIENT_SECRET: ${WAF_OAUTH_GITHUB_CLIENT_SECRET:-}
+      WAF_OAUTH_GITHUB_REDIRECT_URI: ${WAF_OAUTH_GITHUB_REDIRECT_URI:-}
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       # backend-data is mounted read-write so the crowdsec sync loop can write

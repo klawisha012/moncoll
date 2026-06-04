@@ -448,8 +448,8 @@ func (s *Store) ListConnectionsForPoll(ctx context.Context) ([]Connection, error
 // Mirrors the attribute mutations in _tick_verification / _tick_pending_dns /
 // _tick_provisioning + _bump_poll in backend/src/connections/poller.py.
 func (s *Store) UpdatePollerState(ctx context.Context, connID int64, p PollerState) (*Connection, error) {
-	geoipJSON := []byte("[]")  // not modified by poller; placeholder for RETURNING scan
-	_ = geoipJSON               // used only in scanConnectionFull output
+	geoipJSON := []byte("[]") // not modified by poller; placeholder for RETURNING scan
+	_ = geoipJSON             // used only in scanConnectionFull output
 	q := `UPDATE connections
 	      SET status            = $1,
 	          status_detail     = $2,

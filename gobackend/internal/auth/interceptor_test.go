@@ -77,6 +77,28 @@ func TestInterceptorVerifiedLevelAllowsClient(t *testing.T) {
 	require.Equal(t, "ok", resp)
 }
 
+// TestInterceptorPublicReachableWithoutCookie verifies a LevelPublic method is
+// reachable with NO cookie at all and that NO identity is attached (the handler
+// must not assume IdentityFromContext succeeds).
+func TestInterceptorPublicReachableWithoutCookie(t *testing.T) {
+	p := newPolicy(adminUser(), nil)
+	levels := map[string]Level{"/auth.v1.AuthService/Login": LevelPublic}
+	ic := NewInterceptor(NewDecoder(testKey()), p, levels)
+
+	publicHandler := func(ctx context.Context, _ any) (any, error) {
+		if _, ok := IdentityFromContext(ctx); ok {
+			return nil, status.Error(codes.Internal, "public method should have no identity")
+		}
+		return "public-ok", nil
+	}
+
+	// No cookie whatsoever.
+	resp, err := ic(context.Background(), nil,
+		&grpc.UnaryServerInfo{FullMethod: "/auth.v1.AuthService/Login"}, publicHandler)
+	require.NoError(t, err)
+	require.Equal(t, "public-ok", resp)
+}
+
 func TestInterceptorAdminDefaultRejectsClient(t *testing.T) {
 	u := adminUser()
 	u.PlatformRole = "client"

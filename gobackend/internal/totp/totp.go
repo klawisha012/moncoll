@@ -21,14 +21,19 @@
 package totp
 
 import (
+	"bytes"
+	"crypto/rand"
 	"crypto/sha256"
 	"crypto/subtle"
+	"encoding/base64"
 	"encoding/hex"
 	"fmt"
+	"image/png"
 
-	gototp "github.com/pquerna/otp/totp"
+	"github.com/boombuler/barcode"
+	"github.com/boombuler/barcode/qr"
 	"github.com/pquerna/otp"
-	"crypto/rand"
+	gototp "github.com/pquerna/otp/totp"
 )
 
 // issuer is the default TOTP issuer label, matching totp.py provisioning_uri
@@ -79,6 +84,27 @@ func ProvisioningURI(secret, accountName, issuer string) string {
 			issuer, accountName, secret, issuer)
 	}
 	return key.URL()
+}
+
+// QRDataURI renders the otpauth:// URI as a PNG QR code and returns it as a
+// data: URI, mirroring totp.py qr_data_uri:
+//
+//	img = qrcode.make(uri); buf = BytesIO(); img.save(buf, "PNG")
+//	return "data:image/png;base64," + base64(buf)
+func QRDataURI(uri string) (string, error) {
+	code, err := qr.Encode(uri, qr.M, qr.Auto)
+	if err != nil {
+		return "", fmt.Errorf("totp: qr encode: %w", err)
+	}
+	code, err = barcode.Scale(code, 256, 256)
+	if err != nil {
+		return "", fmt.Errorf("totp: qr scale: %w", err)
+	}
+	var buf bytes.Buffer
+	if err := png.Encode(&buf, code); err != nil {
+		return "", fmt.Errorf("totp: qr png encode: %w", err)
+	}
+	return "data:image/png;base64," + base64.StdEncoding.EncodeToString(buf.Bytes()), nil
 }
 
 // -----------------------------------------------------------------------

@@ -26,7 +26,7 @@ type User struct {
 	PasswordHash      *string
 	TenantRole        *string
 	TotpSecret        *string
-	RecoveryCodesHash []string   // TEXT[] — nil when column is NULL
+	RecoveryCodesHash []string // TEXT[] — nil when column is NULL
 	LastLoginAt       *time.Time
 	CreatedAt         time.Time
 	UpdatedAt         time.Time
@@ -39,7 +39,7 @@ type UserUpdate struct {
 	EmailVerifiedAt   *time.Time
 	TotpSecret        *string
 	TotpEnabledAt     *time.Time
-	RecoveryCodesHash []string   // nil = skip; non-nil (incl. empty) = overwrite
+	RecoveryCodesHash []string // nil = skip; non-nil (incl. empty) = overwrite
 	LastLoginAt       *time.Time
 	DisplayName       *string
 	TenantID          *int64
@@ -112,12 +112,12 @@ type Connection struct {
 	AcmeRetryCount       int
 	AcmeNextRetryAt      *time.Time
 	NextPollAt           *time.Time
-	DNSTTLSeconds        int    // default 60
+	DNSTTLSeconds        int // default 60
 	LastCheckedAt        *time.Time
-	HTTPVersions         string // default "h1,h2"
-	CompressionAlgo      string // default "auto"
-	ModsecState          string // "off" | "detection_only" | "blocking"
-	GeoipDeniedCountries []string   // JSON array: ISO 3166-1 alpha-2 country codes
+	HTTPVersions         string   // default "h1,h2"
+	CompressionAlgo      string   // default "auto"
+	ModsecState          string   // "off" | "detection_only" | "blocking"
+	GeoipDeniedCountries []string // JSON array: ISO 3166-1 alpha-2 country codes
 	CrowdsecActive       bool
 	SSLCertPath          *string // populated once status=active
 	SSLKeyPath           *string

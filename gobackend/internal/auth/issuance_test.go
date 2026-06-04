@@ -12,7 +12,7 @@ import (
 // Helpers
 // ---------------------------------------------------------------------------
 
-func testIssuer() *Issuer { return NewIssuer(testKey()) }
+func testIssuer() *Issuer   { return NewIssuer(testKey()) }
 func testDecoder() *Decoder { return NewDecoder(testKey()) }
 
 // ---------------------------------------------------------------------------

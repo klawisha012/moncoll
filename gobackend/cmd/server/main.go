@@ -10,12 +10,14 @@ import (
 	"os"
 	"os/signal"
 	"strconv"
+	"strings"
 	"syscall"
 	"time"
 
 	"google.golang.org/grpc"
 
 	adminv1 "github.com/zwarder/waf/gobackend/gen/admin/v1"
+	authv1 "github.com/zwarder/waf/gobackend/gen/auth/v1"
 	connectionsv1 "github.com/zwarder/waf/gobackend/gen/connections/v1"
 	crowdsecv1 "github.com/zwarder/waf/gobackend/gen/crowdsec/v1"
 	dashboardv1 "github.com/zwarder/waf/gobackend/gen/dashboard/v1"
@@ -25,6 +27,8 @@ import (
 	"github.com/zwarder/waf/gobackend/internal/admin"
 	"github.com/zwarder/waf/gobackend/internal/angie"
 	"github.com/zwarder/waf/gobackend/internal/auth"
+	"github.com/zwarder/waf/gobackend/internal/authapi"
+	"github.com/zwarder/waf/gobackend/internal/captcha"
 	"github.com/zwarder/waf/gobackend/internal/certs"
 	"github.com/zwarder/waf/gobackend/internal/chdash"
 	"github.com/zwarder/waf/gobackend/internal/config"
@@ -34,10 +38,12 @@ import (
 	"github.com/zwarder/waf/gobackend/internal/crowdsecapi"
 	"github.com/zwarder/waf/gobackend/internal/cscli"
 	"github.com/zwarder/waf/gobackend/internal/dashboardapi"
+	"github.com/zwarder/waf/gobackend/internal/email"
 	"github.com/zwarder/waf/gobackend/internal/migrate"
 	"github.com/zwarder/waf/gobackend/internal/modsec"
 	"github.com/zwarder/waf/gobackend/internal/modsecurity"
 	"github.com/zwarder/waf/gobackend/internal/monitoring"
+	"github.com/zwarder/waf/gobackend/internal/oauth"
 	"github.com/zwarder/waf/gobackend/internal/observability"
 	"github.com/zwarder/waf/gobackend/internal/server"
 	"github.com/zwarder/waf/gobackend/internal/sslapi"
@@ -101,6 +107,7 @@ func main() {
 
 	// ── Auth + gRPC ───────────────────────────────────────────────────────────
 	dec := auth.NewDecoder(cfg.PasetoKey)
+	issuer := auth.NewIssuer(cfg.PasetoKey)
 	policy := auth.NewPolicy(st)
 
 	const grpcAddr = "127.0.0.1:9090"
@@ -164,19 +171,34 @@ func main() {
 		// connections: require_verified (tenant-scoped; service enforces TenantID)
 		// GetEdgeInfo is also public-ish (no sensitive data) but we keep it
 		// consistent with the other 10 methods.
-		connectionsv1.ConnectionsService_GetEdgeInfo_FullMethodName:              auth.LevelVerified,
-		connectionsv1.ConnectionsService_ListConnections_FullMethodName:           auth.LevelVerified,
-		connectionsv1.ConnectionsService_GetConnection_FullMethodName:             auth.LevelVerified,
-		connectionsv1.ConnectionsService_CreateConnection_FullMethodName:          auth.LevelVerified,
-		connectionsv1.ConnectionsService_UpdateConnection_FullMethodName:          auth.LevelVerified,
-		connectionsv1.ConnectionsService_DeleteConnection_FullMethodName:          auth.LevelVerified,
-		connectionsv1.ConnectionsService_ProbeConnection_FullMethodName:           auth.LevelVerified,
+		connectionsv1.ConnectionsService_GetEdgeInfo_FullMethodName:      auth.LevelVerified,
+		connectionsv1.ConnectionsService_ListConnections_FullMethodName:  auth.LevelVerified,
+		connectionsv1.ConnectionsService_GetConnection_FullMethodName:    auth.LevelVerified,
+		connectionsv1.ConnectionsService_CreateConnection_FullMethodName: auth.LevelVerified,
+		connectionsv1.ConnectionsService_UpdateConnection_FullMethodName: auth.LevelVerified,
+		connectionsv1.ConnectionsService_DeleteConnection_FullMethodName: auth.LevelVerified,
+		connectionsv1.ConnectionsService_ProbeConnection_FullMethodName:  auth.LevelVerified,
 		// reload_connections is require_admin in the Python router — keep it
 		// admin-only (LevelAdmin) rather than letting any verified tenant trigger
 		// a global Angie config regen + reload.
-		connectionsv1.ConnectionsService_ReloadConnections_FullMethodName:         auth.LevelAdmin,
-		connectionsv1.ConnectionsService_GetConnectionSecurity_FullMethodName:     auth.LevelVerified,
-		connectionsv1.ConnectionsService_UpdateConnectionSecurity_FullMethodName:  auth.LevelVerified,
+		connectionsv1.ConnectionsService_ReloadConnections_FullMethodName:        auth.LevelAdmin,
+		connectionsv1.ConnectionsService_GetConnectionSecurity_FullMethodName:    auth.LevelVerified,
+		connectionsv1.ConnectionsService_UpdateConnectionSecurity_FullMethodName: auth.LevelVerified,
+		// auth: all methods are LevelPublic — public endpoints (login/signup/...)
+		// have no session yet, and the cookie-validating endpoints (me, totp/setup,
+		// totp/confirm) read + verify their OWN cookie inside the handler.
+		authv1.AuthService_GetProviders_FullMethodName:   auth.LevelPublic,
+		authv1.AuthService_Signup_FullMethodName:         auth.LevelPublic,
+		authv1.AuthService_VerifyEmail_FullMethodName:    auth.LevelPublic,
+		authv1.AuthService_Login_FullMethodName:          auth.LevelPublic,
+		authv1.AuthService_Logout_FullMethodName:         auth.LevelPublic,
+		authv1.AuthService_Me_FullMethodName:             auth.LevelPublic,
+		authv1.AuthService_ForgotPassword_FullMethodName: auth.LevelPublic,
+		authv1.AuthService_ResetPassword_FullMethodName:  auth.LevelPublic,
+		authv1.AuthService_TotpSetup_FullMethodName:      auth.LevelPublic,
+		authv1.AuthService_TotpConfirm_FullMethodName:    auth.LevelPublic,
+		authv1.AuthService_OauthStart_FullMethodName:     auth.LevelPublic,
+		authv1.AuthService_OauthCallback_FullMethodName:  auth.LevelPublic,
 		// monitoring + admin: absent from map → default LevelAdmin (fail closed)
 	}
 	grpcSrv := grpc.NewServer(grpc.ChainUnaryInterceptor(auth.NewInterceptor(dec, policy, authLevels)))
@@ -205,6 +227,31 @@ func main() {
 		log,
 	)
 	connectionsv1.RegisterConnectionsServiceServer(grpcSrv, connSvc)
+
+	// ── Auth service (11 endpoints) ───────────────────────────────────────────
+	authCfg := authapi.Config{
+		PasetoKey:      cfg.PasetoKey,
+		CookieSecure:   envBool("WAF_COOKIE_SECURE", true),
+		PublicBaseURL:  os.Getenv("WAF_PUBLIC_BASE_URL"),
+		GoogleEnabled:  oauthEnabled("GOOGLE"),
+		GitHubEnabled:  oauthEnabled("GITHUB"),
+		CaptchaSiteKey: os.Getenv("WAF_TURNSTILE_SITE_KEY"),
+		CaptchaConfig:  os.Getenv("WAF_TURNSTILE_SECRET_KEY") != "",
+		SMTPConfigured: os.Getenv("WAF_SMTP_HOST") != "",
+		GoogleRedirect: os.Getenv("WAF_OAUTH_GOOGLE_REDIRECT_URI"),
+		GitHubRedirect: os.Getenv("WAF_OAUTH_GITHUB_REDIRECT_URI"),
+	}
+	authSvc := authapi.New(
+		st,
+		issuer,
+		dec,
+		email.NewSender(),
+		captcha.NewVerifier(),
+		oauthFactory{},
+		authCfg,
+		log,
+	)
+	authv1.RegisterAuthServiceServer(grpcSrv, authSvc)
 
 	// Start the background connections poller (best-effort, never crashes server)
 	connPoller := connectionsapi.NewPoller(
@@ -378,6 +425,43 @@ func getenvOr(k, def string) string {
 		return v
 	}
 	return def
+}
+
+// envBool parses a boolean env var (true/1/yes), defaulting to def when unset.
+// Mirrors pydantic's bool coercion for WAF_COOKIE_SECURE.
+func envBool(k string, def bool) bool {
+	v := os.Getenv(k)
+	if v == "" {
+		return def
+	}
+	switch strings.ToLower(strings.TrimSpace(v)) {
+	case "1", "true", "yes", "on":
+		return true
+	case "0", "false", "no", "off":
+		return false
+	default:
+		return def
+	}
+}
+
+// oauthEnabled reports whether all three WAF_OAUTH_<P>_* env vars are set,
+// mirroring config.py oauth_<provider>_enabled.
+func oauthEnabled(p string) bool {
+	prefix := "WAF_OAUTH_" + p + "_"
+	return os.Getenv(prefix+"CLIENT_ID") != "" &&
+		os.Getenv(prefix+"CLIENT_SECRET") != "" &&
+		os.Getenv(prefix+"REDIRECT_URI") != ""
+}
+
+// oauthFactory adapts oauth.NewProvider to authapi.OAuthProviderFactory.
+type oauthFactory struct{}
+
+func (oauthFactory) Provider(name string) (authapi.OAuthProvider, bool) {
+	p, ok := oauth.NewProvider(name)
+	if !ok {
+		return nil, false
+	}
+	return p, true
 }
 
 // connStoreAdapter adapts *store.Store to connectionsapi.Store.

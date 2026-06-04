@@ -70,9 +70,9 @@ func (i *Issuer) CreateSessionToken(
 	claims := map[string]any{
 		"sub": strconv.FormatInt(userID, 10),
 		"pr":  platformRole,
-		"tn":  tenantID,  // nil → JSON null
+		"tn":  tenantID,   // nil → JSON null
 		"tr":  tenantRole, // nil → JSON null
-		"iat": now.Unix(),  // float-compatible; see note below
+		"iat": now.Unix(), // float-compatible; see note below
 		"exp": exp.Unix(),
 	}
 	// Python stores iat/exp as float (datetime.timestamp() returns float).
