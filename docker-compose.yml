@@ -279,6 +279,10 @@ services:
       - backend-data:/var/lib/angie/data
       - waf-tenants:/var/lib/waf/tenants
       - ./configs/angie/modsecurity/:/app/etc/angie/modsecurity/
+      # SSL: Let's Encrypt cert store (shared with backend for ACME issuance).
+      - letsencrypt:/etc/letsencrypt
+      # SSL: http.d bind-mount for non-tenant cert file writes (same path as backend).
+      - ./configs/angie/http.d/:/var/lib/angie/http.d/
     depends_on:
       postgres:
         condition: service_healthy

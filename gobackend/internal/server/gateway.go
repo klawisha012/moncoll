@@ -19,6 +19,7 @@ import (
 	dashboardv1 "github.com/zwarder/waf/gobackend/gen/dashboard/v1"
 	modsecurityv1 "github.com/zwarder/waf/gobackend/gen/modsecurity/v1"
 	monitoringv1 "github.com/zwarder/waf/gobackend/gen/monitoring/v1"
+	sslv1 "github.com/zwarder/waf/gobackend/gen/ssl/v1"
 )
 
 // NewGatewayMux builds the REST mux that talks to the in-process gRPC server at
@@ -52,6 +53,9 @@ func NewGatewayMux(ctx context.Context, grpcAddr string) (*runtime.ServeMux, err
 		return nil, err
 	}
 	if err := dashboardv1.RegisterDashboardServiceHandlerFromEndpoint(ctx, mux, grpcAddr, opts); err != nil {
+		return nil, err
+	}
+	if err := sslv1.RegisterSSLServiceHandlerFromEndpoint(ctx, mux, grpcAddr, opts); err != nil {
 		return nil, err
 	}
 	return mux, nil

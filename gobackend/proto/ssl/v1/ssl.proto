@@ -1,0 +1,76 @@
+syntax = "proto3";
+
+package ssl.v1;
+
+import "google/api/annotations.proto";
+
+// SSLService exposes the 3 certificate-management endpoints consumed by the
+// SPA (prefix /api/ssl). Mirrors backend/src/certificates/router.py.
+// Security: every RPC is gated at LevelVerified; the service itself enforces
+// tenant ownership (current_tenant equivalent) before delegating to the cert
+// manager.
+service SSLService {
+  // GET /api/ssl/status/{connection_id}
+  rpc GetCertificateStatus(ConnIdRequest) returns (StatusResponse) {
+    option (google.api.http) = {get: "/api/ssl/status/{connection_id}"};
+  }
+
+  // POST /api/ssl/request/{connection_id}
+  // body:"*" lets grpc-gateway bind {connection_id} from the path and
+  // domains/challenge_type from the JSON body.
+  rpc RequestCertificate(RequestCertRequest) returns (CertResponse) {
+    option (google.api.http) = {
+      post: "/api/ssl/request/{connection_id}"
+      body: "*"
+    };
+  }
+
+  // POST /api/ssl/regenerate/{connection_id}
+  rpc RegenerateCertificate(ConnIdRequest) returns (CertResponse) {
+    option (google.api.http) = {
+      post: "/api/ssl/regenerate/{connection_id}"
+      body: "*"
+    };
+  }
+}
+
+// ConnIdRequest is a minimal request carrying only a connection ID (used by
+// GetCertificateStatus and RegenerateCertificate).
+message ConnIdRequest {
+  int64 connection_id = 1;
+}
+
+// RequestCertRequest carries the connection ID (from URL path) plus the
+// optional domain list and ACME challenge type from the JSON body.
+// Mirrors CertificateRequest in backend/src/certificates/schemas.py.
+message RequestCertRequest {
+  int64 connection_id = 1;
+  repeated string domains = 2;
+  string challenge_type = 3;
+}
+
+// StatusResponse mirrors the dict returned by check_certificate_status.
+// Fields match StatusResult in gobackend/internal/certs/manager.go:
+//   certificate_exists, key_exists, certificate_path (nil→""), key_path,
+//   backend_cert_path, backend_key_path.
+message StatusResponse {
+  bool certificate_exists = 1;
+  bool key_exists = 2;
+  // Empty string when the cert/key file does not exist (Python returns None).
+  string certificate_path = 3;
+  string key_path = 4;
+  string backend_cert_path = 5;
+  string backend_key_path = 6;
+}
+
+// CertResponse mirrors the dict returned by trigger_acme_request /
+// regenerate_certificate / generate_self_signed_certificate.
+// Fields match Result in gobackend/internal/certs/manager.go.
+message CertResponse {
+  bool success = 1;
+  string message = 2;
+  string certificate_path = 3;
+  string key_path = 4;
+  string backend_cert_path = 5;
+  string backend_key_path = 6;
+}

@@ -20,15 +20,18 @@ import (
 	dashboardv1 "github.com/zwarder/waf/gobackend/gen/dashboard/v1"
 	modsecurityv1 "github.com/zwarder/waf/gobackend/gen/modsecurity/v1"
 	monitoringv1 "github.com/zwarder/waf/gobackend/gen/monitoring/v1"
+	sslv1 "github.com/zwarder/waf/gobackend/gen/ssl/v1"
 	"github.com/zwarder/waf/gobackend/internal/admin"
 	"github.com/zwarder/waf/gobackend/internal/angie"
 	"github.com/zwarder/waf/gobackend/internal/auth"
+	"github.com/zwarder/waf/gobackend/internal/certs"
 	"github.com/zwarder/waf/gobackend/internal/chdash"
 	"github.com/zwarder/waf/gobackend/internal/config"
 	"github.com/zwarder/waf/gobackend/internal/crowdsec"
 	"github.com/zwarder/waf/gobackend/internal/crowdsecapi"
 	"github.com/zwarder/waf/gobackend/internal/cscli"
 	"github.com/zwarder/waf/gobackend/internal/dashboardapi"
+	"github.com/zwarder/waf/gobackend/internal/sslapi"
 	"github.com/zwarder/waf/gobackend/internal/modsec"
 	"github.com/zwarder/waf/gobackend/internal/modsecurity"
 	"github.com/zwarder/waf/gobackend/internal/monitoring"
@@ -139,6 +142,10 @@ func main() {
 		dashboardv1.DashboardService_GetRequestsByCountry_FullMethodName:    auth.LevelVerified,
 		dashboardv1.DashboardService_GetTopClientIps_FullMethodName:         auth.LevelVerified,
 		dashboardv1.DashboardService_GetTestTraffic_FullMethodName:          auth.LevelVerified,
+		// ssl: require_verified (tenant-scoped; service enforces current_tenant)
+		sslv1.SSLService_GetCertificateStatus_FullMethodName:  auth.LevelVerified,
+		sslv1.SSLService_RequestCertificate_FullMethodName:    auth.LevelVerified,
+		sslv1.SSLService_RegenerateCertificate_FullMethodName: auth.LevelVerified,
 		// monitoring + admin: absent from map → default LevelAdmin (fail closed)
 	}
 	grpcSrv := grpc.NewServer(grpc.ChainUnaryInterceptor(auth.NewInterceptor(dec, policy, authLevels)))
@@ -153,6 +160,9 @@ func main() {
 	// fatal. ClickHouse is opened per-query, so boot succeeds without CH.
 	chClient := chdash.NewClient()
 	dashboardv1.RegisterDashboardServiceServer(grpcSrv, dashboardapi.New(chClient, st))
+	// ── SSL / certificates ────────────────────────────────────────────────────
+	certManager := certs.New()
+	sslv1.RegisterSSLServiceServer(grpcSrv, sslapi.New(st, certManager))
 
 	go func() {
 		log.Info("grpc serving", "addr", grpcAddr)
