@@ -34,12 +34,13 @@ import (
 	"github.com/zwarder/waf/gobackend/internal/crowdsecapi"
 	"github.com/zwarder/waf/gobackend/internal/cscli"
 	"github.com/zwarder/waf/gobackend/internal/dashboardapi"
-	"github.com/zwarder/waf/gobackend/internal/sslapi"
+	"github.com/zwarder/waf/gobackend/internal/migrate"
 	"github.com/zwarder/waf/gobackend/internal/modsec"
 	"github.com/zwarder/waf/gobackend/internal/modsecurity"
 	"github.com/zwarder/waf/gobackend/internal/monitoring"
 	"github.com/zwarder/waf/gobackend/internal/observability"
 	"github.com/zwarder/waf/gobackend/internal/server"
+	"github.com/zwarder/waf/gobackend/internal/sslapi"
 	"github.com/zwarder/waf/gobackend/internal/store"
 	"github.com/zwarder/waf/gobackend/internal/tenantfs"
 )
@@ -53,6 +54,17 @@ func main() {
 	if err != nil {
 		log.Error("config load failed", "err", err)
 		os.Exit(1)
+	}
+
+	// ── DB migrations ─────────────────────────────────────────────────────────
+	// Run before opening the store so the schema is guaranteed to exist.
+	// Set WAF_SKIP_MIGRATE=1 to bypass (for environments where migrations are
+	// managed externally, e.g. CI, helm pre-install jobs).
+	if os.Getenv("WAF_SKIP_MIGRATE") != "1" {
+		if err := migrate.Run(cfg.PostgresDSN, log); err != nil {
+			log.Error("DB migration failed", "err", err)
+			os.Exit(1)
+		}
 	}
 
 	st, err := store.New(ctx, cfg.PostgresDSN)
