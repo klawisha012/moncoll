@@ -22,6 +22,8 @@ func New(ctx context.Context, dsn string) (*Store, error) {
 
 func (s *Store) Close() { s.pool.Close() }
 
+func errorsIsNoRows(err error) bool { return errors.Is(err, pgx.ErrNoRows) }
+
 func (s *Store) GetUserByID(ctx context.Context, id int64) (*User, error) {
 	const q = `SELECT id, platform_role, email_verified_at, totp_enabled_at, tenant_id
 	           FROM users WHERE id = $1`
