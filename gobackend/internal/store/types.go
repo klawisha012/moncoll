@@ -7,13 +7,65 @@ import (
 	"time"
 )
 
-// User mirrors the columns of the users table that the auth gate needs.
+// User mirrors the full users table.  Fields required only by the auth gate
+// (ID/PlatformRole/EmailVerifiedAt/TotpEnabledAt/TenantID) are kept in their
+// original positions so GetUserByID (which SELECTs only those five columns)
+// continues to work unchanged.  The additional fields are populated by
+// GetUserByEmail and CreateUser which SELECT all columns.
 type User struct {
+	// Auth-gate fields (populated by GetUserByID).
 	ID              int64
 	PlatformRole    string
 	EmailVerifiedAt *time.Time
 	TotpEnabledAt   *time.Time
 	TenantID        *int64
+
+	// Full-row fields (populated by GetUserByEmail / CreateUser / UpdateUser).
+	Email             string
+	DisplayName       string
+	PasswordHash      *string
+	TenantRole        *string
+	TotpSecret        *string
+	RecoveryCodesHash []string   // TEXT[] — nil when column is NULL
+	LastLoginAt       *time.Time
+	CreatedAt         time.Time
+	UpdatedAt         time.Time
+}
+
+// UserUpdate is used by UpdateUser to apply a partial patch.
+// Only non-nil pointer fields are written; slice fields use nil-means-skip.
+type UserUpdate struct {
+	PasswordHash      *string
+	EmailVerifiedAt   *time.Time
+	TotpSecret        *string
+	TotpEnabledAt     *time.Time
+	RecoveryCodesHash []string   // nil = skip; non-nil (incl. empty) = overwrite
+	LastLoginAt       *time.Time
+	DisplayName       *string
+	TenantID          *int64
+	TenantRole        *string
+	PlatformRole      *string
+}
+
+// EmailVerification mirrors the email_verifications table.
+type EmailVerification struct {
+	ID        int64
+	UserID    int64
+	Purpose   string // "verify_email" | "reset_password"
+	TokenHash string
+	ExpiresAt time.Time
+	UsedAt    *time.Time
+	CreatedAt time.Time
+}
+
+// OAuthAccount mirrors the oauth_accounts table.
+type OAuthAccount struct {
+	ID                int64
+	UserID            int64
+	Provider          string // "google" | "github"
+	ProviderAccountID string
+	EmailAtProvider   string
+	CreatedAt         time.Time
 }
 
 // Tenant mirrors the columns of the tenants table the auth gate needs.
