@@ -38,9 +38,9 @@ func (s *Store) GetUserByID(ctx context.Context, id int64) (*User, error) {
 }
 
 func (s *Store) GetTenantByID(ctx context.Context, id int64) (*Tenant, error) {
-	const q = `SELECT id, suspended_at FROM tenants WHERE id = $1`
+	const q = `SELECT id, name, suspended_at FROM tenants WHERE id = $1`
 	var t Tenant
-	err := s.pool.QueryRow(ctx, q, id).Scan(&t.ID, &t.SuspendedAt)
+	err := s.pool.QueryRow(ctx, q, id).Scan(&t.ID, &t.Name, &t.SuspendedAt)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, &NotFoundError{Entity: "tenant"}
 	}

@@ -19,6 +19,7 @@ type User struct {
 // Tenant mirrors the columns of the tenants table the auth gate needs.
 type Tenant struct {
 	ID          int64
+	Name        string
 	SuspendedAt *time.Time
 }
 

@@ -34,10 +34,10 @@ func TestStoreReadsUsersAndTenants(t *testing.T) {
 
 	ctx := context.Background()
 	_, err = st.pool.Exec(ctx, `
-		CREATE TABLE tenants (id BIGINT PRIMARY KEY, suspended_at TIMESTAMPTZ);
+		CREATE TABLE tenants (id BIGINT PRIMARY KEY, name TEXT NOT NULL, suspended_at TIMESTAMPTZ);
 		CREATE TABLE users (id BIGINT PRIMARY KEY, platform_role TEXT NOT NULL,
 			email_verified_at TIMESTAMPTZ, totp_enabled_at TIMESTAMPTZ, tenant_id BIGINT);
-		INSERT INTO tenants VALUES (3, NULL), (4, now());
+		INSERT INTO tenants VALUES (3, 'acme', NULL), (4, 'beta', now());
 		INSERT INTO users VALUES (7, 'admin', now(), now(), NULL),
 		                         (8, 'client', NULL, NULL, 3);`)
 	require.NoError(t, err)
@@ -61,6 +61,7 @@ func TestStoreReadsUsersAndTenants(t *testing.T) {
 	ten, err := st.GetTenantByID(ctx, 4)
 	require.NoError(t, err)
 	require.NotNil(t, ten.SuspendedAt)
+	require.Equal(t, "beta", ten.Name)
 
 	_ = time.Now
 }
