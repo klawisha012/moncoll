@@ -23,12 +23,14 @@ import (
 	dashboardv1 "github.com/zwarder/waf/gobackend/gen/dashboard/v1"
 	modsecurityv1 "github.com/zwarder/waf/gobackend/gen/modsecurity/v1"
 	monitoringv1 "github.com/zwarder/waf/gobackend/gen/monitoring/v1"
+	realtimev1 "github.com/zwarder/waf/gobackend/gen/realtime/v1"
 	sslv1 "github.com/zwarder/waf/gobackend/gen/ssl/v1"
 	"github.com/zwarder/waf/gobackend/internal/admin"
 	"github.com/zwarder/waf/gobackend/internal/angie"
 	"github.com/zwarder/waf/gobackend/internal/auth"
 	"github.com/zwarder/waf/gobackend/internal/authapi"
 	"github.com/zwarder/waf/gobackend/internal/captcha"
+	"github.com/zwarder/waf/gobackend/internal/centrifugo"
 	"github.com/zwarder/waf/gobackend/internal/certs"
 	"github.com/zwarder/waf/gobackend/internal/chdash"
 	"github.com/zwarder/waf/gobackend/internal/config"
@@ -45,6 +47,8 @@ import (
 	"github.com/zwarder/waf/gobackend/internal/monitoring"
 	"github.com/zwarder/waf/gobackend/internal/oauth"
 	"github.com/zwarder/waf/gobackend/internal/observability"
+	"github.com/zwarder/waf/gobackend/internal/realtime"
+	"github.com/zwarder/waf/gobackend/internal/realtimeapi"
 	"github.com/zwarder/waf/gobackend/internal/server"
 	"github.com/zwarder/waf/gobackend/internal/sslapi"
 	"github.com/zwarder/waf/gobackend/internal/store"
@@ -184,6 +188,8 @@ func main() {
 		connectionsv1.ConnectionsService_ReloadConnections_FullMethodName:        auth.LevelAdmin,
 		connectionsv1.ConnectionsService_GetConnectionSecurity_FullMethodName:    auth.LevelVerified,
 		connectionsv1.ConnectionsService_UpdateConnectionSecurity_FullMethodName: auth.LevelVerified,
+		// realtime: GetToken is require_verified (mirrors Python require_verified dep).
+		realtimev1.RealtimeService_GetToken_FullMethodName: auth.LevelVerified,
 		// auth: all methods are LevelPublic — public endpoints (login/signup/...)
 		// have no session yet, and the cookie-validating endpoints (me, totp/setup,
 		// totp/confirm) read + verify their OWN cookie inside the handler.
@@ -253,6 +259,11 @@ func main() {
 	)
 	authv1.RegisterAuthServiceServer(grpcSrv, authSvc)
 
+	// ── Realtime (Centrifugo token endpoint) ──────────────────────────────────
+	centPub := centrifugo.NewPublisher()
+	realtimeSvc := realtimeapi.New(centrifugo.MintConnectionToken)
+	realtimev1.RegisterRealtimeServiceServer(grpcSrv, realtimeSvc)
+
 	// Start the background connections poller (best-effort, never crashes server)
 	connPoller := connectionsapi.NewPoller(
 		connStoreAdapter{st},
@@ -263,6 +274,14 @@ func main() {
 		log,
 	)
 	go connPoller.Run(ctx)
+
+	// ── Realtime consumer (Redis pub/sub → aggregator → Centrifugo) ───────────
+	// Best-effort: Redis/Centrifugo errors are logged and retried; the consumer
+	// never crashes the server. Single-instance: the Python backend is being
+	// removed so there is exactly one subscriber.
+	rtRedis := realtime.NewRedisClient()
+	rtConsumer := realtime.New(rtRedis, centPub, log)
+	go rtConsumer.RunForever(ctx)
 
 	go func() {
 		log.Info("grpc serving", "addr", grpcAddr)

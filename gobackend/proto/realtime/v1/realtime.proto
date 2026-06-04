@@ -1,0 +1,30 @@
+syntax = "proto3";
+
+package realtime.v1;
+
+import "google/api/annotations.proto";
+import "google/protobuf/empty.proto";
+
+// RealtimeService exposes the single realtime token endpoint consumed by the
+// SPA (prefix /api/realtime). Mirrors backend/src/realtime/router.py.
+// Security: GetToken is gated at LevelVerified (require_verified in Python).
+service RealtimeService {
+  // POST /api/realtime/token
+  // Mints a short-lived Centrifugo client JWT (HS256, 1 h TTL).
+  // The SPA passes this token to centrifuge-js on connect and refreshes it
+  // before expiry via the centrifuge-js refresh callback.
+  rpc GetToken(google.protobuf.Empty) returns (TokenResponse) {
+    option (google.api.http) = {
+      post: "/api/realtime/token"
+      body: "*"
+    };
+  }
+}
+
+// TokenResponse mirrors router.py's TokenResponse Pydantic model.
+message TokenResponse {
+  // HS256 JWT for centrifuge-js connect option.
+  string token = 1;
+  // How long the token is valid (seconds); the SPA plans a refresh ~5 min before.
+  int32 ttl_seconds = 2;
+}
