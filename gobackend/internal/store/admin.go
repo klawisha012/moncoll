@@ -73,6 +73,43 @@ ORDER BY t.id`
 	return out, rows.Err()
 }
 
+func (s *Store) SuspendTenant(ctx context.Context, id int64) (*Tenant, error) {
+	const q = `UPDATE tenants SET suspended_at = now() WHERE id=$1 RETURNING id, name, suspended_at`
+	var t Tenant
+	err := s.pool.QueryRow(ctx, q, id).Scan(&t.ID, &t.Name, &t.SuspendedAt)
+	if errorsIsNoRows(err) {
+		return nil, &NotFoundError{Entity: "tenant"}
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &t, nil
+}
+
+func (s *Store) UnsuspendTenant(ctx context.Context, id int64) (*Tenant, error) {
+	const q = `UPDATE tenants SET suspended_at = NULL WHERE id=$1 RETURNING id, name, suspended_at`
+	var t Tenant
+	err := s.pool.QueryRow(ctx, q, id).Scan(&t.ID, &t.Name, &t.SuspendedAt)
+	if errorsIsNoRows(err) {
+		return nil, &NotFoundError{Entity: "tenant"}
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &t, nil
+}
+
+func (s *Store) DeleteTenant(ctx context.Context, id int64) error {
+	tag, err := s.pool.Exec(ctx, `DELETE FROM tenants WHERE id=$1`, id)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() == 0 {
+		return &NotFoundError{Entity: "tenant"}
+	}
+	return nil
+}
+
 func (s *Store) GetTenantDetail(ctx context.Context, id int64) (*TenantDetail, error) {
 	var d TenantDetail
 	err := s.pool.QueryRow(ctx,
