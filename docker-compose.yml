@@ -250,6 +250,12 @@ services:
     build: ./gobackend
     expose:
       - "8080"
+    # Run as the same uid (1000) the Python backend uses: that backend owns the
+    # waf-tenants tree (chown -R app:app /var/lib/waf). Admin suspend/delete
+    # rename/rmtree under /var/lib/waf/tenants, so gobackend must share that
+    # ownership or those writes hit EACCES. docker.sock access is preserved via
+    # the supplementary docker group (group_add), independent of the primary uid.
+    user: "1000:1000"
     group_add:
       - "${DOCKER_GID:-999}"
     environment:
