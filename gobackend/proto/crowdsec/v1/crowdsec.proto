@@ -1,0 +1,301 @@
+syntax = "proto3";
+
+package crowdsec.v1;
+
+import "google/api/annotations.proto";
+import "google/protobuf/wrappers.proto";
+
+service CrowdSecService {
+  // 1. GET /api/crowdsec/status?connection_id=<int>
+  rpc GetStatus(GetStatusRequest) returns (CrowdSecStatus) {
+    option (google.api.http) = {get: "/api/crowdsec/status"};
+  }
+
+  // 2. GET /api/crowdsec/decisions?connection_id=<int>
+  rpc GetDecisions(GetDecisionsRequest) returns (DecisionListResponse) {
+    option (google.api.http) = {
+      get: "/api/crowdsec/decisions"
+      response_body: "decisions"
+    };
+  }
+
+  // 3. POST /api/crowdsec/decisions
+  rpc AddDecision(DecisionCreate) returns (DecisionMutationResponse) {
+    option (google.api.http) = {
+      post: "/api/crowdsec/decisions"
+      body: "*"
+    };
+  }
+
+  // 4. DELETE /api/crowdsec/decisions/{ip}
+  rpc DeleteDecision(DeleteDecisionRequest) returns (DecisionMutationResponse) {
+    option (google.api.http) = {delete: "/api/crowdsec/decisions/{ip}"};
+  }
+
+  // 5. DELETE /api/crowdsec/decisions
+  rpc DeleteAllDecisions(Empty2) returns (SimpleResponse) {
+    option (google.api.http) = {delete: "/api/crowdsec/decisions"};
+  }
+
+  // 6. GET /api/crowdsec/manual-blocks?limit=<int>&hours=<float>
+  rpc GetManualBlocks(GetManualBlocksRequest) returns (ManualBlockListResponse) {
+    option (google.api.http) = {
+      get: "/api/crowdsec/manual-blocks"
+      response_body: "entries"
+    };
+  }
+
+  // 7. GET /api/crowdsec/scenarios
+  rpc GetScenarios(Empty2) returns (ScenarioListResponse) {
+    option (google.api.http) = {
+      get: "/api/crowdsec/scenarios"
+      response_body: "scenarios"
+    };
+  }
+
+  // 8. GET /api/crowdsec/scenarios/hub
+  rpc GetScenarioHub(Empty2) returns (HubScenarioListResponse) {
+    option (google.api.http) = {
+      get: "/api/crowdsec/scenarios/hub"
+      response_body: "items"
+    };
+  }
+
+  // 9. POST /api/crowdsec/scenarios/install/{name=**}
+  rpc InstallScenario(ScenarioNameRequest) returns (SimpleResponse) {
+    option (google.api.http) = {
+      post: "/api/crowdsec/scenarios/install/{name=**}"
+      body: "*"
+    };
+  }
+
+  // 10. DELETE /api/crowdsec/scenarios/remove/{name=**}
+  rpc RemoveScenario(ScenarioNameRequest) returns (SimpleResponse) {
+    option (google.api.http) = {delete: "/api/crowdsec/scenarios/remove/{name=**}"};
+  }
+
+  // 11. GET /api/crowdsec/service-status
+  rpc GetServiceStatus(Empty2) returns (ServiceStatusResponse) {
+    option (google.api.http) = {get: "/api/crowdsec/service-status"};
+  }
+
+  // 12. POST /api/crowdsec/toggle
+  rpc ToggleService(ServiceToggleRequest) returns (ToggleServiceResponse) {
+    option (google.api.http) = {
+      post: "/api/crowdsec/toggle"
+      body: "*"
+    };
+  }
+
+  // 13. POST /api/crowdsec/scenarios/toggle/{name=**}
+  rpc ToggleScenario(ScenarioNameRequest) returns (ToggleScenarioResponse) {
+    option (google.api.http) = {
+      post: "/api/crowdsec/scenarios/toggle/{name=**}"
+      body: "*"
+    };
+  }
+
+  // 14. GET /api/crowdsec/alerts?hours=<float>
+  rpc GetAlerts(GetAlertsRequest) returns (AlertListResponse) {
+    option (google.api.http) = {
+      get: "/api/crowdsec/alerts"
+      response_body: "alerts"
+    };
+  }
+
+  // 15. POST /api/crowdsec/reload
+  rpc Reload(Empty2) returns (SimpleResponse) {
+    option (google.api.http) = {
+      post: "/api/crowdsec/reload"
+      body: "*"
+    };
+  }
+}
+
+// ── Local empty (avoids well-known Empty as request type) ──────────────────
+
+// Empty2 is a local empty request message. Using the well-known
+// google.protobuf.Empty as a gateway request type prevents the gateway from
+// binding query params / path variables, so we use a local message instead.
+message Empty2 {}
+
+// ── Request messages ───────────────────────────────────────────────────────
+
+message GetStatusRequest {
+  // Optional connection_id filter; omit to get global status.
+  google.protobuf.Int64Value connection_id = 1;
+}
+
+message GetDecisionsRequest {
+  // Optional connection_id filter; omit to get all decisions.
+  google.protobuf.Int64Value connection_id = 1;
+}
+
+message GetManualBlocksRequest {
+  // Maximum number of rows (default 100, max 1000).
+  int64 limit = 1;
+  // Optional time window in hours (omit for no filter).
+  google.protobuf.DoubleValue hours = 2;
+}
+
+message GetAlertsRequest {
+  // Optional time window in hours (omit for no filter).
+  google.protobuf.DoubleValue hours = 1;
+}
+
+message DeleteDecisionRequest {
+  string ip = 1;
+}
+
+// ScenarioNameRequest carries a slash-containing name (e.g.
+// "crowdsecurity/http-probing") bound from the {name=**} wildcard.
+message ScenarioNameRequest {
+  string name = 1;
+}
+
+// ── Domain messages ────────────────────────────────────────────────────────
+
+// CrowdSecStatus mirrors the Python CrowdSecStatus schema.
+message CrowdSecStatus {
+  bool running = 1;
+  string version = 2;
+  int64 decisions_count = 3;
+  int64 scenarios_count = 4;
+  int64 alerts_count = 5;
+}
+
+// DecisionItem mirrors the Python DecisionItem schema.
+// id and alert_id use Int64Value (nullable) because Python returns int | None.
+message DecisionItem {
+  google.protobuf.Int64Value id = 1;
+  string source = 2;
+  string scope = 3;
+  string value = 4;
+  string type = 5;
+  string reason = 6;
+  string duration = 7;
+  string until = 8;
+  google.protobuf.Int64Value alert_id = 9;
+  repeated string blocked_on = 10;
+}
+
+// DecisionCreate mirrors the Python DecisionCreate schema.
+message DecisionCreate {
+  string ip = 1;
+  string duration = 2;
+  string reason = 3;
+  string type = 4;
+  // Optional; empty list means block on all connections.
+  repeated int64 connection_ids = 5;
+}
+
+// ScenarioInfo mirrors the Python ScenarioInfo schema.
+message ScenarioInfo {
+  string name = 1;
+  string description = 2;
+  bool loaded = 3;
+  string type = 4;
+  repeated string labels = 5;
+}
+
+// HubScenarioItem mirrors the dict returned by get_scenario_hub_items:
+// {name, description, author, labels, installed, path}.
+message HubScenarioItem {
+  string name = 1;
+  string description = 2;
+  string author = 3;
+  repeated string labels = 4;
+  bool installed = 5;
+  string path = 6;
+}
+
+// ServiceToggleRequest mirrors the Python ServiceToggleRequest schema.
+message ServiceToggleRequest {
+  bool enabled = 1;
+}
+
+// AlertItem mirrors the Python AlertItem schema.
+// id and capacity use Int64Value (nullable) because Python returns int | None.
+message AlertItem {
+  google.protobuf.Int64Value id = 1;
+  string scenario = 2;
+  string message = 3;
+  string source_ip = 4;
+  string source_scope = 5;
+  string start_at = 6;
+  string stop_at = 7;
+  google.protobuf.Int64Value capacity = 8;
+  int64 decisions_count = 9;
+}
+
+// ManualBlockLogEntry mirrors the dict returned by get_manual_block_log:
+// {timestamp, action, ip, duration, reason, source}.
+message ManualBlockLogEntry {
+  string timestamp = 1;
+  string action = 2;
+  string ip = 3;
+  string duration = 4;
+  string reason = 5;
+  string source = 6;
+}
+
+// ── Response messages ──────────────────────────────────────────────────────
+
+message DecisionListResponse {
+  repeated DecisionItem decisions = 1;
+}
+
+// DecisionMutationResponse mirrors the dict returned by add_decision /
+// delete_decision: {success, message, ip, action}.
+message DecisionMutationResponse {
+  bool success = 1;
+  string message = 2;
+  string ip = 3;
+  string action = 4;
+}
+
+// SimpleResponse covers endpoints that return {success, message} only:
+// delete_all_decisions, install_scenario, remove_scenario, reload_crowdsec.
+message SimpleResponse {
+  bool success = 1;
+  string message = 2;
+}
+
+message ManualBlockListResponse {
+  repeated ManualBlockLogEntry entries = 1;
+}
+
+message ScenarioListResponse {
+  repeated ScenarioInfo scenarios = 1;
+}
+
+message HubScenarioListResponse {
+  repeated HubScenarioItem items = 1;
+}
+
+// ServiceStatusResponse mirrors the dict returned by get_crowdsec_service_enabled:
+// {enabled}.
+message ServiceStatusResponse {
+  bool enabled = 1;
+}
+
+// ToggleServiceResponse mirrors the dict returned by toggle_crowdsec_service:
+// {success, message, enabled}.
+message ToggleServiceResponse {
+  bool success = 1;
+  string message = 2;
+  bool enabled = 3;
+}
+
+// ToggleScenarioResponse mirrors the dict returned by _toggle_scenario_by_file:
+// {success, message, name, enabled}.
+message ToggleScenarioResponse {
+  bool success = 1;
+  string message = 2;
+  string name = 3;
+  bool enabled = 4;
+}
+
+message AlertListResponse {
+  repeated AlertItem alerts = 1;
+}
