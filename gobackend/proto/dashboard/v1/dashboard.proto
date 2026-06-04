@@ -1,0 +1,436 @@
+syntax = "proto3";
+
+package dashboard.v1;
+
+import "google/api/annotations.proto";
+import "google/protobuf/wrappers.proto";
+
+// DashboardService exposes the 24 read-only analytics endpoints consumed by
+// the SPA dashboard (prefix /api/dashboard).
+service DashboardService {
+  // 1. GET /api/dashboard/metrics
+  rpc GetMetrics(DashboardRequest) returns (MetricsResponse) {
+    option (google.api.http) = {get: "/api/dashboard/metrics"};
+  }
+
+  // 2. GET /api/dashboard/traffic
+  rpc GetTraffic(DashboardRequest) returns (TrafficListResponse) {
+    option (google.api.http) = {
+      get: "/api/dashboard/traffic"
+      response_body: "points"
+    };
+  }
+
+  // 3. GET /api/dashboard/geoip-map
+  rpc GetGeoipMap(DashboardRequest) returns (GeoipMapListResponse) {
+    option (google.api.http) = {
+      get: "/api/dashboard/geoip-map"
+      response_body: "points"
+    };
+  }
+
+  // 4. GET /api/dashboard/geoip-unresolved
+  rpc GetGeoipUnresolved(DashboardRequest) returns (UnresolvedIpListResponse) {
+    option (google.api.http) = {
+      get: "/api/dashboard/geoip-unresolved"
+      response_body: "ips"
+    };
+  }
+
+  // 5. GET /api/dashboard/threat-origins
+  rpc GetThreatOrigins(DashboardRequest) returns (ThreatOriginListResponse) {
+    option (google.api.http) = {
+      get: "/api/dashboard/threat-origins"
+      response_body: "origins"
+    };
+  }
+
+  // 6. GET /api/dashboard/events
+  rpc GetEvents(EventsRequest) returns (SecurityEventListResponse) {
+    option (google.api.http) = {
+      get: "/api/dashboard/events"
+      response_body: "events"
+    };
+  }
+
+  // 7. GET /api/dashboard/waf-events-timeline
+  rpc GetWafEventsTimeline(DashboardRequest) returns (TimelineListResponse) {
+    option (google.api.http) = {
+      get: "/api/dashboard/waf-events-timeline"
+      response_body: "points"
+    };
+  }
+
+  // 8. GET /api/dashboard/top-rules
+  rpc GetTopRules(DashboardRequest) returns (RuleHitListResponse) {
+    option (google.api.http) = {
+      get: "/api/dashboard/top-rules"
+      response_body: "rules"
+    };
+  }
+
+  // 9. GET /api/dashboard/severity-distribution
+  rpc GetSeverityDistribution(DashboardRequest) returns (SeveritySliceListResponse) {
+    option (google.api.http) = {
+      get: "/api/dashboard/severity-distribution"
+      response_body: "slices"
+    };
+  }
+
+  // 10. GET /api/dashboard/top-attacking-ips
+  rpc GetTopAttackingIps(DashboardRequest) returns (IpHitListResponse) {
+    option (google.api.http) = {
+      get: "/api/dashboard/top-attacking-ips"
+      response_body: "ips"
+    };
+  }
+
+  // 11. GET /api/dashboard/anomaly-score
+  rpc GetAnomalyScore(DashboardRequest) returns (AnomalyPointListResponse) {
+    option (google.api.http) = {
+      get: "/api/dashboard/anomaly-score"
+      response_body: "points"
+    };
+  }
+
+  // 12. GET /api/dashboard/top-tags
+  rpc GetTopTags(DashboardRequest) returns (TagHitListResponse) {
+    option (google.api.http) = {
+      get: "/api/dashboard/top-tags"
+      response_body: "tags"
+    };
+  }
+
+  // 13. GET /api/dashboard/top-uris
+  rpc GetTopUris(DashboardRequest) returns (UriHitListResponse) {
+    option (google.api.http) = {
+      get: "/api/dashboard/top-uris"
+      response_body: "uris"
+    };
+  }
+
+  // 14. GET /api/dashboard/top-rule-files
+  rpc GetTopRuleFiles(DashboardRequest) returns (RuleFileHitListResponse) {
+    option (google.api.http) = {
+      get: "/api/dashboard/top-rule-files"
+      response_body: "files"
+    };
+  }
+
+  // 15. GET /api/dashboard/status-codes
+  rpc GetStatusCodes(DashboardRequest) returns (StatusCodeListResponse) {
+    option (google.api.http) = {
+      get: "/api/dashboard/status-codes"
+      response_body: "points"
+    };
+  }
+
+  // 16. GET /api/dashboard/top-user-agents
+  rpc GetTopUserAgents(DashboardRequest) returns (UserAgentHitListResponse) {
+    option (google.api.http) = {
+      get: "/api/dashboard/top-user-agents"
+      response_body: "agents"
+    };
+  }
+
+  // 17. GET /api/dashboard/traffic-volume
+  rpc GetTrafficVolume(DashboardRequest) returns (BytesPointListResponse) {
+    option (google.api.http) = {
+      get: "/api/dashboard/traffic-volume"
+      response_body: "points"
+    };
+  }
+
+  // 18. GET /api/dashboard/requests-per-second
+  rpc GetRequestsPerSecond(RequestsPerSecondRequest) returns (RpsPointListResponse) {
+    option (google.api.http) = {
+      get: "/api/dashboard/requests-per-second"
+      response_body: "points"
+    };
+  }
+
+  // 19. GET /api/dashboard/requests-by-country
+  rpc GetRequestsByCountry(DashboardRequest) returns (CountryHitListResponse) {
+    option (google.api.http) = {
+      get: "/api/dashboard/requests-by-country"
+      response_body: "countries"
+    };
+  }
+
+  // 20. GET /api/dashboard/top-client-ips
+  rpc GetTopClientIps(DashboardRequest) returns (IpHitListResponse) {
+    option (google.api.http) = {
+      get: "/api/dashboard/top-client-ips"
+      response_body: "ips"
+    };
+  }
+
+  // 21. GET /api/dashboard/test-traffic/{marker}
+  rpc GetTestTraffic(TestTrafficRequest) returns (TestTrafficResponse) {
+    option (google.api.http) = {get: "/api/dashboard/test-traffic/{marker}"};
+  }
+}
+
+// ── Common request messages ────────────────────────────────────────────────
+
+// DashboardRequest is the base request for endpoints that only take
+// hours + optional connection_id.
+message DashboardRequest {
+  // Time window in hours (default 24, range [0.0167, 8760]).
+  double hours = 1;
+  // Optional: scope to a single connection's domains.
+  // Absent → admin view (all tenants) or all tenant connections.
+  google.protobuf.Int64Value connection_id = 2;
+}
+
+// EventsRequest adds limit + severity filtering to the base params.
+message EventsRequest {
+  double hours = 1;
+  google.protobuf.Int64Value connection_id = 2;
+  // Maximum rows to return (default 50, range [1, 500]).
+  int64 limit = 3;
+  // Severity filter: "all" | "high" | "critical" (default "all").
+  string severity = 4;
+}
+
+// RequestsPerSecondRequest adds the metric mode selector.
+message RequestsPerSecondRequest {
+  double hours = 1;
+  google.protobuf.Int64Value connection_id = 2;
+  // "rps" (peak requests/sec per bucket) or "volume" (total count per bucket).
+  string metric = 3;
+}
+
+// TestTrafficRequest selects WAF audit rows by the UUID4 X-Test-Marker header.
+message TestTrafficRequest {
+  // UUID4 marker written into X-Test-Marker by the test runner.
+  string marker = 1;
+}
+
+// ── Row / point messages ────────────────────────────────────────────────────
+
+// TrafficPoint corresponds to TrafficDataPoint in client.ts.
+message TrafficPoint {
+  string timestamp = 1;
+  int64 clean = 2;
+  int64 malicious = 3;
+}
+
+// GeoipMapPoint corresponds to GeoipMapPoint in client.ts.
+message GeoipMapPoint {
+  double longitude = 1;
+  double latitude = 2;
+  string country_code = 3;
+  string city_name = 4;
+  int64 hits = 5;
+}
+
+// UnresolvedIp corresponds to UnresolvedIp in client.ts.
+message UnresolvedIp {
+  string ip = 1;
+  int64 hits = 2;
+}
+
+// ThreatOrigin corresponds to ThreatOrigin in client.ts.
+message ThreatOrigin {
+  string country = 1;
+  string country_code = 2;
+  double blocks_percent = 3;
+}
+
+// SecurityEvent corresponds to SecurityEvent in client.ts.
+message SecurityEvent {
+  string timestamp = 1;
+  string type = 2;
+  string ip = 3;
+  string country = 4;
+  string path = 5;
+  string severity = 6;
+}
+
+// TimelinePoint corresponds to TimelinePoint in client.ts ({timestamp, hits}).
+message TimelinePoint {
+  string timestamp = 1;
+  int64 hits = 2;
+}
+
+// RuleHit corresponds to RuleHit in client.ts ({rule, hits}).
+message RuleHit {
+  string rule = 1;
+  int64 hits = 2;
+}
+
+// SeveritySlice corresponds to SeveritySlice in client.ts ({severity, hits}).
+message SeveritySlice {
+  string severity = 1;
+  int64 hits = 2;
+}
+
+// IpHit corresponds to IpHit in client.ts ({ip, hits}).
+// Used by both top-attacking-ips and top-client-ips.
+message IpHit {
+  string ip = 1;
+  int64 hits = 2;
+}
+
+// AnomalyPoint corresponds to AnomalyPoint in client.ts ({timestamp, score}).
+message AnomalyPoint {
+  string timestamp = 1;
+  int64 score = 2;
+}
+
+// TagHit corresponds to TagHit in client.ts ({tag, hits}).
+message TagHit {
+  string tag = 1;
+  int64 hits = 2;
+}
+
+// UriHit corresponds to UriHit in client.ts ({uri, hits}).
+message UriHit {
+  string uri = 1;
+  int64 hits = 2;
+}
+
+// RuleFileHit corresponds to RuleFileHit in client.ts ({file, hits}).
+message RuleFileHit {
+  string file = 1;
+  int64 hits = 2;
+}
+
+// StatusCodePoint corresponds to StatusCodePoint in client.ts.
+message StatusCodePoint {
+  string timestamp = 1;
+  int64 c2xx = 2;
+  int64 c3xx = 3;
+  int64 c4xx = 4;
+  int64 c5xx = 5;
+}
+
+// UserAgentHit corresponds to UserAgentHit in client.ts ({user_agent, hits}).
+message UserAgentHit {
+  string user_agent = 1;
+  int64 hits = 2;
+}
+
+// BytesPoint corresponds to BytesPoint in client.ts ({timestamp, bytes}).
+message BytesPoint {
+  string timestamp = 1;
+  int64 bytes = 2;
+}
+
+// RpsPoint corresponds to RpsPoint in client.ts ({timestamp, rps}).
+message RpsPoint {
+  string timestamp = 1;
+  double rps = 2;
+}
+
+// CountryHit corresponds to CountryHit in client.ts ({country_code, hits}).
+message CountryHit {
+  string country_code = 1;
+  int64 hits = 2;
+}
+
+// TestTrafficEvent corresponds to TestTrafficEvent in client.ts.
+message TestTrafficEvent {
+  string timestamp = 1;
+  string rule_id = 2;
+  string client_ip = 3;
+  string uri = 4;
+  string method = 5;
+  string severity = 6;
+  string message = 7;
+  int64 anomaly_score = 8;
+}
+
+// ── Response messages ──────────────────────────────────────────────────────
+
+// MetricsResponse corresponds to the Metrics object in client.ts.
+// This endpoint returns an object (not an array) so no response_body wrapper.
+message MetricsResponse {
+  int64 total_requests = 1;
+  double total_requests_change = 2;
+  int64 blocked_threats = 3;
+  int64 high_severity_count = 4;
+  double system_health = 5;
+  double avg_latency_ms = 6;
+  int64 active_rules = 7;
+}
+
+message TrafficListResponse {
+  repeated TrafficPoint points = 1;
+}
+
+message GeoipMapListResponse {
+  repeated GeoipMapPoint points = 1;
+}
+
+message UnresolvedIpListResponse {
+  repeated UnresolvedIp ips = 1;
+}
+
+message ThreatOriginListResponse {
+  repeated ThreatOrigin origins = 1;
+}
+
+message SecurityEventListResponse {
+  repeated SecurityEvent events = 1;
+}
+
+message TimelineListResponse {
+  repeated TimelinePoint points = 1;
+}
+
+message RuleHitListResponse {
+  repeated RuleHit rules = 1;
+}
+
+message SeveritySliceListResponse {
+  repeated SeveritySlice slices = 1;
+}
+
+message IpHitListResponse {
+  repeated IpHit ips = 1;
+}
+
+message AnomalyPointListResponse {
+  repeated AnomalyPoint points = 1;
+}
+
+message TagHitListResponse {
+  repeated TagHit tags = 1;
+}
+
+message UriHitListResponse {
+  repeated UriHit uris = 1;
+}
+
+message RuleFileHitListResponse {
+  repeated RuleFileHit files = 1;
+}
+
+message StatusCodeListResponse {
+  repeated StatusCodePoint points = 1;
+}
+
+message UserAgentHitListResponse {
+  repeated UserAgentHit agents = 1;
+}
+
+message BytesPointListResponse {
+  repeated BytesPoint points = 1;
+}
+
+message RpsPointListResponse {
+  repeated RpsPoint points = 1;
+}
+
+message CountryHitListResponse {
+  repeated CountryHit countries = 1;
+}
+
+// TestTrafficResponse corresponds to TestTrafficResponse in client.ts.
+// Returns an object with events array + timestamps array.
+message TestTrafficResponse {
+  repeated TestTrafficEvent events = 1;
+  repeated string timestamps = 2;
+}
