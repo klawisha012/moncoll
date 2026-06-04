@@ -23,6 +23,7 @@ import (
 	monitoringv1 "github.com/zwarder/waf/gobackend/gen/monitoring/v1"
 	realtimev1 "github.com/zwarder/waf/gobackend/gen/realtime/v1"
 	sslv1 "github.com/zwarder/waf/gobackend/gen/ssl/v1"
+	testsv1 "github.com/zwarder/waf/gobackend/gen/tests/v1"
 )
 
 // Response-metadata keys the auth service emits (must match
@@ -83,6 +84,9 @@ func NewGatewayMux(ctx context.Context, grpcAddr string) (*runtime.ServeMux, err
 		return nil, err
 	}
 	if err := realtimev1.RegisterRealtimeServiceHandlerFromEndpoint(ctx, mux, grpcAddr, opts); err != nil {
+		return nil, err
+	}
+	if err := testsv1.RegisterTestsServiceHandlerFromEndpoint(ctx, mux, grpcAddr, opts); err != nil {
 		return nil, err
 	}
 	return mux, nil

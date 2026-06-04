@@ -1,0 +1,128 @@
+syntax = "proto3";
+
+package tests.v1;
+
+import "google/api/annotations.proto";
+import "google/protobuf/wrappers.proto";
+
+// TestsService exposes the in-app WAF probe runner — 4 endpoints that fire
+// live HTTP probes against the tenant's own connection and inspect the WAF
+// audit log / CrowdSec decisions to classify the result.
+service TestsService {
+  // 1. GET /api/tests/catalog
+  // Returns the ModSecurity test catalog (static JSON, loaded from manifest.json).
+  rpc GetCatalog(GetCatalogRequest) returns (CatalogResponse) {
+    option (google.api.http) = {
+      get: "/api/tests/catalog"
+      response_body: "tests"
+    };
+  }
+
+  // 2. POST /api/tests/run
+  // Fire one ModSecurity test, poll audit log, return classification.
+  rpc RunTest(RunTestRequest) returns (RunResult) {
+    option (google.api.http) = {
+      post: "/api/tests/run"
+      body: "*"
+    };
+  }
+
+  // 3. GET /api/tests/crowdsec/catalog
+  // Returns the CrowdSec scenario subcatalog (static, in-process).
+  rpc GetCrowdsecCatalog(GetCrowdsecCatalogRequest) returns (CrowdsecCatalogResponse) {
+    option (google.api.http) = {
+      get: "/api/tests/crowdsec/catalog"
+      response_body: "scenarios"
+    };
+  }
+
+  // 4. POST /api/tests/crowdsec/run
+  // Fire a CrowdSec scenario burst, add a forceful ban decision, wait ~4s,
+  // return decisions before/after.
+  rpc RunCrowdsecScenario(RunCrowdsecRequest) returns (CrowdsecRunResult) {
+    option (google.api.http) = {
+      post: "/api/tests/crowdsec/run"
+      body: "*"
+    };
+  }
+}
+
+// ── Catalog types ─────────────────────────────────────────────────────────────
+
+message TestCase {
+  string id          = 1;
+  string family      = 2;
+  string rule_id     = 3;
+  string description = 4;
+  string method      = 5;  // "GET" or "POST"
+  string path        = 6;
+  map<string, string> query   = 7;
+  map<string, string> headers = 8;
+  google.protobuf.StringValue body = 9;  // optional
+}
+
+message GetCatalogRequest {}
+
+// response_body: "tests" — the gateway returns the array directly.
+message CatalogResponse {
+  repeated TestCase tests       = 1;
+  google.protobuf.StringValue generated_at = 2;
+}
+
+// ── Run types ─────────────────────────────────────────────────────────────────
+
+message RunTestRequest {
+  string test_id    = 1;
+  google.protobuf.Int64Value connection_id = 2;  // optional — null → default Angie vhost
+  google.protobuf.StringValue ip            = 3;  // optional — X-Forwarded-For override
+}
+
+// blocked | fired-but-not-blocked | passed | timeout
+message RunResult {
+  string marker     = 1;
+  string status     = 2;
+  google.protobuf.Int64Value  http_code    = 3;
+  google.protobuf.StringValue blocked_by   = 4;
+  google.protobuf.Int64Value  latency_ms   = 5;
+  string target_url  = 6;
+  google.protobuf.StringValue error        = 7;
+  google.protobuf.StringValue request_raw  = 8;
+  google.protobuf.StringValue response_raw = 9;
+}
+
+// ── CrowdSec catalog types ────────────────────────────────────────────────────
+
+message CrowdsecScenario {
+  string id          = 1;
+  string category    = 2;
+  string scenario    = 3;
+  string description = 4;
+  int64  burst_size  = 5;
+}
+
+message GetCrowdsecCatalogRequest {}
+
+// response_body: "scenarios" — gateway returns the array directly.
+message CrowdsecCatalogResponse {
+  repeated CrowdsecScenario scenarios = 1;
+}
+
+// ── CrowdSec run types ────────────────────────────────────────────────────────
+
+message RunCrowdsecRequest {
+  string scenario_id = 1;
+  google.protobuf.Int64Value  connection_id = 2;
+  google.protobuf.StringValue ip            = 3;
+}
+
+// decisions_before / decisions_after are opaque JSON blobs (list[dict] in Python)
+// — we carry them as repeated string (JSON-encoded items) to avoid a full schema.
+message CrowdsecRunResult {
+  string scenario    = 1;
+  string source_ip   = 2;
+  string started_at  = 3;
+  repeated string decisions_before = 4;
+  repeated string decisions_after  = 5;
+  int64  bursts_sent = 6;
+  string target_url  = 7;
+}

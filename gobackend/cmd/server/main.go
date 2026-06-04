@@ -25,6 +25,7 @@ import (
 	monitoringv1 "github.com/zwarder/waf/gobackend/gen/monitoring/v1"
 	realtimev1 "github.com/zwarder/waf/gobackend/gen/realtime/v1"
 	sslv1 "github.com/zwarder/waf/gobackend/gen/ssl/v1"
+	testsv1 "github.com/zwarder/waf/gobackend/gen/tests/v1"
 	"github.com/zwarder/waf/gobackend/internal/admin"
 	"github.com/zwarder/waf/gobackend/internal/angie"
 	"github.com/zwarder/waf/gobackend/internal/auth"
@@ -53,6 +54,7 @@ import (
 	"github.com/zwarder/waf/gobackend/internal/sslapi"
 	"github.com/zwarder/waf/gobackend/internal/store"
 	"github.com/zwarder/waf/gobackend/internal/tenantfs"
+	"github.com/zwarder/waf/gobackend/internal/testsapi"
 )
 
 func main() {
@@ -190,6 +192,11 @@ func main() {
 		connectionsv1.ConnectionsService_UpdateConnectionSecurity_FullMethodName: auth.LevelVerified,
 		// realtime: GetToken is require_verified (mirrors Python require_verified dep).
 		realtimev1.RealtimeService_GetToken_FullMethodName: auth.LevelVerified,
+		// tests: all 4 methods are require_verified (clients only; tenant enforced in-handler)
+		testsv1.TestsService_GetCatalog_FullMethodName:          auth.LevelVerified,
+		testsv1.TestsService_RunTest_FullMethodName:             auth.LevelVerified,
+		testsv1.TestsService_GetCrowdsecCatalog_FullMethodName:  auth.LevelVerified,
+		testsv1.TestsService_RunCrowdsecScenario_FullMethodName: auth.LevelVerified,
 		// auth: all methods are LevelPublic — public endpoints (login/signup/...)
 		// have no session yet, and the cookie-validating endpoints (me, totp/setup,
 		// totp/confirm) read + verify their OWN cookie inside the handler.
@@ -263,6 +270,22 @@ func main() {
 	centPub := centrifugo.NewPublisher()
 	realtimeSvc := realtimeapi.New(centrifugo.MintConnectionToken)
 	realtimev1.RegisterRealtimeServiceServer(grpcSrv, realtimeSvc)
+
+	// ── Tests (WAF probe runner) ──────────────────────────────────────────────
+	// manifest.json lives next to the binary in the container (/app/manifest.json)
+	// or can be overridden via WAF_TESTS_MANIFEST_PATH.
+	testsCatalog := testsapi.NewFileCatalogLoader(getenvOr("WAF_TESTS_MANIFEST_PATH", "/app/manifest.json"))
+	testsStore := testsapi.NewStoreAdapter(st)
+	testsProber := testsapi.NewHTTPProber(3 * time.Second)
+	testsCHPoller := testsapi.NewCHClickHousePoller("") // resolves from env
+	var testsCSRunner testsapi.CSRunner
+	if csRunner != nil {
+		testsCSRunner = testsapi.NewCscliCSRunner(csRunner)
+	} else {
+		testsCSRunner = testsapi.NewCscliCSRunner(noopRunner{})
+	}
+	testsSvc := testsapi.New(testsCatalog, testsStore, testsProber, testsCHPoller, testsCSRunner, log)
+	testsv1.RegisterTestsServiceServer(grpcSrv, testsSvc)
 
 	// Start the background connections poller (best-effort, never crashes server)
 	connPoller := connectionsapi.NewPoller(
