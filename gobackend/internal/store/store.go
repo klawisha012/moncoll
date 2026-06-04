@@ -22,6 +22,10 @@ func New(ctx context.Context, dsn string) (*Store, error) {
 
 func (s *Store) Close() { s.pool.Close() }
 
+// Ping verifies that the database connection is alive.  Used by test helpers
+// and health-check callers that are outside the store package.
+func (s *Store) Ping(ctx context.Context) error { return s.pool.Ping(ctx) }
+
 func errorsIsNoRows(err error) bool { return errors.Is(err, pgx.ErrNoRows) }
 
 func (s *Store) GetUserByID(ctx context.Context, id int64) (*User, error) {

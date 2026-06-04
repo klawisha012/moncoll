@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"flag"
+	"fmt"
 	"log/slog"
 	"net"
 	"net/http"
@@ -30,6 +32,7 @@ import (
 	"github.com/zwarder/waf/gobackend/internal/angie"
 	"github.com/zwarder/waf/gobackend/internal/auth"
 	"github.com/zwarder/waf/gobackend/internal/authapi"
+	"github.com/zwarder/waf/gobackend/internal/bootstrap"
 	"github.com/zwarder/waf/gobackend/internal/captcha"
 	"github.com/zwarder/waf/gobackend/internal/centrifugo"
 	"github.com/zwarder/waf/gobackend/internal/certs"
@@ -59,9 +62,108 @@ import (
 
 func main() {
 	log := observability.NewLogger()
+
+	// ── Subcommand dispatch ───────────────────────────────────────────────────
+	// Usage: server create-admin [flags]
+	//        server [normal server flags — currently none]
+	if len(os.Args) >= 2 && os.Args[1] == "create-admin" {
+		runCreateAdmin(log, os.Args[2:])
+		return
+	}
+
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
+	runServer(ctx, log)
+}
 
+// runCreateAdmin implements the "server create-admin" subcommand.
+//
+// Flags:
+//
+//	-email    admin email  (also: WAF_ADMIN_EMAIL env)
+//	-password admin password (also: WAF_ADMIN_PASSWORD env)
+//
+// Mirrors Python's create_admin_cmd behaviour:
+//   - raises error (exit 1) if the email already exists (no upsert)
+//   - prints "Created admin id=<id> email=<email>" on success
+func runCreateAdmin(log *slog.Logger, args []string) {
+	fs := flag.NewFlagSet("create-admin", flag.ContinueOnError)
+	fs.Usage = func() {
+		fmt.Fprintf(os.Stderr, "Usage: server create-admin -email EMAIL -password PASSWORD\n\n")
+		fmt.Fprintf(os.Stderr, "Flags:\n")
+		fs.PrintDefaults()
+		fmt.Fprintf(os.Stderr, "\nEnvironment:\n")
+		fmt.Fprintf(os.Stderr, "  WAF_ADMIN_EMAIL      admin email (fallback when -email is not given)\n")
+		fmt.Fprintf(os.Stderr, "  WAF_ADMIN_PASSWORD   admin password (fallback when -password is not given)\n")
+		fmt.Fprintf(os.Stderr, "  WAF_POSTGRES_DSN     postgres connection string (required)\n")
+	}
+
+	emailFlag := fs.String("email", "", "Admin email address")
+	passwordFlag := fs.String("password", "", "Admin password")
+
+	if err := fs.Parse(args); err != nil {
+		// ContinueOnError: fs.Parse prints the error and returns it.
+		os.Exit(2)
+	}
+
+	// Fall back to env vars (mirrors Python: typer.Option default + env lookup).
+	email := *emailFlag
+	if email == "" {
+		email = os.Getenv("WAF_ADMIN_EMAIL")
+	}
+	password := *passwordFlag
+	if password == "" {
+		password = os.Getenv("WAF_ADMIN_PASSWORD")
+	}
+
+	if email == "" {
+		fmt.Fprintln(os.Stderr, "Error: -email or WAF_ADMIN_EMAIL is required")
+		fs.Usage()
+		os.Exit(2)
+	}
+	if password == "" {
+		fmt.Fprintln(os.Stderr, "Error: -password or WAF_ADMIN_PASSWORD is required")
+		fs.Usage()
+		os.Exit(2)
+	}
+
+	// Load only the DSN — PASETO key is not needed for this subcommand.
+	dsn := os.Getenv("WAF_POSTGRES_DSN")
+	if dsn == "" {
+		fmt.Fprintln(os.Stderr, "Error: WAF_POSTGRES_DSN is required")
+		os.Exit(1)
+	}
+
+	ctx := context.Background()
+
+	// Ensure schema before touching any tables.
+	if err := migrate.Run(dsn, log); err != nil {
+		fmt.Fprintf(os.Stderr, "Error: DB migration failed: %v\n", err)
+		os.Exit(1)
+	}
+
+	st, err := store.New(ctx, dsn)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error: postgres connect failed: %v\n", err)
+		os.Exit(1)
+	}
+	defer st.Close()
+
+	res, err := bootstrap.CreateAdmin(ctx, st, email, password)
+	if err != nil {
+		if errors.Is(err, bootstrap.ErrEmailTaken) {
+			fmt.Fprintf(os.Stderr, "Error: email %q is already in use.\n", email)
+			os.Exit(1)
+		}
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+		os.Exit(1)
+	}
+
+	fmt.Printf("Created admin id=%d email=%s\n", res.ID, res.Email)
+}
+
+// runServer is the normal server startup path, extracted so main() stays clean.
+func runServer(ctx context.Context, log *slog.Logger) {
 	cfg, err := config.Load()
 	if err != nil {
 		log.Error("config load failed", "err", err)
