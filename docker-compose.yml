@@ -264,7 +264,10 @@ services:
       LOG_LEVEL: ${LOG_LEVEL:-INFO}
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
-      - backend-data:/var/lib/angie/data:ro
+      # backend-data is mounted read-write so the crowdsec sync loop can write
+      # connections.json and blocked_ips_mapping.json under /var/lib/angie/data.
+      # (Python backend also writes here; both share the same named volume.)
+      - backend-data:/var/lib/angie/data
       - waf-tenants:/var/lib/waf/tenants
       - ./configs/angie/modsecurity/:/app/etc/angie/modsecurity/
     depends_on:
