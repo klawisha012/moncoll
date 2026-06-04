@@ -159,7 +159,10 @@ func main() {
 		connectionsv1.ConnectionsService_UpdateConnection_FullMethodName:          auth.LevelVerified,
 		connectionsv1.ConnectionsService_DeleteConnection_FullMethodName:          auth.LevelVerified,
 		connectionsv1.ConnectionsService_ProbeConnection_FullMethodName:           auth.LevelVerified,
-		connectionsv1.ConnectionsService_ReloadConnections_FullMethodName:         auth.LevelVerified,
+		// reload_connections is require_admin in the Python router — keep it
+		// admin-only (LevelAdmin) rather than letting any verified tenant trigger
+		// a global Angie config regen + reload.
+		connectionsv1.ConnectionsService_ReloadConnections_FullMethodName:         auth.LevelAdmin,
 		connectionsv1.ConnectionsService_GetConnectionSecurity_FullMethodName:     auth.LevelVerified,
 		connectionsv1.ConnectionsService_UpdateConnectionSecurity_FullMethodName:  auth.LevelVerified,
 		// monitoring + admin: absent from map → default LevelAdmin (fail closed)
