@@ -9,6 +9,7 @@ import (
 	"errors"
 	"log/slog"
 	"os"
+	"strings"
 
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/client"
@@ -38,6 +39,43 @@ func Reload(ctx context.Context, log *slog.Logger) {
 	if out, err := runExec(ctx, cli, name, []string{"angie", "-s", "reload"}); err != nil {
 		log.Warn("angie reload failed", "err", err, "out", out)
 	}
+}
+
+// ReloadVerbose runs `angie -t` then `angie -s reload`, returning a success
+// flag + human message (mirrors backend/src/modsecurity/router.py reload_angie).
+func ReloadVerbose(ctx context.Context) (bool, string) {
+	cli, err := client.NewClientWithOpts(client.FromEnv, client.WithAPIVersionNegotiation())
+	if err != nil {
+		return false, "Container '" + containerName() + "' not found"
+	}
+	defer cli.Close()
+	name := containerName()
+
+	// Verify the container is reachable by attempting the exec create; a missing
+	// container returns an error here, matching Python's "Container not found".
+	out, err := runExec(ctx, cli, name, []string{"angie", "-t"})
+	if err != nil {
+		// Distinguish "container not found" from a config-test failure.
+		if isNotFound(err) {
+			return false, "Container '" + name + "' not found"
+		}
+		return false, "Config test failed: " + out
+	}
+
+	out, err = runExec(ctx, cli, name, []string{"angie", "-s", "reload"})
+	if err != nil {
+		return false, "Reload failed: " + out
+	}
+	return true, "Angie reloaded successfully"
+}
+
+// isNotFound returns true when the docker error indicates the container does not exist.
+func isNotFound(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := err.Error()
+	return strings.Contains(msg, "No such container") || strings.Contains(msg, "not found")
 }
 
 func runExec(ctx context.Context, cli *client.Client, name string, cmd []string) (string, error) {
