@@ -266,6 +266,7 @@ services:
       - /var/run/docker.sock:/var/run/docker.sock
       - backend-data:/var/lib/angie/data:ro
       - waf-tenants:/var/lib/waf/tenants
+      - ./configs/angie/modsecurity/:/app/etc/angie/modsecurity/
     depends_on:
       postgres:
         condition: service_healthy

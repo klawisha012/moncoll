@@ -15,6 +15,7 @@ import (
 	"google.golang.org/protobuf/types/known/emptypb"
 
 	adminv1 "github.com/zwarder/waf/gobackend/gen/admin/v1"
+	modsecurityv1 "github.com/zwarder/waf/gobackend/gen/modsecurity/v1"
 	monitoringv1 "github.com/zwarder/waf/gobackend/gen/monitoring/v1"
 )
 
@@ -40,6 +41,9 @@ func NewGatewayMux(ctx context.Context, grpcAddr string) (*runtime.ServeMux, err
 		return nil, err
 	}
 	if err := adminv1.RegisterAdminServiceHandlerFromEndpoint(ctx, mux, grpcAddr, opts); err != nil {
+		return nil, err
+	}
+	if err := modsecurityv1.RegisterModSecurityServiceHandlerFromEndpoint(ctx, mux, grpcAddr, opts); err != nil {
 		return nil, err
 	}
 	return mux, nil
