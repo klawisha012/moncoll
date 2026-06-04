@@ -1,5 +1,5 @@
-// Package store provides read-only access to the Postgres tables owned by the
-// Python backend. The Go service never writes or migrates; alembic owns schema.
+// Package store provides access to the Postgres tables owned by the Python
+// backend. The Go service reads and writes rows; alembic owns schema migrations.
 package store
 
 import (
@@ -30,24 +30,71 @@ type Reader interface {
 	GetTenantByID(ctx context.Context, id int64) (*Tenant, error)
 }
 
-// Connection mirrors the columns of the connections table that the crowdsec
-// sync requires.  The domain field is the canonical single domain; OriginHosts
-// stores the JSON array from the DB (origin_hosts) but is not used by the sync
-// itself — the sync only needs the domain column for its domain→conn map.
+// Connection mirrors all columns of the connections table.
 //
-// Fields reflect exactly what _write_connections_registry / _load_connections
-// in backend/src/crowdsec/service.py consume:
-//   id, tenant_id, name, domain, enabled, status.
+// The struct is shared across the crowdsec sync (needs ID/TenantID/Name/Domain/
+// Enabled/Status), the connections service (needs the full set), and the
+// background poller (needs all columns). All fields are populated by the full
+// SELECT helpers; the lean ListConnections query populates only the six fields
+// the crowdsec sync actually reads.
+//
+// OriginHosts is stored as a JSON array in Postgres and decoded into []string.
+// GeoipDeniedCountries is likewise a JSON array decoded into []string.
 type Connection struct {
+	// Core identity — used by crowdsec sync, dashboard, certs.
 	ID       int64
 	TenantID int64
 	Name     string
-	Domain   string // lowercase IDNA-normalised unique domain
+	Domain   string // lowercase IDNA-normalised, UNIQUE across table
 	Enabled  bool
 	Status   string
+
+	// Full column set (populated by GetConnectionFull / GetConnectionInternal /
+	// ListConnectionsForPoll and the create/update returning queries).
+	OriginHosts          []string   // JSON array: list of origin IP/host strings
+	OriginPort           int        // default 443
+	OriginTLSMode        string     // "strict" | "lenient"
+	VerifyToken          string     // random URL-safe token, 32 chars
+	VerifiedAt           *time.Time // set when TXT record confirmed
+	StatusDetail         *string    // human-readable note, nullable
+	AcmeRetryCount       int
+	AcmeNextRetryAt      *time.Time
+	NextPollAt           *time.Time
+	DNSTTLSeconds        int    // default 60
+	LastCheckedAt        *time.Time
+	HTTPVersions         string // default "h1,h2"
+	CompressionAlgo      string // default "auto"
+	ModsecState          string // "off" | "detection_only" | "blocking"
+	GeoipDeniedCountries []string   // JSON array: ISO 3166-1 alpha-2 country codes
+	CrowdsecActive       bool
+	SSLCertPath          *string // populated once status=active
+	SSLKeyPath           *string
+	CreatedAt            time.Time
+	UpdatedAt            time.Time
 }
 
-// NotFoundError is returned when a row does not exist.
+// ConnectionUpdate carries the mutable fields that update_connection in
+// service.py may patch. All fields are pointers so callers can set only those
+// they want changed (partial-update pattern).
+type ConnectionUpdate struct {
+	Name            *string
+	OriginHosts     []string // nil = leave unchanged; non-nil (including empty) = overwrite
+	OriginPort      *int
+	OriginTLSMode   *string
+	HTTPVersions    *string
+	CompressionAlgo *string
+	Enabled         *bool
+}
+
+// NotFoundError is returned when a row does not exist or is owned by a
+// different tenant (the caller cannot distinguish the two cases by design —
+// leaking existence to another tenant is a security issue).
 type NotFoundError struct{ Entity string }
 
 func (e *NotFoundError) Error() string { return e.Entity + " not found" }
+
+// ConflictError is returned when an INSERT violates a UNIQUE constraint (e.g.
+// duplicate domain). The caller maps it to HTTP 409.
+type ConflictError struct{ Detail string }
+
+func (e *ConflictError) Error() string { return "conflict: " + e.Detail }
