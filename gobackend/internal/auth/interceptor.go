@@ -17,11 +17,19 @@ const cookieMDKey = "grpcgateway-cookie"
 // sessionCookie matches SESSION_COOKIE in backend/src/auth/dependencies.py.
 const sessionCookie = "waf_session"
 
-// AdminInterceptor enforces RequireAdmin on every unary RPC. The pilot exposes
-// only admin routes; per-method policy can be added when mixed-policy modules
-// arrive.
-func AdminInterceptor(dec *Decoder, policy *Policy) grpc.UnaryServerInterceptor {
-	return func(ctx context.Context, req any, _ *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (any, error) {
+// Level is the authorization required for an RPC.
+type Level int
+
+const (
+	LevelAdmin    Level = iota // default (zero value): require_admin — fail closed
+	LevelVerified              // require_verified (any verified, non-suspended user)
+)
+
+// NewInterceptor builds a unary interceptor. levels maps a gRPC full method
+// name (e.g. "/modsecurity.v1.ModSecurityService/GetConfig") to its required
+// Level. Methods absent from the map default to LevelAdmin (fail closed).
+func NewInterceptor(dec *Decoder, policy *Policy, levels map[string]Level) grpc.UnaryServerInterceptor {
+	return func(ctx context.Context, req any, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (any, error) {
 		token := extractSessionCookie(ctx)
 		if token == "" {
 			return nil, status.Error(codes.Unauthenticated, "not authenticated")
@@ -30,7 +38,13 @@ func AdminInterceptor(dec *Decoder, policy *Policy) grpc.UnaryServerInterceptor 
 		if err != nil {
 			return nil, status.Error(codes.Unauthenticated, ErrInvalidToken.Error())
 		}
-		id, err := policy.RequireAdmin(ctx, claims)
+		var id *Identity
+		switch levels[info.FullMethod] {
+		case LevelVerified:
+			id, err = policy.RequireVerified(ctx, claims)
+		default: // LevelAdmin
+			id, err = policy.RequireAdmin(ctx, claims)
+		}
 		if err != nil {
 			return nil, toStatus(err)
 		}

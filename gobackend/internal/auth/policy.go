@@ -59,6 +59,12 @@ func (p *Policy) resolveVerified(ctx context.Context, c *Claims) (*Identity, err
 	return &Identity{UserID: u.ID, PlatformRole: u.PlatformRole, TenantID: u.TenantID}, nil
 }
 
+// RequireVerified reproduces require_verified (verified email + non-suspended
+// tenant) without the admin/TOTP checks. For client-accessible routes.
+func (p *Policy) RequireVerified(ctx context.Context, c *Claims) (*Identity, error) {
+	return p.resolveVerified(ctx, c)
+}
+
 // RequireAdmin reproduces require_admin (which chains require_verified).
 func (p *Policy) RequireAdmin(ctx context.Context, c *Claims) (*Identity, error) {
 	id, err := p.resolveVerified(ctx, c)

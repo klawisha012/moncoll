@@ -40,7 +40,7 @@ func okHandler(ctx context.Context, _ any) (any, error) {
 func TestAdminInterceptorHappyPath(t *testing.T) {
 	dec := NewDecoder(testKey())
 	p := newPolicy(adminUser(), nil)
-	ic := AdminInterceptor(dec, p)
+	ic := NewInterceptor(dec, p, nil)
 	resp, err := ic(ctxWithCookie("waf_session="+validToken(t)), nil,
 		&grpc.UnaryServerInfo{}, okHandler)
 	require.NoError(t, err)
@@ -48,7 +48,7 @@ func TestAdminInterceptorHappyPath(t *testing.T) {
 }
 
 func TestAdminInterceptorNoCookie(t *testing.T) {
-	ic := AdminInterceptor(NewDecoder(testKey()), newPolicy(adminUser(), nil))
+	ic := NewInterceptor(NewDecoder(testKey()), newPolicy(adminUser(), nil), nil)
 	_, err := ic(context.Background(), nil, &grpc.UnaryServerInfo{}, okHandler)
 	require.Equal(t, codes.Unauthenticated, status.Code(err))
 }
@@ -56,9 +56,35 @@ func TestAdminInterceptorNoCookie(t *testing.T) {
 func TestAdminInterceptorNonAdmin(t *testing.T) {
 	u := adminUser()
 	u.PlatformRole = "client"
-	ic := AdminInterceptor(NewDecoder(testKey()), newPolicy(u, nil))
+	ic := NewInterceptor(NewDecoder(testKey()), newPolicy(u, nil), nil)
 	tok := mintLocal(t, testKey(), `{"sub":"7","pr":"client","exp":`+
 		itoa(time.Now().Add(time.Hour).Unix())+`.0}`)
 	_, err := ic(ctxWithCookie("waf_session="+tok), nil, &grpc.UnaryServerInfo{}, okHandler)
+	require.Equal(t, codes.PermissionDenied, status.Code(err))
+}
+
+func TestInterceptorVerifiedLevelAllowsClient(t *testing.T) {
+	u := adminUser()
+	u.PlatformRole = "client" // a verified client, NOT admin
+	p := newPolicy(u, nil)
+	levels := map[string]Level{"/svc/Method": LevelVerified}
+	ic := NewInterceptor(NewDecoder(testKey()), p, levels)
+	tok := mintLocal(t, testKey(), `{"sub":"7","pr":"client","exp":`+
+		itoa(time.Now().Add(time.Hour).Unix())+`.0}`)
+	resp, err := ic(ctxWithCookie("waf_session="+tok), nil,
+		&grpc.UnaryServerInfo{FullMethod: "/svc/Method"}, okHandler)
+	require.NoError(t, err)
+	require.Equal(t, "ok", resp)
+}
+
+func TestInterceptorAdminDefaultRejectsClient(t *testing.T) {
+	u := adminUser()
+	u.PlatformRole = "client"
+	p := newPolicy(u, nil)
+	ic := NewInterceptor(NewDecoder(testKey()), p, nil) // no entry -> admin default
+	tok := mintLocal(t, testKey(), `{"sub":"7","pr":"client","exp":`+
+		itoa(time.Now().Add(time.Hour).Unix())+`.0}`)
+	_, err := ic(ctxWithCookie("waf_session="+tok), nil,
+		&grpc.UnaryServerInfo{FullMethod: "/svc/Unlisted"}, okHandler)
 	require.Equal(t, codes.PermissionDenied, status.Code(err))
 }

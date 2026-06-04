@@ -59,7 +59,11 @@ func main() {
 		log.Error("grpc listen failed", "err", err)
 		os.Exit(1)
 	}
-	grpcSrv := grpc.NewServer(grpc.ChainUnaryInterceptor(auth.AdminInterceptor(dec, policy)))
+	authLevels := map[string]auth.Level{
+		// monitoring + admin default to LevelAdmin (absent = admin). modsecurity
+		// (LevelVerified) entries are added when that service is registered.
+	}
+	grpcSrv := grpc.NewServer(grpc.ChainUnaryInterceptor(auth.NewInterceptor(dec, policy, authLevels)))
 	monitoringv1.RegisterMonitoringServiceServer(grpcSrv, monitoring.NewService(engine))
 	tfs := tenantfs.New(getenvOr("WAF_TENANTS_DIR", "/var/lib/waf/tenants"))
 	adminv1.RegisterAdminServiceServer(grpcSrv, admin.NewService(st, tfs, angieReloader{log: log}))
