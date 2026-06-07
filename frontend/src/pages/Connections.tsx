@@ -389,6 +389,7 @@ function Wizard(props: {
     const c = props.conn;
     if (!c) return 1;
     if (c.status === "pending_verification") return 2;
+    // pending_dns (zone already verified) and any later status → step 3
     return 3;
   };
   const [step, setStep] = createSignal<WizardStep>(initialStep());
@@ -405,6 +406,7 @@ function Wizard(props: {
           txt_record_name: `_waf-verify.${props.conn.domain}`,
           txt_record_value: props.conn.verify_token,
           edge_ipv4: "", // backfilled below via api.getEdgeInfo
+          edge_hostname: "", // backfilled below via api.getEdgeInfo
         }
       : null
   );
@@ -423,10 +425,10 @@ function Wizard(props: {
       .then((info) => {
         if (cancelled) return;
         setInstructions((cur) =>
-          cur ? { ...cur, edge_ipv4: info.edge_ipv4 } : cur
+          cur ? { ...cur, edge_ipv4: info.edge_ipv4, edge_hostname: info.edge_hostname } : cur
         );
       })
-      .catch(() => {/* leaves edge_ipv4 empty; step 3 shows the operator-missing message */});
+      .catch(() => {/* leaves edge_ipv4/edge_hostname empty; step 3 shows the operator-missing message */});
   });
 
   const [verifying, setVerifying] = createSignal(false);
@@ -464,7 +466,12 @@ function Wizard(props: {
       const res = await api.createConnection(body);
       setCreatedConn(res.connection);
       setInstructions(res.instructions);
-      setStep(2);
+      // Zone already verified → skip TXT step and go straight to DNS/edge step.
+      if (res.connection.status === "pending_dns") {
+        setStep(3);
+      } else {
+        setStep(2);
+      }
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       setFormError(msg);
@@ -655,6 +662,7 @@ function Wizard(props: {
             domain={createdConn()!.domain}
             originHosts={createdConn()!.origin_hosts}
             edgeIpv4={instructions()!.edge_ipv4}
+            edgeHostname={instructions()!.edge_hostname}
             onCopy={onCopy}
             onDone={props.onClose}
           />
@@ -922,6 +930,7 @@ function Step3(props: {
   domain: string;
   originHosts: string[];
   edgeIpv4: string;
+  edgeHostname: string;
   onCopy: (value: string) => void;
   onDone: () => void;
 }) {
@@ -932,29 +941,39 @@ function Step3(props: {
       <p style={{ "font-size": "13px", "margin-bottom": "12px" }}>
         {settings.t("wizard.step3.bodyVerified").replace("{origin}", props.originHosts.join(", ") || "—")}
       </p>
-      <p style={{ "font-size": "13px", "margin-bottom": "12px" }}>
-        {settings.t("wizard.step3.bodyPoint").replace("{domain}", props.domain)}
-      </p>
 
       <Show
-        when={props.edgeIpv4}
+        when={props.edgeHostname}
         fallback={
-          <div
-            role="alert"
-            style={{
-              background: "var(--red-soft)",
-              border: "2px solid var(--red-deep)",
-              padding: "10px",
-              "margin-bottom": "16px",
-              color: "var(--red-deep)",
-              "font-size": "13px",
-            }}
+          <Show
+            when={props.edgeIpv4}
+            fallback={
+              <div
+                role="alert"
+                style={{
+                  background: "var(--red-soft)",
+                  border: "2px solid var(--red-deep)",
+                  padding: "10px",
+                  "margin-bottom": "16px",
+                  color: "var(--red-deep)",
+                  "font-size": "13px",
+                }}
+              >
+                {settings.t("wizard.step3.edgeMissing")}
+              </div>
+            }
           >
-            {settings.t("wizard.step3.edgeMissing")}
-          </div>
+            <p style={{ "font-size": "13px", "margin-bottom": "12px" }}>
+              {settings.t("wizard.step3.bodyPoint").replace("{domain}", props.domain)}
+            </p>
+            <KeyValueBlock label="A record" value={props.edgeIpv4} onCopy={props.onCopy} />
+          </Show>
         }
       >
-        <KeyValueBlock label="A record" value={props.edgeIpv4} onCopy={props.onCopy} />
+        <p style={{ "font-size": "13px", "margin-bottom": "12px" }}>
+          {settings.t("wizard.step3.bodyCname").replace("{domain}", props.domain)}
+        </p>
+        <KeyValueBlock label={settings.t("wizard.step3.cnameLabel")} value={props.edgeHostname} onCopy={props.onCopy} />
       </Show>
 
       <div style={{ display: "flex", "justify-content": "flex-end", "margin-top": "20px" }}>

@@ -120,6 +120,7 @@ message EdgeInfoRequest {}
 
 message EdgeInfoResponse {
   string edge_ipv4 = 1;
+  string edge_hostname = 2;
 }
 
 message ListConnectionsRequest {}

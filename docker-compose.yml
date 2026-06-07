@@ -212,6 +212,13 @@ services:
       DASHBOARD_QUERY_TTL: ${DASHBOARD_QUERY_TTL:-2}
       # Connections: WAF edge IPv4 (used by DNS verify + edge-info endpoint).
       WAF_EDGE_IPV4: ${WAF_EDGE_IPV4:-}
+      # Per-tenant CNAME edge base (clients CNAME to <slug>.<this>). When set,
+      # takes priority over WAF_EDGE_IPV4. Operator must point its A records
+      # (or a wildcard) at the edge node(s).
+      WAF_EDGE_HOSTNAME_BASE: ${WAF_EDGE_HOSTNAME_BASE:-}
+      # Optional public-IP echo endpoint used only when neither base nor
+      # WAF_EDGE_IPV4 is set (dev behind NAT). Default: https://api.ipify.org
+      WAF_EDGE_ECHO_URL: ${WAF_EDGE_ECHO_URL:-}
       # ACME email for Let's Encrypt certificate requests.
       ACME_EMAIL: ${ACME_EMAIL:-admin@localhost}
       # Connections poller tick interval (seconds; default 60).

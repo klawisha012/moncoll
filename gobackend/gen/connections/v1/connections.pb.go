@@ -310,6 +310,7 @@ func (*EdgeInfoRequest) Descriptor() ([]byte, []int) {
 type EdgeInfoResponse struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	EdgeIpv4      string                 `protobuf:"bytes,1,opt,name=edge_ipv4,json=edgeIpv4,proto3" json:"edge_ipv4,omitempty"`
+	EdgeHostname  string                 `protobuf:"bytes,2,opt,name=edge_hostname,json=edgeHostname,proto3" json:"edge_hostname,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -347,6 +348,13 @@ func (*EdgeInfoResponse) Descriptor() ([]byte, []int) {
 func (x *EdgeInfoResponse) GetEdgeIpv4() string {
 	if x != nil {
 		return x.EdgeIpv4
+	}
+	return ""
+}
+
+func (x *EdgeInfoResponse) GetEdgeHostname() string {
+	if x != nil {
+		return x.EdgeHostname
 	}
 	return ""
 }
@@ -1173,9 +1181,10 @@ const file_connections_v1_connections_proto_rawDesc = "" +
 	"created_at\x18\x19 \x01(\v2\x1a.google.protobuf.TimestampR\tcreatedAt\x129\n" +
 	"\n" +
 	"updated_at\x18\x1a \x01(\v2\x1a.google.protobuf.TimestampR\tupdatedAt\"\x11\n" +
-	"\x0fEdgeInfoRequest\"/\n" +
+	"\x0fEdgeInfoRequest\"T\n" +
 	"\x10EdgeInfoResponse\x12\x1b\n" +
-	"\tedge_ipv4\x18\x01 \x01(\tR\bedgeIpv4\"\x18\n" +
+	"\tedge_ipv4\x18\x01 \x01(\tR\bedgeIpv4\x12#\n" +
+	"\redge_hostname\x18\x02 \x01(\tR\fedgeHostname\"\x18\n" +
 	"\x16ListConnectionsRequest\"W\n" +
 	"\x17ListConnectionsResponse\x12<\n" +
 	"\vconnections\x18\x01 \x03(\v2\x1a.connections.v1.ConnectionR\vconnections\"&\n" +

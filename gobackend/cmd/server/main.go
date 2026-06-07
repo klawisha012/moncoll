@@ -41,6 +41,7 @@ import (
 	"github.com/zwarder/waf/gobackend/internal/config"
 	"github.com/zwarder/waf/gobackend/internal/conndns"
 	"github.com/zwarder/waf/gobackend/internal/connectionsapi"
+	"github.com/zwarder/waf/gobackend/internal/edge"
 	"github.com/zwarder/waf/gobackend/internal/teamsapi"
 	"github.com/zwarder/waf/gobackend/internal/crowdsec"
 	"github.com/zwarder/waf/gobackend/internal/crowdsecapi"
@@ -348,9 +349,11 @@ func runServer(ctx context.Context, log *slog.Logger) {
 	sslv1.RegisterSSLServiceServer(grpcSrv, sslapi.New(st, certManager))
 
 	// ── Connections (domain proxy lifecycle + ACME orchestration) ─────────────
+	edgeResolver := edge.NewResolverFromEnv(conndns.NetResolver{})
 	connSvc := connectionsapi.New(
 		connStoreAdapter{st},
 		conndns.NetResolver{},
+		edgeResolver,
 		connectionsapi.AngiecfgAdapter{},
 		connectionsapi.CertsManagerAdapter{M: certManager},
 		angieReloader{log: log},
@@ -412,6 +415,7 @@ func runServer(ctx context.Context, log *slog.Logger) {
 	connPoller := connectionsapi.NewPoller(
 		connStoreAdapter{st},
 		conndns.NetResolver{},
+		edgeResolver,
 		connectionsapi.AngiecfgAdapter{},
 		connectionsapi.CertsManagerAdapter{M: certManager},
 		angieReloader{log: log},
@@ -660,4 +664,10 @@ func (a connStoreAdapter) ListConnectionsForPoll(ctx context.Context) ([]store.C
 }
 func (a connStoreAdapter) UpdatePollerState(ctx context.Context, connID int64, p store.PollerState) (*store.Connection, error) {
 	return a.s.UpdatePollerState(ctx, connID, p)
+}
+func (a connStoreAdapter) TenantHasVerifiedZone(ctx context.Context, tenantID int64, zone string) (bool, error) {
+	return a.s.TenantHasVerifiedZone(ctx, tenantID, zone)
+}
+func (a connStoreAdapter) GetTenantByID(ctx context.Context, id int64) (*store.Tenant, error) {
+	return a.s.GetTenantByID(ctx, id)
 }

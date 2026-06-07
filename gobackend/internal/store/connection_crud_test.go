@@ -390,3 +390,62 @@ func TestListConnectionsForPoll_NullNextPollAt(t *testing.T) {
 	require.Len(t, rows, 1)
 	require.Equal(t, "nullpoll.example.com", rows[0].Domain)
 }
+
+func TestTenantHasVerifiedZone(t *testing.T) {
+	st, ctx := newIntegrationStore(t)
+
+	// domain "acme.com" with status "active" (past pending_verification)
+	_, err := st.pool.Exec(ctx,
+		`INSERT INTO connections (tenant_id, name, domain, status, origin_hosts, origin_port, origin_tls_mode, verify_token,
+			http_versions, compression_algo, modsec_state, geoip_denied_countries)
+		 VALUES ($1, $2, $3, $4, '[]'::json, 443, 'strict', 'tok1', 'h1,h2', 'auto', 'detection_only', '[]'::json)`,
+		1, "acme-active", "acme.com", "active",
+	)
+	require.NoError(t, err)
+
+	// subdomain of acme.com also active — should also count
+	_, err = st.pool.Exec(ctx,
+		`INSERT INTO connections (tenant_id, name, domain, status, origin_hosts, origin_port, origin_tls_mode, verify_token,
+			http_versions, compression_algo, modsec_state, geoip_denied_countries)
+		 VALUES ($1, $2, $3, $4, '[]'::json, 443, 'strict', 'tok2', 'h1,h2', 'auto', 'detection_only', '[]'::json)`,
+		1, "sub-acme", "sub.acme.com", "active",
+	)
+	require.NoError(t, err)
+
+	// domain "pending.com" with status "pending_verification" — should NOT count
+	_, err = st.pool.Exec(ctx,
+		`INSERT INTO connections (tenant_id, name, domain, status, origin_hosts, origin_port, origin_tls_mode, verify_token,
+			http_versions, compression_algo, modsec_state, geoip_denied_countries)
+		 VALUES ($1, $2, $3, $4, '[]'::json, 443, 'strict', 'tok3', 'h1,h2', 'auto', 'detection_only', '[]'::json)`,
+		1, "pend-conn", "pending.com", "pending_verification",
+	)
+	require.NoError(t, err)
+
+	// acme.com zone for tenant 1 → true (active connection exists)
+	ok, err := st.TenantHasVerifiedZone(ctx, 1, "acme.com")
+	require.NoError(t, err)
+	if !ok {
+		t.Fatal("expected true: tenant 1 has active connection in acme.com zone")
+	}
+
+	// pending.com zone for tenant 1 → false (only pending_verification)
+	ok, err = st.TenantHasVerifiedZone(ctx, 1, "pending.com")
+	require.NoError(t, err)
+	if ok {
+		t.Fatal("expected false: only pending_verification connection in pending.com zone")
+	}
+
+	// other.com zone → false (no connections at all)
+	ok, err = st.TenantHasVerifiedZone(ctx, 1, "other.com")
+	require.NoError(t, err)
+	if ok {
+		t.Fatal("expected false: no connections in other.com zone")
+	}
+
+	// tenant 2 has no connections — acme.com should return false for them
+	ok, err = st.TenantHasVerifiedZone(ctx, 2, "acme.com")
+	require.NoError(t, err)
+	if ok {
+		t.Fatal("expected false: tenant 2 has no connections in acme.com zone")
+	}
+}

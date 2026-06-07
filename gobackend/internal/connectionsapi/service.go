@@ -21,11 +21,11 @@ import (
 	"fmt"
 	"log/slog"
 	randv2 "math/rand/v2"
-	"os"
 	"regexp"
 	"strings"
 	"time"
 
+	"golang.org/x/net/publicsuffix"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/types/known/emptypb"
@@ -36,6 +36,7 @@ import (
 	"github.com/zwarder/waf/gobackend/internal/auth"
 	"github.com/zwarder/waf/gobackend/internal/certs"
 	"github.com/zwarder/waf/gobackend/internal/conndns"
+	"github.com/zwarder/waf/gobackend/internal/edge"
 	"github.com/zwarder/waf/gobackend/internal/store"
 )
 
@@ -53,6 +54,8 @@ type Store interface {
 	UpdateProbeState(ctx context.Context, tenantID, connID int64, p store.PollerState) (*store.Connection, error)
 	ListConnectionsForPoll(ctx context.Context) ([]store.Connection, error)
 	UpdatePollerState(ctx context.Context, connID int64, p store.PollerState) (*store.Connection, error)
+	TenantHasVerifiedZone(ctx context.Context, tenantID int64, zone string) (bool, error)
+	GetTenantByID(ctx context.Context, id int64) (*store.Tenant, error)
 }
 
 // CfgWriter abstracts angiecfg.Write for tests.
@@ -111,6 +114,7 @@ type Service struct {
 
 	store    Store
 	dns      conndns.Resolver
+	edge     edge.Resolver
 	cfg      CfgWriter
 	certs    CertManager
 	reloader AngieReloader
@@ -121,6 +125,7 @@ type Service struct {
 func New(
 	store Store,
 	dns conndns.Resolver,
+	edgeResolver edge.Resolver,
 	cfg CfgWriter,
 	certs CertManager,
 	reloader AngieReloader,
@@ -129,6 +134,7 @@ func New(
 	return &Service{
 		store:    store,
 		dns:      dns,
+		edge:     edgeResolver,
 		cfg:      cfg,
 		certs:    certs,
 		reloader: reloader,
@@ -292,16 +298,34 @@ func generateVerifyToken() (string, error) {
 	return base64.RawURLEncoding.EncodeToString(b), nil
 }
 
-// edgeIPv4 returns the WAF edge IPv4 from the environment.
-func edgeIPv4() string {
-	return strings.TrimSpace(os.Getenv("WAF_EDGE_IPV4"))
+// registrableZone returns the eTLD+1 of domain (api.acme.com → acme.com).
+func registrableZone(domain string) (string, error) {
+	d := strings.ToLower(strings.TrimSuffix(domain, "."))
+	return publicsuffix.EffectiveTLDPlusOne(d)
 }
 
 // ── RPC handlers ──────────────────────────────────────────────────────────────
 
-// GetEdgeInfo mirrors GET /api/connections/edge-info.
-func (s *Service) GetEdgeInfo(_ context.Context, _ *connectionsv1.EdgeInfoRequest) (*connectionsv1.EdgeInfoResponse, error) {
-	return &connectionsv1.EdgeInfoResponse{EdgeIpv4: edgeIPv4()}, nil
+// GetEdgeInfo returns the per-tenant CNAME target (hostname mode) or the edge
+// IPv4 (fallback) the client should point their DNS at.
+func (s *Service) GetEdgeInfo(ctx context.Context, _ *connectionsv1.EdgeInfoRequest) (*connectionsv1.EdgeInfoResponse, error) {
+	tenantID, err := requireTenantID(ctx)
+	if err != nil {
+		return nil, err
+	}
+	t := s.edge.Resolve(ctx)
+	resp := &connectionsv1.EdgeInfoResponse{}
+	if t.BaseHostname != "" {
+		ten, err := s.store.GetTenantByID(ctx, tenantID)
+		if err != nil {
+			s.log.Error("GetEdgeInfo tenant lookup", "err", err)
+			return nil, status.Error(codes.Internal, "internal error")
+		}
+		resp.EdgeHostname = t.HostnameFor(ten.Name)
+	} else if len(t.IPs) > 0 {
+		resp.EdgeIpv4 = t.IPs[0]
+	}
+	return resp, nil
 }
 
 // ListConnections mirrors GET /api/connections/.
@@ -379,19 +403,32 @@ func (s *Service) CreateConnection(ctx context.Context, req *connectionsv1.Creat
 		return nil, status.Error(codes.Internal, "failed to generate verify token")
 	}
 
-	// Check if domain already points to our edge IP (fast-path: skip TXT verification)
-	edge := edgeIPv4()
+	// Resolve current edge targets (hostname mode or IP fallback).
+	targets := s.edge.Resolve(ctx)
+
 	var verifiedAt *time.Time
 	connStatus := "pending_verification"
 	var statusDetail *string
 
-	if edge != "" {
-		result := conndns.PointsToEdge(ctx, s.dns, domain, edge)
+	// Skip the TXT step if this tenant already verified the domain's zone.
+	if zone, zErr := registrableZone(domain); zErr == nil && zone != "" {
+		if verified, vErr := s.store.TenantHasVerifiedZone(ctx, tenantID, zone); vErr == nil && verified {
+			now := time.Now().UTC()
+			verifiedAt = &now
+			connStatus = "pending_dns"
+			d := "Zone already verified for this tenant; skipped ownership check."
+			statusDetail = &d
+		}
+	}
+
+	// Fast-path: if the domain already resolves to our edge, jump to cert.
+	if len(targets.IPs) > 0 {
+		result := conndns.PointsToAnyEdge(ctx, s.dns, domain, targets.IPs)
 		if result.FlippedToEdge {
 			now := time.Now().UTC()
 			verifiedAt = &now
 			connStatus = "provisioning_cert"
-			d := "Domain already points to WAF edge; ownership verified instantly."
+			d := "Domain already points to WAF edge; verified instantly."
 			statusDetail = &d
 		}
 	}
@@ -456,10 +493,14 @@ func (s *Service) CreateConnection(ctx context.Context, req *connectionsv1.Creat
 		s.log.Warn("failed to set 201 header", "err", err)
 	}
 
+	var edgeIPv4Hint string
+	if len(targets.IPs) > 0 {
+		edgeIPv4Hint = targets.IPs[0]
+	}
 	instructions := &connectionsv1.VerifyInstructions{
 		TxtRecordName:  conndns.TXTVerifyName(domain),
 		TxtRecordValue: token,
-		EdgeIpv4:       edge,
+		EdgeIpv4:       edgeIPv4Hint,
 	}
 	return &connectionsv1.CreateConnectionResponse{
 		Connection:   connToProto(created),
@@ -618,12 +659,12 @@ func (s *Service) ProbeConnection(ctx context.Context, req *connectionsv1.ProbeC
 		}
 
 	case "pending_dns":
-		edge := edgeIPv4()
-		if edge == "" {
-			d := "WAF_EDGE_IPV4 env var not set; ask the operator."
+		targets := s.edge.Resolve(ctx)
+		if len(targets.IPs) == 0 {
+			d := "Edge not configured; ask the operator."
 			ps.StatusDetail = &d
 		} else {
-			result := conndns.PointsToEdge(ctx, s.dns, conn.Domain, edge)
+			result := conndns.PointsToAnyEdge(ctx, s.dns, conn.Domain, targets.IPs)
 			if result.Err != nil {
 				d := fmt.Sprintf("DNS lookup: %v", result.Err)
 				ps.StatusDetail = &d
@@ -632,7 +673,7 @@ func (s *Service) ProbeConnection(ctx context.Context, req *connectionsv1.ProbeC
 				d := "DNS now points to WAF edge; issuing certificate."
 				ps.StatusDetail = &d
 			} else {
-				d := fmt.Sprintf("A-record points to %s; expecting %s.", strings.Join(result.ResolvedIPs, ","), edge)
+				d := fmt.Sprintf("A-record points to %s; expecting %s.", strings.Join(result.ResolvedIPs, ","), result.EdgeIP)
 				ps.StatusDetail = &d
 			}
 		}

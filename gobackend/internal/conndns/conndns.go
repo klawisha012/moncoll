@@ -195,3 +195,28 @@ func PointsToEdge(ctx context.Context, r Resolver, domain, edgeIP string) Points
 		EdgeIP:        edgeIP,
 	}
 }
+
+// PointsToAnyEdge resolves domain's A/AAAA records and reports whether any of
+// them appears in edgeIPs (the domain has been pointed at the WAF edge). Empty
+// edgeIPs → FlippedToEdge=false immediately (edge not configured). The set
+// variant of PointsToEdge, for multi-IP / CNAME-to-edge verification.
+func PointsToAnyEdge(ctx context.Context, r Resolver, domain string, edgeIPs []string) PointsToEdgeResult {
+	joined := strings.Join(edgeIPs, ",")
+	if len(edgeIPs) == 0 {
+		return PointsToEdgeResult{EdgeIP: joined}
+	}
+	addrs, err := r.LookupHost(ctx, domain)
+	if err != nil {
+		return PointsToEdgeResult{EdgeIP: joined, Err: err}
+	}
+	set := make(map[string]struct{}, len(edgeIPs))
+	for _, e := range edgeIPs {
+		set[e] = struct{}{}
+	}
+	for _, a := range addrs {
+		if _, ok := set[a]; ok {
+			return PointsToEdgeResult{FlippedToEdge: true, ResolvedIPs: addrs, EdgeIP: joined}
+		}
+	}
+	return PointsToEdgeResult{FlippedToEdge: false, ResolvedIPs: addrs, EdgeIP: joined}
+}

@@ -532,3 +532,21 @@ func (s *Store) UpdateProbeState(ctx context.Context, tenantID, connID int64, p 
 	}
 	return &out, nil
 }
+
+// TenantHasVerifiedZone reports whether the tenant has any connection in the
+// given registrable zone whose ownership was already verified (status moved
+// past pending_verification). Matches the zone apex and any subdomain.
+func (s *Store) TenantHasVerifiedZone(ctx context.Context, tenantID int64, zone string) (bool, error) {
+	const q = `
+		SELECT EXISTS(
+			SELECT 1 FROM connections
+			WHERE tenant_id = $1
+			  AND (domain = $2 OR domain LIKE '%.' || $2)
+			  AND status <> 'pending_verification'
+		)`
+	var ok bool
+	if err := s.pool.QueryRow(ctx, q, tenantID, zone).Scan(&ok); err != nil {
+		return false, fmt.Errorf("TenantHasVerifiedZone: %w", err)
+	}
+	return ok, nil
+}

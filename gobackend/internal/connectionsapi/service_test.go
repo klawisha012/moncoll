@@ -18,6 +18,7 @@ import (
 	"github.com/zwarder/waf/gobackend/internal/angiecfg"
 	"github.com/zwarder/waf/gobackend/internal/auth"
 	"github.com/zwarder/waf/gobackend/internal/certs"
+	"github.com/zwarder/waf/gobackend/internal/edge"
 	"github.com/zwarder/waf/gobackend/internal/store"
 )
 
@@ -25,9 +26,10 @@ import (
 
 // fakeStore is a minimal in-memory store fake.
 type fakeStore struct {
-	conns     map[int64]*store.Connection
-	nextID    int64
-	createErr error // if set, CreateConnection returns this
+	conns        map[int64]*store.Connection
+	nextID       int64
+	createErr    error // if set, CreateConnection returns this
+	verifiedZone bool  // if set, TenantHasVerifiedZone returns true
 }
 
 func newFakeStore() *fakeStore {
@@ -191,6 +193,14 @@ func (f *fakeStore) UpdatePollerState(_ context.Context, connID int64, p store.P
 	return &cp, nil
 }
 
+func (f *fakeStore) TenantHasVerifiedZone(_ context.Context, _ int64, _ string) (bool, error) {
+	return f.verifiedZone, nil
+}
+
+func (f *fakeStore) GetTenantByID(_ context.Context, id int64) (*store.Tenant, error) {
+	return &store.Tenant{ID: id, Name: "acme"}, nil
+}
+
 // fakeResolver is a fake conndns.Resolver.
 type fakeResolver struct {
 	txtRecords map[string][]string
@@ -259,6 +269,11 @@ func (f *fakeReloader) Reload(_ context.Context) {
 	f.reloadCount++
 }
 
+// fakeEdge is a fake edge.Resolver.
+type fakeEdge struct{ t edge.Targets }
+
+func (f fakeEdge) Resolve(context.Context) edge.Targets { return f.t }
+
 // ── Test helpers ──────────────────────────────────────────────────────────────
 
 func tenantCtx(tenantID int64) context.Context {
@@ -273,7 +288,11 @@ func noTenantCtx() context.Context {
 }
 
 func buildService(st *fakeStore, res *fakeResolver, cfg *fakeCfgWriter, certsM *fakeCertManager, rel *fakeReloader) *Service {
-	return New(st, res, cfg, certsM, rel, slog.New(slog.NewTextHandler(os.Stderr, nil)))
+	return New(st, res, fakeEdge{}, cfg, certsM, rel, slog.New(slog.NewTextHandler(os.Stderr, nil)))
+}
+
+func buildServiceWithEdge(st *fakeStore, res *fakeResolver, cfg *fakeCfgWriter, certsM *fakeCertManager, rel *fakeReloader, e fakeEdge) *Service {
+	return New(st, res, e, cfg, certsM, rel, slog.New(slog.NewTextHandler(os.Stderr, nil)))
 }
 
 func sampleConn(tenantID int64) store.Connection {
@@ -463,9 +482,6 @@ func TestProbeConnection_TXTNotYet(t *testing.T) {
 // directly triggered from probe (the probe flips to provisioning_cert and
 // the poller runs ACME). The status should flip to provisioning_cert.
 func TestProbeConnection_DNSFlipped_TriggerACME(t *testing.T) {
-	os.Setenv("WAF_EDGE_IPV4", "1.2.3.4")
-	defer os.Unsetenv("WAF_EDGE_IPV4")
-
 	st := newFakeStore()
 	conn := sampleConn(5)
 	conn.Status = "pending_dns"
@@ -477,7 +493,8 @@ func TestProbeConnection_DNSFlipped_TriggerACME(t *testing.T) {
 	certsM := &fakeCertManager{}
 	rel := &fakeReloader{}
 	cfg := &fakeCfgWriter{}
-	svc := buildService(st, res, cfg, certsM, rel)
+	edgeR := fakeEdge{t: edge.Targets{IPs: []string{"1.2.3.4"}}}
+	svc := buildServiceWithEdge(st, res, cfg, certsM, rel, edgeR)
 
 	ctx := tenantCtx(5)
 	resp, err := svc.ProbeConnection(ctx, &connectionsv1.ProbeConnectionRequest{Id: conn.ID})
@@ -578,15 +595,16 @@ func TestCreateConnection_InvalidDomain(t *testing.T) {
 	assert.Equal(t, codes.InvalidArgument, status.Code(err))
 }
 
-// TestGetEdgeInfo_ReturnsEnvVar verifies EdgeInfo reads WAF_EDGE_IPV4.
-func TestGetEdgeInfo_ReturnsEnvVar(t *testing.T) {
-	os.Setenv("WAF_EDGE_IPV4", "5.5.5.5")
-	defer os.Unsetenv("WAF_EDGE_IPV4")
-
-	svc := buildService(newFakeStore(), newFakeResolver(), &fakeCfgWriter{}, &fakeCertManager{}, &fakeReloader{})
-	resp, err := svc.GetEdgeInfo(context.Background(), &connectionsv1.EdgeInfoRequest{})
+// TestGetEdgeInfo_ReturnsIPv4 verifies GetEdgeInfo returns EdgeIpv4 when resolver
+// has IPs but no BaseHostname.
+func TestGetEdgeInfo_ReturnsIPv4(t *testing.T) {
+	edgeR := fakeEdge{t: edge.Targets{IPs: []string{"5.5.5.5"}}}
+	svc := buildServiceWithEdge(newFakeStore(), newFakeResolver(), &fakeCfgWriter{}, &fakeCertManager{}, &fakeReloader{}, edgeR)
+	ctx := tenantCtx(1)
+	resp, err := svc.GetEdgeInfo(ctx, &connectionsv1.EdgeInfoRequest{})
 	require.NoError(t, err)
 	assert.Equal(t, "5.5.5.5", resp.EdgeIpv4)
+	assert.Empty(t, resp.EdgeHostname)
 }
 
 // ── Poller tests ──────────────────────────────────────────────────────────────
@@ -747,12 +765,26 @@ func newTestPoller(st Store, res *fakeResolver, cfg *fakeCfgWriter, certsM *fake
 	return &Poller{
 		store:        st,
 		dns:          res,
+		edge:         fakeEdge{},
 		cfg:          cfg,
 		certs:        certsM,
 		reloader:     rel,
 		log:          slog.New(slog.NewTextHandler(os.Stderr, nil)),
 		tickInterval: time.Second,
-		edgeIP:       strings.TrimSpace(os.Getenv("WAF_EDGE_IPV4")),
+	}
+}
+
+// newTestPollerWithEdge builds a Poller with a specific edge resolver.
+func newTestPollerWithEdge(st Store, res *fakeResolver, cfg *fakeCfgWriter, certsM *fakeCertManager, rel *fakeReloader, e fakeEdge) *Poller {
+	return &Poller{
+		store:        st,
+		dns:          res,
+		edge:         e,
+		cfg:          cfg,
+		certs:        certsM,
+		reloader:     rel,
+		log:          slog.New(slog.NewTextHandler(os.Stderr, nil)),
+		tickInterval: time.Second,
 	}
 }
 
@@ -825,4 +857,38 @@ func TestPoller_DNSResolutionOnTXTVerify(t *testing.T) {
 	stored := st.conns[conn.ID]
 	assert.Equal(t, "pending_dns", stored.Status)
 	assert.Equal(t, []string{"6.6.6.6"}, stored.OriginHosts)
+}
+
+// TestCreateConnection_ZoneAlreadyVerified verifies that when TenantHasVerifiedZone
+// returns true, CreateConnection skips the TXT step and sets status pending_dns.
+func TestCreateConnection_ZoneAlreadyVerified(t *testing.T) {
+	st := newFakeStore()
+	st.verifiedZone = true
+	res := newFakeResolver()
+	cfg := &fakeCfgWriter{}
+	rel := &fakeReloader{}
+	svc := buildService(st, res, cfg, &fakeCertManager{}, rel)
+
+	ctx := tenantCtx(10)
+	resp, err := svc.CreateConnection(ctx, &connectionsv1.CreateConnectionRequest{
+		Name:   "skip-txt",
+		Domain: "sub.acme.com",
+	})
+	require.NoError(t, err)
+	require.NotNil(t, resp.Connection)
+	assert.Equal(t, "pending_dns", resp.Connection.Status)
+	assert.Contains(t, resp.Connection.StatusDetail, "already verified")
+}
+
+// TestGetEdgeInfo_ReturnsHostname verifies that GetEdgeInfo returns EdgeHostname
+// (not EdgeIpv4) when the resolver has a BaseHostname set.
+func TestGetEdgeInfo_ReturnsHostname(t *testing.T) {
+	edgeR := fakeEdge{t: edge.Targets{BaseHostname: "edge.x"}}
+	svc := buildServiceWithEdge(newFakeStore(), newFakeResolver(), &fakeCfgWriter{}, &fakeCertManager{}, &fakeReloader{}, edgeR)
+	// fakeStore.GetTenantByID returns Name="acme" for any id
+	ctx := tenantCtx(42)
+	resp, err := svc.GetEdgeInfo(ctx, &connectionsv1.EdgeInfoRequest{})
+	require.NoError(t, err)
+	assert.Equal(t, "acme.edge.x", resp.EdgeHostname)
+	assert.Empty(t, resp.EdgeIpv4)
 }
