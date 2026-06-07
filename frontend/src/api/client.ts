@@ -429,6 +429,14 @@ async function fetchApi<T>(url: string, options?: RequestInit): Promise<T> {
   return response.json();
 }
 
+// ── Teams types ────────────────────────────────────────────
+
+export interface Team { tenant_id: number; slug: string; display_name: string; role: string; active: boolean; }
+export interface TeamMember { user_id: number; email: string; display_name: string; role: string; }
+export interface Invitation { id: number; tenant_id: number; email: string; role: string; status: string; team_name: string; expires_at: string; }
+export interface InvitationsResponse { outgoing: Invitation[]; incoming: Invitation[]; }
+export interface MembersResponse { members: TeamMember[]; my_role: string; }
+
 // ── Auth types ─────────────────────────────────────────────
 
 export type UserRole = "admin" | "viewer";
@@ -943,6 +951,31 @@ export const api = {
 
     deleteTenant: (id: number, confirm: string) =>
       fetchApi<void>(`/api/admin/tenants/${id}?confirm=${encodeURIComponent(confirm)}`, { method: "DELETE" }),
+  },
+
+  // ── Teams ──────────────────────────────────────────────
+  teams: {
+    list: () => fetchApi<{ teams: Team[] }>("/api/teams").then((r) => r.teams ?? []),
+    switch: (tenantId: number) =>
+      fetchApi<void>("/api/teams/switch", { method: "POST", body: JSON.stringify({ tenant_id: tenantId }) }),
+    members: () => fetchApi<MembersResponse>("/api/teams/members"),
+    removeMember: (userId: number) =>
+      fetchApi<void>("/api/teams/members/remove", { method: "POST", body: JSON.stringify({ user_id: userId }) }),
+    changeRole: (userId: number, role: string) =>
+      fetchApi<void>("/api/teams/members/role", { method: "POST", body: JSON.stringify({ user_id: userId, role }) }),
+    leave: () => fetchApi<void>("/api/teams/leave", { method: "POST", body: "{}" }),
+    invitations: () =>
+      fetchApi<InvitationsResponse>("/api/teams/invitations").then((r) => ({ outgoing: r.outgoing ?? [], incoming: r.incoming ?? [] })),
+    invite: (email: string, role: string) =>
+      fetchApi<Invitation>("/api/teams/invitations", { method: "POST", body: JSON.stringify({ email, role }) }),
+    acceptInvite: (token: string) =>
+      fetchApi<void>("/api/teams/invitations/accept", { method: "POST", body: JSON.stringify({ token }) }),
+    declineInvite: (id: number) =>
+      fetchApi<void>("/api/teams/invitations/decline", { method: "POST", body: JSON.stringify({ id }) }),
+    revokeInvite: (id: number) =>
+      fetchApi<void>("/api/teams/invitations/revoke", { method: "POST", body: JSON.stringify({ id }) }),
+    resendInvite: (id: number) =>
+      fetchApi<Invitation>("/api/teams/invitations/resend", { method: "POST", body: JSON.stringify({ id }) }),
   },
 
   // ── Real-time (Centrifugo) ──
