@@ -8,6 +8,7 @@
 
 ```text
 tests/
+├── pyproject.toml          # Конфигурация pytest (маркеры, testpaths, addopts)
 ├── conftest.py             # Корневая конфигурация pytest (автоматически применяет маркеры)
 ├── requirements.txt        # Python-зависимости для тестирования
 ├── unit/                   # Юнит-тесты (внешние зависимости изолированы, быстрые, без I/O)
@@ -40,6 +41,8 @@ uv pip install -r tests/requirements.txt
 # Или через pip
 pip install -r tests/requirements.txt
 ```
+
+> **Конфигурация pytest** находится в `tests/pyproject.toml`. Все команды ниже подразумевают запуск **из директории `tests/`**. Если запускаете из корня репозитория, добавляйте флаг `-c tests/pyproject.toml`, например: `pytest -c tests/pyproject.toml -m unit`.
 
 ---
 
