@@ -302,8 +302,14 @@ func runServer(ctx context.Context, log *slog.Logger) {
 		testsv1.TestsService_GetCrowdsecCatalog_FullMethodName:  auth.LevelVerified,
 		testsv1.TestsService_RunCrowdsecScenario_FullMethodName: auth.LevelVerified,
 		// teams: require_verified (tenant-scoped membership + active-team switch)
-		teamsv1.TeamsService_ListMyTeams_FullMethodName: auth.LevelVerified,
-		teamsv1.TeamsService_SwitchTeam_FullMethodName:  auth.LevelVerified,
+		teamsv1.TeamsService_ListMyTeams_FullMethodName:       auth.LevelVerified,
+		teamsv1.TeamsService_SwitchTeam_FullMethodName:        auth.LevelVerified,
+		teamsv1.TeamsService_ListInvitations_FullMethodName:   auth.LevelVerified,
+		teamsv1.TeamsService_CreateInvitation_FullMethodName:  auth.LevelVerified,
+		teamsv1.TeamsService_AcceptInvitation_FullMethodName:  auth.LevelVerified,
+		teamsv1.TeamsService_DeclineInvitation_FullMethodName: auth.LevelVerified,
+		teamsv1.TeamsService_RevokeInvitation_FullMethodName:  auth.LevelVerified,
+		teamsv1.TeamsService_ResendInvitation_FullMethodName:  auth.LevelVerified,
 		// auth: all methods are LevelPublic — public endpoints (login/signup/...)
 		// have no session yet, and the cookie-validating endpoints (me, totp/setup,
 		// totp/confirm) read + verify their OWN cookie inside the handler.
