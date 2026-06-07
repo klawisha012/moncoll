@@ -1,0 +1,39 @@
+syntax = "proto3";
+
+package teams.v1;
+
+import "google/api/annotations.proto";
+import "google/protobuf/empty.proto";
+
+service TeamsService {
+  // GET /api/teams — teams the caller belongs to.
+  rpc ListMyTeams(ListMyTeamsRequest) returns (ListMyTeamsResponse) {
+    option (google.api.http) = {get: "/api/teams"};
+  }
+
+  // POST /api/teams/switch — set the caller's active team.
+  rpc SwitchTeam(SwitchTeamRequest) returns (google.protobuf.Empty) {
+    option (google.api.http) = {
+      post: "/api/teams/switch"
+      body: "*"
+    };
+  }
+}
+
+message ListMyTeamsRequest {}
+
+message Team {
+  int64 tenant_id = 1;
+  string slug = 2;
+  string display_name = 3;
+  string role = 4;
+  bool active = 5;
+}
+
+message ListMyTeamsResponse {
+  repeated Team teams = 1;
+}
+
+message SwitchTeamRequest {
+  int64 tenant_id = 1;
+}

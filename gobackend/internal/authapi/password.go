@@ -85,6 +85,11 @@ func (s *Service) Signup(ctx context.Context, req *authv1.SignupRequest) (*authv
 		return nil, status.Error(codes.Internal, "user creation failed")
 	}
 
+	// New owner of the freshly created tenant also gets a membership row.
+	if err := s.store.CreateMembership(ctx, tenant.ID, created.ID, "owner"); err != nil {
+		return nil, status.Error(codes.Internal, "membership persist failed")
+	}
+
 	// Issue verification token (store its hash).
 	token, err := randomURLToken()
 	if err != nil {

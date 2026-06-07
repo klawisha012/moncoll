@@ -49,6 +49,8 @@ type Store interface {
 
 	CreateTenant(ctx context.Context, name, displayName string) (*store.Tenant, error)
 	AutoCreateTenantForUser(ctx context.Context, email, displayName string) (*store.Tenant, error)
+
+	CreateMembership(ctx context.Context, tenantID, userID int64, role string) error
 }
 
 // EmailSender mirrors internal/email.Sender (verify + reset emails).
