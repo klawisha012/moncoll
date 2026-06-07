@@ -159,6 +159,24 @@ func isConflict(err error) bool {
 	return errors.As(err, &ce)
 }
 
+// dedupeHosts returns hosts with duplicates removed, preserving first-seen
+// order. Returns a new slice and never mutates the input.
+func dedupeHosts(hosts []string) []string {
+	if len(hosts) == 0 {
+		return hosts
+	}
+	seen := make(map[string]struct{}, len(hosts))
+	out := make([]string, 0, len(hosts))
+	for _, h := range hosts {
+		if _, ok := seen[h]; ok {
+			continue
+		}
+		seen[h] = struct{}{}
+		out = append(out, h)
+	}
+	return out
+}
+
 // ── proto ↔ store converters ─────────────────────────────────────────────────
 
 func connToProto(c *store.Connection) *connectionsv1.Connection {
@@ -167,7 +185,7 @@ func connToProto(c *store.Connection) *connectionsv1.Connection {
 		TenantId:            c.TenantID,
 		Name:                c.Name,
 		Domain:              c.Domain,
-		OriginHosts:         c.OriginHosts,
+		OriginHosts:         dedupeHosts(c.OriginHosts),
 		OriginPort:          int32(c.OriginPort),
 		OriginTlsMode:       c.OriginTLSMode,
 		VerifyToken:         c.VerifyToken,
@@ -221,7 +239,7 @@ func connCfg(c *store.Connection) angiecfg.ConnConfig {
 		TenantID:      c.TenantID,
 		Name:          c.Name,
 		Domain:        c.Domain,
-		OriginHosts:   c.OriginHosts,
+		OriginHosts:   dedupeHosts(c.OriginHosts),
 		OriginPort:    c.OriginPort,
 		OriginTLSMode: c.OriginTLSMode,
 		Status:        c.Status,
@@ -395,6 +413,7 @@ func (s *Service) CreateConnection(ctx context.Context, req *connectionsv1.Creat
 			originHosts = ips
 		}
 	}
+	originHosts = dedupeHosts(originHosts)
 	if originHosts == nil {
 		originHosts = []string{}
 	}

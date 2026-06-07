@@ -55,8 +55,25 @@ func (NetResolver) LookupTXT(ctx context.Context, name string) ([]string, error)
 }
 
 // LookupHost implements Resolver using the system resolver.
+//
+// The system resolver can return the same address more than once (e.g. when a
+// host is reachable via multiple resolution paths), so duplicates are removed
+// while preserving first-seen order.
 func (NetResolver) LookupHost(ctx context.Context, host string) ([]string, error) {
-	return net.DefaultResolver.LookupHost(ctx, host)
+	addrs, err := net.DefaultResolver.LookupHost(ctx, host)
+	if err != nil {
+		return nil, err
+	}
+	seen := make(map[string]struct{}, len(addrs))
+	out := make([]string, 0, len(addrs))
+	for _, a := range addrs {
+		if _, ok := seen[a]; ok {
+			continue
+		}
+		seen[a] = struct{}{}
+		out = append(out, a)
+	}
+	return out, nil
 }
 
 // ─── TXT name helper ─────────────────────────────────────────────────────────
