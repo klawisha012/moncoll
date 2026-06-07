@@ -182,3 +182,11 @@ func (e *NotFoundError) Error() string { return e.Entity + " not found" }
 type ConflictError struct{ Detail string }
 
 func (e *ConflictError) Error() string { return "conflict: " + e.Detail }
+
+// TeamMember is a membership joined with the user's identity, for the Team UI.
+type TeamMember struct {
+	UserID      int64
+	Email       string
+	DisplayName string
+	Role        string // owner | admin | member
+}

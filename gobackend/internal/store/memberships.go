@@ -85,3 +85,62 @@ func (s *Store) SetActiveTenant(ctx context.Context, userID, tenantID int64) err
 	}
 	return nil
 }
+
+func (s *Store) ListMembersForTenant(ctx context.Context, tenantID int64) ([]TeamMember, error) {
+	const q = `
+		SELECT u.id, u.email, u.display_name, m.role
+		FROM memberships m
+		JOIN users u ON u.id = m.user_id
+		WHERE m.tenant_id = $1
+		ORDER BY (m.role = 'owner') DESC, (m.role = 'admin') DESC, u.display_name`
+	rows, err := s.pool.Query(ctx, q, tenantID)
+	if err != nil {
+		return nil, fmt.Errorf("ListMembersForTenant: %w", err)
+	}
+	defer rows.Close()
+	out := []TeamMember{}
+	for rows.Next() {
+		var tm TeamMember
+		if err := rows.Scan(&tm.UserID, &tm.Email, &tm.DisplayName, &tm.Role); err != nil {
+			return nil, fmt.Errorf("ListMembersForTenant scan: %w", err)
+		}
+		out = append(out, tm)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("ListMembersForTenant rows: %w", err)
+	}
+	return out, nil
+}
+
+func (s *Store) DeleteMembership(ctx context.Context, tenantID, userID int64) error {
+	ct, err := s.pool.Exec(ctx, `DELETE FROM memberships WHERE tenant_id=$1 AND user_id=$2`, tenantID, userID)
+	if err != nil {
+		return fmt.Errorf("DeleteMembership: %w", err)
+	}
+	if ct.RowsAffected() == 0 {
+		return &NotFoundError{Entity: "membership"}
+	}
+	return nil
+}
+
+func (s *Store) UpdateMembershipRole(ctx context.Context, tenantID, userID int64, role string) error {
+	ct, err := s.pool.Exec(ctx,
+		`UPDATE memberships SET role=$3 WHERE tenant_id=$1 AND user_id=$2`, tenantID, userID, role)
+	if err != nil {
+		return fmt.Errorf("UpdateMembershipRole: %w", err)
+	}
+	if ct.RowsAffected() == 0 {
+		return &NotFoundError{Entity: "membership"}
+	}
+	return nil
+}
+
+func (s *Store) CountOwners(ctx context.Context, tenantID int64) (int, error) {
+	var n int
+	err := s.pool.QueryRow(ctx,
+		`SELECT count(*) FROM memberships WHERE tenant_id=$1 AND role='owner'`, tenantID).Scan(&n)
+	if err != nil {
+		return 0, fmt.Errorf("CountOwners: %w", err)
+	}
+	return n, nil
+}
