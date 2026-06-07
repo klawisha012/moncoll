@@ -34,6 +34,11 @@ type Store interface {
 	ResendInvitation(ctx context.Context, id int64, tokenHash string, expiresAt time.Time) error
 	SetInvitationStatus(ctx context.Context, id int64, status string) error
 	AcceptInvitation(ctx context.Context, inv *store.Invitation, userID int64) error
+
+	ListMembersForTenant(ctx context.Context, tenantID int64) ([]store.TeamMember, error)
+	DeleteMembership(ctx context.Context, tenantID, userID int64) error
+	UpdateMembershipRole(ctx context.Context, tenantID, userID int64, role string) error
+	CountOwners(ctx context.Context, tenantID int64) (int, error)
 }
 
 // Mailer is the email surface teamsapi needs.
