@@ -236,6 +236,11 @@ func (s *Service) OauthCallback(ctx context.Context, req *authv1.OauthCallbackRe
 			s.log.Warn("oauth callback: CreateOAuthAccount failed", "err", err)
 			return s.redirectWithError(ctx, intent, "provider_unavailable")
 		}
+		// New owner of the freshly created tenant also gets a membership row.
+		if err := s.store.CreateMembership(ctx, tenant.ID, user.ID, "owner"); err != nil {
+			s.log.Warn("oauth callback: CreateMembership failed", "err", err)
+			return s.redirectWithError(ctx, intent, "provider_unavailable")
+		}
 	}
 
 	// Touch last_login_at, issue session cookie, redirect to /home.

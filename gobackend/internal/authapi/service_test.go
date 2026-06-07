@@ -39,6 +39,7 @@ type fakeStore struct {
 
 	createUserErr error
 	updates       []store.UserUpdate
+	memberships   [][3]any // [tenantID, userID, role]
 }
 
 func newFakeStore() *fakeStore {
@@ -161,6 +162,10 @@ func (f *fakeStore) AutoCreateTenantForUser(_ context.Context, email, displayNam
 	f.nextID++
 	f.tenants[name] = t
 	return t, nil
+}
+func (f *fakeStore) CreateMembership(_ context.Context, tenantID, userID int64, role string) error {
+	f.memberships = append(f.memberships, [3]any{tenantID, userID, role})
+	return nil
 }
 
 // fakeEmail records sends.
@@ -692,4 +697,81 @@ func TestOauthCallbackUnverifiedEmailRejected(t *testing.T) {
 	})
 	require.NoError(t, err)
 	require.Contains(t, md.Get(mdRedirect)[0], "email_not_verified")
+}
+
+// ── membership creation on signup / OAuth ─────────────────────────────────────
+
+func TestSignupCreatesOwnerMembership(t *testing.T) {
+	h := newHarness(t, Config{SMTPConfigured: true})
+	_, err := h.svc.Signup(context.Background(), &authv1.SignupRequest{
+		Email: "owner@example.com", Password: "supersecret", TenantName: "newco", CaptchaToken: "t",
+	})
+	require.NoError(t, err)
+
+	require.Len(t, h.st.memberships, 1)
+	m := h.st.memberships[0]
+
+	// Verify the tenant and user IDs are consistent with what was created.
+	tenant, ok := h.st.tenants["newco"]
+	require.True(t, ok)
+	u, ok := h.st.usersByEmail["owner@example.com"]
+	require.True(t, ok)
+
+	require.Equal(t, tenant.ID, m[0].(int64))
+	require.Equal(t, u.ID, m[1].(int64))
+	require.Equal(t, "owner", m[2].(string))
+}
+
+func TestOauthCallbackCreatesOwnerMembership(t *testing.T) {
+	h := newHarness(t, Config{})
+	h.oauth.ok = true
+	h.oauth.prov = &fakeOAuthProvider{info: &oauth.UserInfo{
+		ProviderAccountID: "sub-456", Email: "oauthowner@example.com", EmailVerified: true, DisplayName: "OAuth Owner",
+	}}
+	state, err := h.svc.issuer.SignShortLived(map[string]any{"intent": "signup", "provider": "google"}, shortLivedTTL, "oauth_state")
+	require.NoError(t, err)
+	ctx := ctxWithCookie(oauthStateCookie + "=" + state)
+
+	_, err = runWithMD(ctx, func(c context.Context) error {
+		_, e := h.svc.OauthCallback(c, &authv1.OauthCallbackRequest{Provider: "google", Code: "code", State: state})
+		return e
+	})
+	require.NoError(t, err)
+
+	require.Len(t, h.st.memberships, 1)
+	m := h.st.memberships[0]
+
+	u, ok := h.st.usersByEmail["oauthowner@example.com"]
+	require.True(t, ok)
+	tenant, ok := h.st.tenants["auto-tenant"]
+	require.True(t, ok)
+
+	require.Equal(t, tenant.ID, m[0].(int64))
+	require.Equal(t, u.ID, m[1].(int64))
+	require.Equal(t, "owner", m[2].(string))
+}
+
+func TestOauthCallbackExistingUserNoExtraMembership(t *testing.T) {
+	h := newHarness(t, Config{})
+	h.oauth.ok = true
+	// Seed an existing OAuth account + user (returning user path).
+	existingUser := &store.User{ID: 99, Email: "existing@example.com", PlatformRole: "client", DisplayName: "Existing"}
+	h.st.usersByID[99] = existingUser
+	h.st.usersByEmail["existing@example.com"] = existingUser
+	h.st.oauthAccts["google|sub-existing"] = &store.OAuthAccount{ID: 50, UserID: 99, Provider: "google", ProviderAccountID: "sub-existing"}
+	h.oauth.prov = &fakeOAuthProvider{info: &oauth.UserInfo{
+		ProviderAccountID: "sub-existing", Email: "existing@example.com", EmailVerified: true, DisplayName: "Existing",
+	}}
+
+	state, err := h.svc.issuer.SignShortLived(map[string]any{"intent": "login", "provider": "google"}, shortLivedTTL, "oauth_state")
+	require.NoError(t, err)
+	ctx := ctxWithCookie(oauthStateCookie + "=" + state)
+
+	_, err = runWithMD(ctx, func(c context.Context) error {
+		_, e := h.svc.OauthCallback(c, &authv1.OauthCallbackRequest{Provider: "google", Code: "code", State: state})
+		return e
+	})
+	require.NoError(t, err)
+	// No membership should be created for a returning (existing) user.
+	require.Empty(t, h.st.memberships)
 }
