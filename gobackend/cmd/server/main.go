@@ -349,7 +349,7 @@ func runServer(ctx context.Context, log *slog.Logger) {
 	connectionsv1.RegisterConnectionsServiceServer(grpcSrv, connSvc)
 
 	// ── Teams (membership + active-team switch) ───────────────────────────────
-	teamsSvc := teamsapi.New(st, log)
+	teamsSvc := teamsapi.New(st, email.NewSender(), os.Getenv("WAF_PUBLIC_BASE_URL"), log)
 	teamsv1.RegisterTeamsServiceServer(grpcSrv, teamsSvc)
 
 	// ── Auth service (11 endpoints) ───────────────────────────────────────────
