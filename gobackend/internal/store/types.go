@@ -75,6 +75,24 @@ type Tenant struct {
 	SuspendedAt *time.Time
 }
 
+// Membership mirrors a row of the memberships table.
+type Membership struct {
+	ID        int64
+	TenantID  int64
+	UserID    int64
+	Role      string // owner | admin | member
+	CreatedAt time.Time
+}
+
+// MyTeam is a tenant a user belongs to, joined with the user's role in it.
+// Returned by ListMyTeams for the team switcher UI.
+type MyTeam struct {
+	TenantID    int64
+	Slug        string // tenants.name (the DNS-safe slug)
+	DisplayName string // tenants.display_name
+	Role        string // owner | admin | member
+}
+
 // Reader is the read-only surface the auth policy depends on. Implemented by
 // the pgx store and by fakes in tests.
 type Reader interface {
