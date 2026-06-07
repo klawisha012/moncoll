@@ -736,6 +736,30 @@ const en: TranslationDict = {
   "clients.detail.conn.status": "Status",
   "clients.detail.conn.created": "Created",
   "clients.back": "← Back to clients",
+
+  // Team page
+  "team.title": "Team",
+  "team.members": "Members",
+  "team.invitations": "Invitations",
+  "team.invite": "Invite",
+  "team.invite.email": "Email",
+  "team.invite.role": "Role",
+  "team.role.owner": "Owner",
+  "team.role.admin": "Admin",
+  "team.role.member": "Member",
+  "team.action.remove": "Remove",
+  "team.action.revoke": "Revoke",
+  "team.action.resend": "Resend",
+  "team.action.leave": "Leave team",
+  "team.switch": "Switch team",
+  "team.myInvitations": "My invitations",
+  "team.action.accept": "Accept",
+  "team.action.decline": "Decline",
+  "invite.accept.title": "Accept invitation",
+  "invite.accept.loading": "Accepting…",
+  "invite.accept.ok": "You've joined the team.",
+  "invite.accept.err": "This invitation is invalid or expired.",
+  "invite.accept.login": "Please log in or sign up with the invited email to accept.",
 };
 
 const ru: TranslationDict = {
@@ -1475,6 +1499,30 @@ const ru: TranslationDict = {
   "clients.detail.conn.status": "Статус",
   "clients.detail.conn.created": "Создано",
   "clients.back": "← К списку клиентов",
+
+  // Team page
+  "team.title": "Команда",
+  "team.members": "Участники",
+  "team.invitations": "Приглашения",
+  "team.invite": "Пригласить",
+  "team.invite.email": "Email",
+  "team.invite.role": "Роль",
+  "team.role.owner": "Владелец",
+  "team.role.admin": "Админ",
+  "team.role.member": "Участник",
+  "team.action.remove": "Удалить",
+  "team.action.revoke": "Отозвать",
+  "team.action.resend": "Переслать",
+  "team.action.leave": "Покинуть команду",
+  "team.switch": "Сменить команду",
+  "team.myInvitations": "Мои приглашения",
+  "team.action.accept": "Принять",
+  "team.action.decline": "Отклонить",
+  "invite.accept.title": "Принять приглашение",
+  "invite.accept.loading": "Принимаем…",
+  "invite.accept.ok": "Вы присоединились к команде.",
+  "invite.accept.err": "Приглашение недействительно или истекло.",
+  "invite.accept.login": "Войдите или зарегистрируйтесь с приглашённым email, чтобы принять.",
 };
 
 export const translations: Record<Lang, TranslationDict> = { en, ru };

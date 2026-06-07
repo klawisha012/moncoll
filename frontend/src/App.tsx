@@ -19,6 +19,8 @@ import ChangePassword from "./pages/ChangePassword";
 import Tests from "./pages/Tests";
 import Clients from "./pages/Clients";
 import ClientDetail from "./pages/ClientDetail";
+import InviteAccept from "./pages/InviteAccept";
+import Team from "./pages/Team";
 
 function RoleHomeRedirect() {
   const auth = useAuth();
@@ -36,6 +38,7 @@ export default function App() {
       <Route path="/login" component={Login} />
       <Route path="/signup" component={Signup} />
       <Route path="/verify-email" component={VerifyEmail} />
+      <Route path="/invite/accept" component={InviteAccept} />
       <Route path="/forgot-password" component={ForgotPassword} />
       <Route path="/reset-password" component={ResetPassword} />
       <Route path="/totp-setup" component={TotpSetup} />
@@ -122,6 +125,7 @@ export default function App() {
               </RequireRole>
             )}
           />
+          <Route path="team" component={() => (<RequireRole role="client"><Team /></RequireRole>)} />
         </Route>
       </Route>
       
