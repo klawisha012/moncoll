@@ -679,11 +679,11 @@ export const api = {
   // ── Connections API (domain-only model; spec §4) ─────────────
   // Per-deploy edge config — the wizard fetches this on mount so step 3
   // shows the correct A-record value on resume (not just on initial create).
-  getEdgeInfo: () => fetchApi<{ edge_ipv4: string }>("/api/connections/edge-info"),
-  getConnections: () => fetchApi<Connection[]>("/api/connections/"),
+  getEdgeInfo: () => fetchApi<{ edge_ipv4: string }>("/api/edge-info"),
+  getConnections: () => fetchApi<Connection[]>("/api/connections"),
   getConnection: (id: number) => fetchApi<Connection>(`/api/connections/${id}`),
   createConnection: (conn: ConnectionCreate) =>
-    fetchApi<ConnectionCreateResponse>("/api/connections/", {
+    fetchApi<ConnectionCreateResponse>("/api/connections", {
       method: "POST",
       body: JSON.stringify(conn),
     }),

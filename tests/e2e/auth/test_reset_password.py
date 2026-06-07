@@ -5,8 +5,7 @@ backend stdout. The test captures it via `docker compose logs`.
 
 Run:
     docker compose up -d
-    docker compose exec backend alembic upgrade head
-    WAF_API_URL=http://localhost:8000 \
+    WAF_API_URL=http://localhost \
         python -m pytest -m e2e tests/e2e/auth/test_reset_password.py -v
 """
 from __future__ import annotations
@@ -20,7 +19,7 @@ import uuid
 import pytest
 import requests
 
-API_URL = os.environ.get("WAF_API_URL", "http://localhost:8000")
+API_URL = os.environ.get("WAF_API_URL", "http://localhost")
 _CAPTCHA = "e2e-test-bypass"
 
 
@@ -33,10 +32,10 @@ def _unique_tenant() -> str:
 
 
 def _latest_token_from_logs(pattern: str, tail: int = 300) -> str | None:
-    """Return the last match of `pattern` group 1 in backend logs."""
+    """Return the last match of `pattern` group 1 in gobackend logs."""
     try:
         out = subprocess.check_output(
-            ["docker", "compose", "logs", "--tail", str(tail), "backend"],
+            ["docker", "compose", "logs", "--tail", str(tail), "gobackend"],
             stderr=subprocess.STDOUT, timeout=15,
         ).decode(errors="replace")
     except (subprocess.SubprocessError, FileNotFoundError):

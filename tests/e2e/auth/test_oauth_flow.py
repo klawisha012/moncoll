@@ -20,7 +20,7 @@ import os
 import pytest
 import requests
 
-API_URL = os.environ.get("WAF_API_URL", "http://localhost:8000")
+API_URL = os.environ.get("WAF_API_URL", "http://localhost")
 
 
 # ---------------------------------------------------------------------------

@@ -1,5 +1,5 @@
 # --- Этап 1: Подготовка Core Rule Set (CRS) ---
-FROM alpine:3.19 AS crs
+FROM alpine:3.19.1 AS crs
 RUN apk add --no-cache git \
     && git clone -b v3.3.5 https://github.com/coreruleset/coreruleset /crs \
     && cp /crs/crs-setup.conf.example /crs/crs-setup.conf \
@@ -7,7 +7,11 @@ RUN apk add --no-cache git \
     && cp /crs/rules/RESPONSE-999-EXCLUSION-RULES-AFTER-CRS.conf.example /crs/rules/RESPONSE-999-EXCLUSION-RULES-AFTER-CRS.conf
 
 # --- Этап 2: Основной образ ---
-FROM docker.angie.software/angie:latest
+# Angie binds privileged ports 80/443, so the master runs as root while
+# workers drop to the unprivileged `angie` user via `user angie;` in
+# angie.conf (the conventional secure reverse-proxy pattern). Pinned to a
+# static version instead of :latest for reproducible builds.
+FROM docker.angie.software/angie:1.11.6
 
 # Устанавливаем только существующие пакеты модулей
 # ВНИМАНИЕ: ACME уже встроен в 'angie', его ставить не нужно.

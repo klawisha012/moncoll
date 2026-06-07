@@ -13,7 +13,7 @@
     "ssl_cert_path": "/etc/angie/http.d/conn_26/26.crt",
     "ssl_key_path": "/etc/angie/http.d/conn_26/26.key",
     "preserve_host": true,
-    "custom_nginx_config": "location = /probe {\n    default_type text/plain;\n    return 200 \"mode1-include-ok\";\n}",
+    "custom_nginx_config": "",
     "created_at": "2026-05-16T16:29:14.886416Z",
     "updated_at": "2026-05-16T16:29:14.939688Z"
   }

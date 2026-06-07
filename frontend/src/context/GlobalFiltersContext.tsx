@@ -82,22 +82,26 @@ export function GlobalFiltersProvider(props: { children: JSX.Element }) {
   const [timeValue, setTimeValueState] = createSignal<number>(initial.timeValue);
   const [timeUnit, setTimeUnitState] = createSignal<TimeUnit>(initial.timeUnit);
   const [connections, setConnections] = createSignal<Connection[]>([]);
+  const [fetched, setFetched] = createSignal(false);
 
   // Globally fetch connections for logged-in clients
   createEffect(() => {
     const usr = auth.user;
     if (!usr) return;
     if (usr.platform_role !== "client") return;
-    if (connections().length > 0) return;
+    if (fetched()) return;
 
     let cancelled = false;
     api
       .getConnections()
       .then((cs) => {
-        if (!cancelled) setConnections(cs);
+        if (!cancelled) {
+          setConnections(cs);
+          setFetched(true);
+        }
       })
       .catch(() => {
-        // Silent fallback
+        if (!cancelled) setFetched(true);
       });
 
     onCleanup(() => {

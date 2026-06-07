@@ -9,8 +9,7 @@ Admin setup requires pyotp for TOTP confirmation.
 
 Run:
     docker compose up -d
-    docker compose exec backend alembic upgrade head
-    WAF_API_URL=http://localhost:8000 \
+    WAF_API_URL=http://localhost \
         python -m pytest -m e2e tests/e2e/auth/test_role_gating.py -v
 """
 from __future__ import annotations
@@ -30,7 +29,7 @@ try:
 except ImportError:
     _PYOTP_AVAILABLE = False
 
-API_URL = os.environ.get("WAF_API_URL", "http://localhost:8000")
+API_URL = os.environ.get("WAF_API_URL", "http://localhost")
 _CAPTCHA = "e2e-test-bypass"
 
 
@@ -42,10 +41,10 @@ def _seed_admin(email: str, password: str) -> bool:
     try:
         result = subprocess.run(
             [
-                "docker", "compose", "exec", "-T", "backend",
-                "python", "-m", "src.cli", "create-admin",
-                "--email", email,
-                "--password", password,
+                "docker", "compose", "exec", "-T", "gobackend",
+                "/server", "create-admin",
+                "-email", email,
+                "-password", password,
             ],
             capture_output=True, text=True, timeout=30,
         )
@@ -72,7 +71,7 @@ def _login_client(email: str, password: str, tenant_name: str) -> requests.Sessi
     time.sleep(1)
     try:
         logs = subprocess.check_output(
-            ["docker", "compose", "logs", "--tail", "300", "backend"],
+            ["docker", "compose", "logs", "--tail", "300", "gobackend"],
             stderr=subprocess.STDOUT, timeout=15,
         ).decode(errors="replace")
         m = re.search(r"/verify-email\?token=([A-Za-z0-9_\-]+)", logs)
@@ -163,7 +162,7 @@ def test_admin_cannot_access_client_connections():
     if admin is None:
         pytest.skip("Could not complete admin TOTP enrolment")
 
-    r = admin.get(f"{API_URL}/api/connections/", timeout=10)
+    r = admin.get(f"{API_URL}/api/connections", timeout=10)
     assert r.status_code == 403, (
         f"admin should get 403 on client connections endpoint, got {r.status_code}: {r.text}"
     )

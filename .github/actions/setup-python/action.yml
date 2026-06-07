@@ -19,12 +19,7 @@ runs:
         python-version: ${{ inputs.python-version }}
         cache: pip
         cache-dependency-path: |
-          backend/requirements.txt
           tests/requirements.txt
-
-    - name: Install backend dependencies
-      shell: bash
-      run: pip install -r backend/requirements.txt
 
     - name: Install test dependencies
       if: inputs.install-test-deps == 'true'

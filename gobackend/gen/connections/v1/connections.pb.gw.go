@@ -395,7 +395,7 @@ func RegisterConnectionsServiceHandlerServer(ctx context.Context, mux *runtime.S
 		var stream runtime.ServerTransportStream
 		ctx = grpc.NewContextWithServerTransportStream(ctx, &stream)
 		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
-		annotatedContext, err := runtime.AnnotateIncomingContext(ctx, mux, req, "/connections.v1.ConnectionsService/GetEdgeInfo", runtime.WithHTTPPathPattern("/api/connections/edge-info"))
+		annotatedContext, err := runtime.AnnotateIncomingContext(ctx, mux, req, "/connections.v1.ConnectionsService/GetEdgeInfo", runtime.WithHTTPPathPattern("/api/edge-info"))
 		if err != nil {
 			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
 			return
@@ -633,7 +633,7 @@ func RegisterConnectionsServiceHandlerClient(ctx context.Context, mux *runtime.S
 		ctx, cancel := context.WithCancel(req.Context())
 		defer cancel()
 		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
-		annotatedContext, err := runtime.AnnotateContext(ctx, mux, req, "/connections.v1.ConnectionsService/GetEdgeInfo", runtime.WithHTTPPathPattern("/api/connections/edge-info"))
+		annotatedContext, err := runtime.AnnotateContext(ctx, mux, req, "/connections.v1.ConnectionsService/GetEdgeInfo", runtime.WithHTTPPathPattern("/api/edge-info"))
 		if err != nil {
 			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
 			return
@@ -812,7 +812,7 @@ func (m response_ConnectionsService_ListConnections_0) XXX_ResponseBody() interf
 }
 
 var (
-	pattern_ConnectionsService_GetEdgeInfo_0              = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2}, []string{"api", "connections", "edge-info"}, ""))
+	pattern_ConnectionsService_GetEdgeInfo_0              = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1}, []string{"api", "edge-info"}, ""))
 	pattern_ConnectionsService_ListConnections_0          = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1}, []string{"api", "connections"}, ""))
 	pattern_ConnectionsService_GetConnection_0            = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 1, 0, 4, 1, 5, 2}, []string{"api", "connections", "id"}, ""))
 	pattern_ConnectionsService_CreateConnection_0         = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1}, []string{"api", "connections"}, ""))

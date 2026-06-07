@@ -1676,3 +1676,150 @@ input[type="number"] { -moz-appearance: textfield; }
   outline-offset: 3px;
   border-radius: 0;
 }
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   RESPONSIVE DESIGN SYSTEM / MEDIA QUERIES
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+/* 1. Dashboard specific classes */
+.dashboard-two-col-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+  margin-bottom: 16px;
+}
+
+/* 2. Tablet viewports (under 1024px) */
+@media (max-width: 1024px) {
+  .dashboard-two-col-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* 3. Mobile viewports (under 768px) */
+@media (max-width: 768px) {
+  /* Layout shifts to vertical stacking behavior for sidebar overlay */
+  .layout {
+    position: relative;
+    overflow: hidden;
+  }
+
+  .sidebar {
+    position: fixed;
+    top: 0;
+    bottom: 0;
+    left: 0;
+    height: 100vh;
+    z-index: 999;
+    background: var(--cream);
+    box-shadow: 10px 0 30px rgba(0, 0, 0, 0.2);
+    transform: translateX(0);
+    width: var(--sidebar-width);
+  }
+
+  /* When sidebar is collapsed, slide it completely offscreen */
+  .layout.sidebar-collapsed .sidebar {
+    width: var(--sidebar-width); /* Keep width so it slides out correctly */
+    transform: translateX(-100%);
+    border-right: 0;
+  }
+
+  /* Backdrop Overlay for closing sidebar when tapping outside */
+  .sidebar-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(12, 12, 12, 0.5);
+    z-index: 990;
+    backdrop-filter: blur(2px);
+  }
+
+  /* Ensure main content spans 100% and allows scrolling */
+  .main-content {
+    width: 100%;
+    margin-left: 0;
+  }
+
+  /* Fullscreen map adjustments */
+  .home-canvas {
+    left: 0 !important;
+  }
+
+  /* Page wrapper spacing on smaller screens */
+  .page-wrapper {
+    padding: 20px 16px 40px;
+  }
+
+  /* Page header stacks vertically on mobile */
+  .page-header {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 12px;
+    padding-bottom: 16px;
+    margin-bottom: 20px;
+  }
+
+  .page-header h1,
+  .page-title {
+    font-size: 28px;
+  }
+
+  .page-header .header-actions {
+    width: 100%;
+    justify-content: flex-start;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+
+  /* Scale metric cards for phone viewports */
+  .metrics-grid {
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 14px;
+    margin-bottom: 20px;
+  }
+
+  .metric-value {
+    font-size: 30px;
+  }
+}
+
+/* 4. Small mobile viewports (under 480px) */
+@media (max-width: 480px) {
+  .metrics-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .connections-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .tabs {
+    display: flex;
+    flex-direction: column;
+    width: 100%;
+    box-shadow: none;
+  }
+
+  .tab {
+    width: 100%;
+    border-right: 0;
+    border-bottom: 3px solid var(--line);
+    text-align: center;
+  }
+  
+  .tab:last-child {
+    border-bottom: 0;
+  }
+
+  /* Adjust actions-bar elements */
+  .actions-bar {
+    flex-direction: column;
+    align-items: stretch;
+    width: 100%;
+  }
+
+  .actions-bar .btn {
+    width: 100%;
+    justify-content: center;
+  }
+}
+

@@ -110,3 +110,7 @@ GEMINI.md
 .gstack/
 .antigravity
 .antigravity/
+graphify-out/
+.agents/
+docs/
+artifacts/

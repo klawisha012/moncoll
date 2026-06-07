@@ -26,26 +26,7 @@ export default function GlobalFilters() {
   const filters = useGlobalFilters();
   const [showCustom, setShowCustom] = createSignal(false);
 
-  createEffect(() => {
-    const usr = auth.user;
-    if (!usr) return;
-    if (usr.platform_role !== "client") return;
-    if (filters.connections.length > 0) return;
 
-    let cancelled = false;
-    api
-      .getConnections()
-      .then((cs) => {
-        if (!cancelled) filters.setConnections(cs);
-      })
-      .catch(() => {
-        // Silent — sidebar still works without a connection list (defaults to "all").
-      });
-
-    onCleanup(() => {
-      cancelled = true;
-    });
-  });
 
   const maxValue = () => {
     const unitMultiplier =

@@ -10,8 +10,7 @@ Requires pyotp. Uses the admin flow because admin is the primary TOTP user.
 Run:
     pip install pyotp
     docker compose up -d
-    docker compose exec backend alembic upgrade head
-    WAF_API_URL=http://localhost:8000 \
+    WAF_API_URL=http://localhost \
         python -m pytest -m e2e tests/e2e/auth/test_totp_recovery.py -v
 """
 from __future__ import annotations
@@ -29,7 +28,7 @@ try:
 except ImportError:
     _PYOTP_AVAILABLE = False
 
-API_URL = os.environ.get("WAF_API_URL", "http://localhost:8000")
+API_URL = os.environ.get("WAF_API_URL", "http://localhost")
 _CAPTCHA = "e2e-test-bypass"
 
 
@@ -41,10 +40,10 @@ def _seed_admin(email: str, password: str) -> bool:
     try:
         result = subprocess.run(
             [
-                "docker", "compose", "exec", "-T", "backend",
-                "python", "-m", "src.cli", "create-admin",
-                "--email", email,
-                "--password", password,
+                "docker", "compose", "exec", "-T", "gobackend",
+                "/server", "create-admin",
+                "-email", email,
+                "-password", password,
             ],
             capture_output=True, text=True, timeout=30,
         )

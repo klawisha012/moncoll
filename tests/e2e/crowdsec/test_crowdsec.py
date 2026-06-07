@@ -9,7 +9,7 @@ import json
 CROWDSEC_CONTAINER = "waf-crowdsec-1"
 ANGIE_CONTAINER = "waf-angie-1"
 ANGIE_URL = "http://localhost"
-BASE_URL = "http://localhost:8000"
+BASE_URL = "http://localhost"
 API_URL = f"{BASE_URL}/api/crowdsec"
 ADMIN_USER = "admin"
 ADMIN_PASS = "admin"
@@ -51,7 +51,7 @@ def auth_session() -> requests.Session:
     time.sleep(2)
     try:
         logs = subprocess.check_output(
-            ["docker", "logs", "--tail", "300", "waf-backend-1"],
+            ["docker", "logs", "--tail", "300", "waf-gobackend-1"],
             stderr=subprocess.STDOUT, timeout=15,
         ).decode(errors="replace")
         m = re.search(r"/verify-email\?token=([A-Za-z0-9_\-]+)", logs)

@@ -50,15 +50,13 @@ jobs:
         with:
           filters: |
             backend:
-              - 'backend/**'
-              - 'tests/unit/**'
-              - 'tests/integration/**'
+              - 'gobackend/**'
               - 'pyproject.toml'
             frontend:
               - 'frontend/**'
             docker:
               - 'configs/angie/**'
-              - 'backend/**'
+              - 'gobackend/**'
               - 'frontend/**'
               - 'docker-compose.yml'
             ci:
@@ -70,25 +68,6 @@ jobs:
   # ═════════════════════════════════════════════════════════════
   # STAGE 1 — validate (fast, parallel, runs on every PR)
   # ═════════════════════════════════════════════════════════════
-
-  backend-lint:
-    name: 1. validate - backend lint
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    needs: paths
-    # Run when backend/ci paths change OR on main push (full deploy gate).
-    if: |
-      needs.paths.outputs.backend == 'true'
-      || needs.paths.outputs.ci == 'true'
-      || (github.event_name == 'push' && github.ref == 'refs/heads/main')
-    steps:
-      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
-      - name: Install ruff
-        run: pip install ruff==0.7.4
-      - name: Ruff check
-        run: ruff check backend/src
-      - name: Ruff format --check
-        run: ruff format --check backend/src
 
   frontend-lint:
     name: 1. validate - frontend lint
@@ -152,79 +131,6 @@ jobs:
   # STAGE 2 — test (depends on validate; jobs parallelise inside)
   # ═════════════════════════════════════════════════════════════
 
-  backend-unit:
-    name: 2. test - backend unit
-    runs-on: ubuntu-latest
-    timeout-minutes: 8
-    needs: [paths, backend-lint]
-    # !cancelled() && !contains(...,'failure') lets this run when upstream
-    # was SKIPPED (default success() treats SKIPPED as blocking).
-    if: |
-      !cancelled() && !contains(needs.*.result, 'failure') && (
-        needs.paths.outputs.backend == 'true'
-        || needs.paths.outputs.ci == 'true'
-        || (github.event_name == 'push' && github.ref == 'refs/heads/main')
-      )
-    steps:
-      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
-      - uses: ./.github/actions/setup-python
-        with:
-          install-test-deps: "true"
-      - name: pytest -m unit
-        env:
-          PYTHONPATH: backend
-        run: pytest -m unit tests/unit -v --tb=short --junitxml=junit-unit.xml
-      - name: Upload junit (unit)
-        if: always()
-        # actions/upload-artifact@v4.4.3
-        uses: actions/upload-artifact@b4b15b8c7c6ac21ea08fcf65892d2ee8f75cf882
-        with:
-          name: junit-backend-unit
-          path: junit-unit.xml
-          retention-days: 7
-
-  backend-integration:
-    name: 2. test - backend integration
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    needs: [paths, backend-lint]
-    if: |
-      !cancelled() && !contains(needs.*.result, 'failure') && (
-        needs.paths.outputs.backend == 'true'
-        || needs.paths.outputs.ci == 'true'
-        || (github.event_name == 'push' && github.ref == 'refs/heads/main')
-      )
-    services:
-      postgres:
-        image: postgres:16-alpine
-        env:
-          POSTGRES_USER: waf
-          POSTGRES_PASSWORD: waf
-          POSTGRES_DB: waf
-        ports: ["5432:5432"]
-        options: >-
-          --health-cmd "pg_isready -U waf"
-          --health-interval 5s
-          --health-timeout 5s
-          --health-retries 10
-    steps:
-      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
-      - uses: ./.github/actions/setup-python
-        with:
-          install-test-deps: "true"
-      - name: pytest -m integration
-        env:
-          PYTHONPATH: backend
-          DATABASE_URL: postgresql+asyncpg://waf:waf@localhost:5432/waf
-        run: pytest -m integration tests/integration -v --tb=short --junitxml=junit-int.xml
-      - name: Upload junit (integration)
-        if: always()
-        uses: actions/upload-artifact@b4b15b8c7c6ac21ea08fcf65892d2ee8f75cf882 # v4.4.3
-        with:
-          name: junit-backend-integration
-          path: junit-int.xml
-          retention-days: 7
-
   frontend-build:
     name: 2. test - frontend build
     runs-on: ubuntu-latest
@@ -257,7 +163,7 @@ jobs:
     name: 3. build - ${{ matrix.image }}
     runs-on: ubuntu-latest
     timeout-minutes: 15
-    needs: [paths, backend-unit, backend-integration, frontend-build]
+    needs: [paths, frontend-build]
     # Skip the matrix entirely on doc-only PRs.
     # !cancelled() + failure-check pattern prevents the cascading-skip bug:
     # if frontend-build is SKIPPED (e.g. backend-only PR), default success()
@@ -272,8 +178,8 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - image: backend
-            context: ./backend
+          - image: gobackend
+            context: ./gobackend
           - image: frontend
             context: ./frontend
           - image: angie
@@ -407,25 +313,6 @@ jobs:
         with:
           sarif_file: trivy-fs.sarif
           category: trivy-fs
-
-  audit-python:
-    name: 4. quality - pip-audit
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    needs: [paths, backend-lint]
-    if: |
-      !cancelled() && !contains(needs.*.result, 'failure') && (
-        needs.paths.outputs.backend == 'true'
-        || needs.paths.outputs.ci == 'true'
-        || (github.event_name == 'push' && github.ref == 'refs/heads/main')
-      )
-    steps:
-      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
-      - uses: ./.github/actions/setup-python
-      - name: pip-audit
-        run: |
-          pip install pip-audit
-          pip-audit -r backend/requirements.txt --strict || true
 
   audit-node:
     name: 4. quality - npm audit
@@ -564,7 +451,7 @@ jobs:
         id: e2e-waf
         continue-on-error: true
         run: |
-          pytest -m e2e \
+          pytest -c tests/pyproject.toml -m e2e \
             tests/e2e/modsecurity/test_sqli_942.py \
             tests/e2e/modsecurity/test_xss_941.py \
             tests/e2e/modsecurity/test_lfi_930.py \
@@ -572,7 +459,7 @@ jobs:
       - name: Connections e2e suite
         id: e2e-conn
         continue-on-error: true
-        run: pytest -m e2e tests/e2e/connections -v --tb=short
+        run: pytest -c tests/pyproject.toml -m e2e tests/e2e/connections -v --tb=short
       - name: Collect docker logs on failure
         if: steps.e2e-waf.outcome == 'failure' || steps.e2e-conn.outcome == 'failure'
         run: docker compose logs --tail=300 > docker-logs.txt 2>&1
@@ -635,45 +522,33 @@ jobs:
     if: always()
     needs:
       - paths
-      - backend-lint
       - frontend-lint
       - frontend-typecheck
       - workflow-lint
-      - backend-unit
-      - backend-integration
       - frontend-build
       - images
       - trivy-fs
-      - audit-python
       - audit-node
       - gitleaks
     steps:
       - name: Fail if any dependency failed
         run: |
           echo "Aggregated job results:"
-          echo "  backend-lint:        ${{ needs.backend-lint.result }}"
           echo "  frontend-lint:       ${{ needs.frontend-lint.result }}"
           echo "  frontend-typecheck:  ${{ needs.frontend-typecheck.result }}"
           echo "  workflow-lint:       ${{ needs.workflow-lint.result }}"
-          echo "  backend-unit:        ${{ needs.backend-unit.result }}"
-          echo "  backend-integration: ${{ needs.backend-integration.result }}"
           echo "  frontend-build:      ${{ needs.frontend-build.result }}"
           echo "  images:              ${{ needs.images.result }}"
           echo "  trivy-fs:            ${{ needs.trivy-fs.result }}"
-          echo "  audit-python:        ${{ needs.audit-python.result }}"
           echo "  audit-node:          ${{ needs.audit-node.result }}"
           echo "  gitleaks:            ${{ needs.gitleaks.result }}"
           for r in \
-            "${{ needs.backend-lint.result }}" \
             "${{ needs.frontend-lint.result }}" \
             "${{ needs.frontend-typecheck.result }}" \
             "${{ needs.workflow-lint.result }}" \
-            "${{ needs.backend-unit.result }}" \
-            "${{ needs.backend-integration.result }}" \
             "${{ needs.frontend-build.result }}" \
             "${{ needs.images.result }}" \
             "${{ needs.trivy-fs.result }}" \
-            "${{ needs.audit-python.result }}" \
             "${{ needs.audit-node.result }}" \
             "${{ needs.gitleaks.result }}"; do
             case "$r" in

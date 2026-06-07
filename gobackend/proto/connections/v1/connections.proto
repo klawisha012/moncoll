@@ -13,9 +13,9 @@ import "google/protobuf/wrappers.proto";
 // enforces tenant ownership (current_tenant equivalent). The /reload RPC is
 // admin-only at the policy level.
 service ConnectionsService {
-  // GET /api/connections/edge-info
+  // GET /api/edge-info
   rpc GetEdgeInfo(EdgeInfoRequest) returns (EdgeInfoResponse) {
-    option (google.api.http) = {get: "/api/connections/edge-info"};
+    option (google.api.http) = {get: "/api/edge-info"};
   }
 
   // GET /api/connections/

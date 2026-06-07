@@ -382,15 +382,17 @@ func (s *Service) CreateConnection(ctx context.Context, req *connectionsv1.Creat
 		statusDetail = &d
 	}
 
-	// Build origin hosts (no DNS resolution in the Go port — we accept what the
-	// client supplies; if empty, we leave it empty and resolve later, or the
-	// frontend must supply them). This matches Python's branch where
-	// origin_hosts are supplied manually.
+	// Build origin hosts (resolve via DNS if empty/absent)
 	var originHosts []string
 	for _, h := range req.OriginHosts {
 		h = strings.TrimSpace(h)
 		if h != "" {
 			originHosts = append(originHosts, h)
+		}
+	}
+	if len(originHosts) == 0 {
+		if ips, err := s.dns.LookupHost(ctx, domain); err == nil && len(ips) > 0 {
+			originHosts = ips
 		}
 	}
 	if originHosts == nil {
@@ -580,6 +582,17 @@ func (s *Service) ProbeConnection(ctx context.Context, req *connectionsv1.ProbeC
 			ps.VerifiedAt = &verifiedAt
 			d := "Domain ownership verified."
 			ps.StatusDetail = &d
+
+			if len(conn.OriginHosts) == 0 {
+				if ips, err := s.dns.LookupHost(ctx, conn.Domain); err == nil && len(ips) > 0 {
+					_, updateErr := s.store.UpdateConnection(ctx, tenantID, conn.ID, store.ConnectionUpdate{
+						OriginHosts: ips,
+					})
+					if updateErr == nil {
+						conn.OriginHosts = ips
+					}
+				}
+			}
 		} else {
 			d := "TXT record not found yet — DNS propagation can take 5-30 minutes."
 			ps.StatusDetail = &d

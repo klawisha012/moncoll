@@ -90,6 +90,9 @@ func (f *fakeStore) UpdateConnection(_ context.Context, tenantID, connID int64, 
 	if upd.Name != nil {
 		c.Name = *upd.Name
 	}
+	if upd.OriginHosts != nil {
+		c.OriginHosts = upd.OriginHosts
+	}
 	if upd.Enabled != nil {
 		c.Enabled = *upd.Enabled
 	}
@@ -751,4 +754,75 @@ func newTestPoller(st Store, res *fakeResolver, cfg *fakeCfgWriter, certsM *fake
 		tickInterval: time.Second,
 		edgeIP:       strings.TrimSpace(os.Getenv("WAF_EDGE_IPV4")),
 	}
+}
+
+// TestCreateConnection_DNSResolution verifies that creating a connection
+// without origin hosts resolves them using DNS if possible.
+func TestCreateConnection_DNSResolution(t *testing.T) {
+	st := newFakeStore()
+	res := newFakeResolver()
+	res.hosts["my-conn.example.com"] = []string{"9.9.9.9", "8.8.8.8"}
+	cfg := &fakeCfgWriter{}
+	certsM := &fakeCertManager{}
+	rel := &fakeReloader{}
+	svc := buildService(st, res, cfg, certsM, rel)
+
+	ctx := tenantCtx(10)
+	resp, err := svc.CreateConnection(ctx, &connectionsv1.CreateConnectionRequest{
+		Name:   "my-conn",
+		Domain: "my-conn.example.com",
+	})
+	require.NoError(t, err)
+
+	require.NotNil(t, resp.Connection)
+	assert.Equal(t, []string{"9.9.9.9", "8.8.8.8"}, resp.Connection.OriginHosts)
+}
+
+// TestProbeConnection_DNSResolutionOnTXTVerify verifies that ProbeConnection
+// resolves origin hosts if empty when transitioning from pending_verification.
+func TestProbeConnection_DNSResolutionOnTXTVerify(t *testing.T) {
+	st := newFakeStore()
+	conn := sampleConn(5)
+	conn.Status = "pending_verification"
+	conn.VerifyToken = "mytok"
+	conn.OriginHosts = []string{} // empty
+	st.addConn(&conn)
+
+	res := newFakeResolver()
+	res.txtRecords["_waf-verify.example.com"] = []string{"mytok"}
+	res.hosts["example.com"] = []string{"7.7.7.7"}
+
+	svc := buildService(st, res, &fakeCfgWriter{}, &fakeCertManager{}, &fakeReloader{})
+
+	ctx := tenantCtx(5)
+	resp, err := svc.ProbeConnection(ctx, &connectionsv1.ProbeConnectionRequest{Id: conn.ID})
+	require.NoError(t, err)
+
+	assert.Equal(t, "pending_dns", resp.Status)
+	assert.Equal(t, []string{"7.7.7.7"}, resp.OriginHosts)
+	assert.Equal(t, []string{"7.7.7.7"}, st.conns[conn.ID].OriginHosts)
+}
+
+// TestPoller_DNSResolutionOnTXTVerify verifies that Poller tickVerification
+// resolves origin hosts if empty when transitioning from pending_verification.
+func TestPoller_DNSResolutionOnTXTVerify(t *testing.T) {
+	st := newFakeStore()
+	conn := sampleConn(1)
+	conn.Status = "pending_verification"
+	conn.VerifyToken = "secrettok"
+	conn.OriginHosts = []string{} // empty
+	st.addConn(&conn)
+
+	res := newFakeResolver()
+	res.txtRecords["_waf-verify.example.com"] = []string{"secrettok"}
+	res.hosts["example.com"] = []string{"6.6.6.6"}
+
+	p := newTestPoller(st, res, &fakeCfgWriter{}, &fakeCertManager{}, &fakeReloader{})
+
+	_, err := p.tickOnce(context.Background())
+	require.NoError(t, err)
+
+	stored := st.conns[conn.ID]
+	assert.Equal(t, "pending_dns", stored.Status)
+	assert.Equal(t, []string{"6.6.6.6"}, stored.OriginHosts)
 }

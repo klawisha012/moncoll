@@ -1295,7 +1295,7 @@ function NativePanels(props: {
       </Show>
 
       <Show when={props.visiblePanels.has("topRules") || props.visiblePanels.has("severity")}>
-        <div style={{ display: "grid", "grid-template-columns": "1fr 1fr", gap: "16px", "margin-bottom": "16px" }}>
+        <div class="dashboard-two-col-grid">
           <Show when={props.visiblePanels.has("topRules")}>
             <PanelCard title={settings.t("dashboard.panel.topRules")} icon={<ShieldAlert size={16} />} style={{ "margin-bottom": 0 }}>
               <HorizontalBars data={topRules.data()} loading={topRules.initialLoading()} labelOf={(d: RuleHit) => injectionLabel(d.rule)} valueOf={(d: RuleHit) => d.hits} />
@@ -1310,7 +1310,7 @@ function NativePanels(props: {
       </Show>
 
       <Show when={props.visiblePanels.has("topAttackers") || props.visiblePanels.has("anomaly")}>
-        <div style={{ display: "grid", "grid-template-columns": "1fr 1fr", gap: "16px", "margin-bottom": "16px" }}>
+        <div class="dashboard-two-col-grid">
           <Show when={props.visiblePanels.has("topAttackers")}>
             <PanelCard title={settings.t("dashboard.panel.topAttackingIPs")} icon={<Users size={16} />} style={{ "margin-bottom": 0 }}>
               <HorizontalBars data={topAttackers.data()} loading={topAttackers.initialLoading()} labelOf={(d: IpHit) => d.ip} valueOf={(d: IpHit) => d.hits} gradient="linear-gradient(90deg, var(--danger), #f59e0b)" />
@@ -1331,7 +1331,7 @@ function NativePanels(props: {
       </Show>
 
       <Show when={props.visiblePanels.has("threatOrigins") || props.visiblePanels.has("topTags")}>
-        <div style={{ display: "grid", "grid-template-columns": "1fr 1fr", gap: "16px", "margin-bottom": "16px" }}>
+        <div class="dashboard-two-col-grid">
           <Show when={props.visiblePanels.has("threatOrigins")}>
             <PanelCard title={settings.t("dashboard.panel.threatOrigins")} icon={<Globe size={16} />} style={{ "margin-bottom": 0 }}>
               <ThreatOriginsChart data={threatOrigins.data()} loading={threatOrigins.initialLoading()} />
@@ -1346,7 +1346,7 @@ function NativePanels(props: {
       </Show>
 
       <Show when={props.visiblePanels.has("topUris") || props.visiblePanels.has("topRuleFiles")}>
-        <div style={{ display: "grid", "grid-template-columns": "1fr 1fr", gap: "16px", "margin-bottom": "16px" }}>
+        <div class="dashboard-two-col-grid">
           <Show when={props.visiblePanels.has("topUris")}>
             <PanelCard title={settings.t("dashboard.panel.topUris")} icon={<Link size={16} />} style={{ "margin-bottom": 0 }}>
               <HorizontalBars data={topUris.data()} loading={topUris.initialLoading()} labelOf={(d: UriHit) => d.uri} valueOf={(d: UriHit) => d.hits} />
@@ -1367,7 +1367,7 @@ function NativePanels(props: {
       </Show>
 
       <Show when={props.visiblePanels.has("topClientIps") || props.visiblePanels.has("topUserAgents")}>
-        <div style={{ display: "grid", "grid-template-columns": "1fr 1fr", gap: "16px", "margin-bottom": "16px" }}>
+        <div class="dashboard-two-col-grid">
           <Show when={props.visiblePanels.has("topClientIps")}>
             <PanelCard title={settings.t("dashboard.panel.topClientIPs")} icon={<HardDrive size={16} />} style={{ "margin-bottom": 0 }}>
               <HorizontalBars data={topClientIps.data()} loading={topClientIps.initialLoading()} labelOf={(d: IpHit) => d.ip} valueOf={(d: IpHit) => d.hits} gradient="linear-gradient(90deg, #6366f1, #8b5cf6)" />
@@ -1387,7 +1387,7 @@ function NativePanels(props: {
       </Show>
 
       <Show when={props.visiblePanels.has("byCountry") || props.visiblePanels.has("trafficVolume")}>
-        <div style={{ display: "grid", "grid-template-columns": "1fr 1fr", gap: "16px", "margin-bottom": "16px" }}>
+        <div class="dashboard-two-col-grid">
           <Show when={props.visiblePanels.has("byCountry")}>
             <PanelCard title={settings.t("dashboard.panel.byCountry")} icon={<Flag size={16} />} style={{ "margin-bottom": 0 }}>
               <HorizontalBars data={byCountry.data()} loading={byCountry.initialLoading()} labelOf={(d: CountryHit) => d.country_code} valueOf={(d: CountryHit) => d.hits} gradient="linear-gradient(90deg, #10b981, var(--accent-1))" />

@@ -206,7 +206,7 @@ services:
   # Redis (Cache and Pub/Sub queue)
   # ----------------------------------------------------------------------------
   redis:
-    image: redis:7-alpine
+    image: redis:7.4-alpine
     command:
       - redis-server
       - --maxmemory

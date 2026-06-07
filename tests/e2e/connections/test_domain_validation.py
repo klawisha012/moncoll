@@ -15,7 +15,7 @@ import uuid
 import pytest
 import requests
 
-API_URL = os.environ.get("WAF_API_URL", "http://localhost:8000")
+API_URL = os.environ.get("WAF_API_URL", "http://localhost")
 ADMIN_USER = os.environ.get("WAF_ADMIN_USER", "admin")
 ADMIN_PASS = os.environ.get("WAF_ADMIN_PASS", "admin")
 
@@ -63,7 +63,7 @@ def cleanup_domains(session: requests.Session):
 )
 def test_create_rejects_invalid_domain(session, cleanup_domains, bad_domain):
     resp = session.post(
-        f"{API_URL}/api/connections/",
+        f"{API_URL}/api/connections",
         json={"name": "test", "domain": bad_domain},
         timeout=10,
     )
@@ -74,7 +74,7 @@ def test_create_rejects_invalid_domain(session, cleanup_domains, bad_domain):
 
 def test_create_rejects_missing_name(session, cleanup_domains):
     resp = session.post(
-        f"{API_URL}/api/connections/",
+        f"{API_URL}/api/connections",
         json={"domain": "acme.com"},
         timeout=10,
     )
@@ -91,13 +91,13 @@ def test_create_duplicate_domain_409(session, cleanup_domains):
     domain = "example.com"
 
     # Clean any leftover from previous runs
-    existing = session.get(f"{API_URL}/api/connections/", timeout=10).json()
+    existing = session.get(f"{API_URL}/api/connections", timeout=10).json()
     for row in existing:
         if row.get("domain") == domain:
             session.delete(f"{API_URL}/api/connections/{row['id']}")
 
     first = session.post(
-        f"{API_URL}/api/connections/",
+        f"{API_URL}/api/connections",
         json={"name": "first", "domain": domain},
         timeout=15,
     )
@@ -107,7 +107,7 @@ def test_create_duplicate_domain_409(session, cleanup_domains):
     cleanup_domains.append(first.json()["connection"]["id"])
 
     dup = session.post(
-        f"{API_URL}/api/connections/",
+        f"{API_URL}/api/connections",
         json={"name": "second", "domain": domain},
         timeout=15,
     )
@@ -122,7 +122,7 @@ def test_create_returns_verify_instructions(session, cleanup_domains):
     # Use a unique-ish subdomain of example.com to avoid colliding across CI runs.
     domain = f"test-{uuid.uuid4().hex[:8]}.example.com"
     resp = session.post(
-        f"{API_URL}/api/connections/",
+        f"{API_URL}/api/connections",
         json={"name": "shape-test", "domain": domain},
         timeout=15,
     )
@@ -143,7 +143,7 @@ def test_create_returns_verify_instructions(session, cleanup_domains):
 
 
 def test_list_endpoint_returns_array(session):
-    resp = session.get(f"{API_URL}/api/connections/", timeout=10)
+    resp = session.get(f"{API_URL}/api/connections", timeout=10)
     assert resp.status_code == 200
     assert isinstance(resp.json(), list)
 

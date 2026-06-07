@@ -101,6 +101,9 @@ export default function Layout(props: { children?: JSX.Element }) {
 
   return (
     <div class={`layout ${collapsed() ? "sidebar-collapsed" : ""}`}>
+      <Show when={!collapsed()}>
+        <div class="sidebar-overlay" onClick={() => setCollapsed(true)} />
+      </Show>
       <Show when={collapsed()}>
         <button
           type="button"

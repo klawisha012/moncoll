@@ -42,7 +42,7 @@ const (
 // enforces tenant ownership (current_tenant equivalent). The /reload RPC is
 // admin-only at the policy level.
 type ConnectionsServiceClient interface {
-	// GET /api/connections/edge-info
+	// GET /api/edge-info
 	GetEdgeInfo(ctx context.Context, in *EdgeInfoRequest, opts ...grpc.CallOption) (*EdgeInfoResponse, error)
 	// GET /api/connections/
 	// response_body: "connections" emits the bare JSON array the frontend
@@ -184,7 +184,7 @@ func (c *connectionsServiceClient) UpdateConnectionSecurity(ctx context.Context,
 // enforces tenant ownership (current_tenant equivalent). The /reload RPC is
 // admin-only at the policy level.
 type ConnectionsServiceServer interface {
-	// GET /api/connections/edge-info
+	// GET /api/edge-info
 	GetEdgeInfo(context.Context, *EdgeInfoRequest) (*EdgeInfoResponse, error)
 	// GET /api/connections/
 	// response_body: "connections" emits the bare JSON array the frontend

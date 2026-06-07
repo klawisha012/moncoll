@@ -75,8 +75,23 @@ export default function Connections() {
     }
   };
 
+  // Rows mid-provisioning are the only ones whose status changes on its own.
+  // Once everything is active/error there is nothing to watch, so we stop
+  // polling instead of hammering /api/connections forever.
+  const hasTransient = () =>
+    rows().some(
+      (c) =>
+        c.status === "pending_verification" ||
+        c.status === "pending_dns" ||
+        c.status === "provisioning_cert",
+    );
+
   onMount(() => {
     void reload();
+  });
+
+  createEffect(() => {
+    if (!hasTransient()) return;
     const intervalId = setInterval(() => void reload(), LIST_REFRESH_MS);
     onCleanup(() => clearInterval(intervalId));
   });

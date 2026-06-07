@@ -6,8 +6,7 @@ to stdout, which we capture via `docker compose logs`.
 
 Run:
     docker compose up -d
-    docker compose exec backend alembic upgrade head
-    WAF_E2E_URL=http://localhost WAF_API_URL=http://localhost:8000 \
+    WAF_E2E_URL=http://localhost WAF_API_URL=http://localhost \
         python -m pytest -m e2e tests/e2e/auth/test_signup_flow.py -v
 """
 from __future__ import annotations
@@ -21,7 +20,7 @@ import uuid
 import pytest
 import requests
 
-API_URL = os.environ.get("WAF_API_URL", "http://localhost:8000")
+API_URL = os.environ.get("WAF_API_URL", "http://localhost")
 
 # Captcha is skipped server-side when WAF_TURNSTILE_SECRET_KEY is unset.
 # The sentinel value satisfies the non-empty field constraint on the client.
@@ -37,10 +36,10 @@ def _unique_tenant() -> str:
 
 
 def _extract_verify_token_from_logs(since_lines: int = 300) -> str | None:
-    """Tail the backend container logs and extract a verify-email token."""
+    """Tail the gobackend container logs and extract a verify-email token."""
     try:
         out = subprocess.check_output(
-            ["docker", "compose", "logs", "--tail", str(since_lines), "backend"],
+            ["docker", "compose", "logs", "--tail", str(since_lines), "gobackend"],
             stderr=subprocess.STDOUT,
             timeout=15,
         ).decode(errors="replace")
@@ -109,7 +108,7 @@ def test_signup_verify_me_create_connection():
     # ── 5. Create a connection (checks tenant isolation is active) ───────────
     domain = f"e2e-{uuid.uuid4().hex[:8]}.example.com"
     r = s.post(
-        f"{API_URL}/api/connections/",
+        f"{API_URL}/api/connections",
         json={"name": "e2e-test", "domain": domain},
         timeout=15,
     )

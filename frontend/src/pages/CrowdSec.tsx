@@ -1,4 +1,4 @@
-import { createSignal, createEffect, createMemo, onMount, onCleanup, For, Show, type JSX } from "solid-js";
+import { createSignal, createMemo, onMount, onCleanup, For, Show, type JSX } from "solid-js";
 import {
   Shield,
   Ban,
@@ -23,26 +23,9 @@ import {
   X,
   Cog,
 } from "lucide-solid";
-import { api, CrowdSecStatus, DecisionItem, ScenarioInfo, AlertItem, Connection } from "../api/client";
 import { useSettings } from "../context/SettingsContext";
 import { useGlobalFilters } from "../context/GlobalFiltersContext";
-
-interface ManualBlockLog {
-  timestamp: string;
-  action: string;
-  ip: string;
-  duration: string;
-  reason: string;
-  source: string;
-}
-
-interface HubScenario {
-  name: string;
-  description: string;
-  author: string;
-  labels: string[];
-  installed: boolean;
-}
+import { useCrowdSecPanel } from "../hooks/useCrowdSecPanel";
 
 type PanelKey = "status" | "blocks" | "scenarios" | "alerts";
 
@@ -52,15 +35,6 @@ export default function CrowdSec() {
   const settings = useSettings();
   const filters = useGlobalFilters();
 
-  const [status, setStatus] = createSignal<CrowdSecStatus | null>(null);
-  const [decisions, setDecisions] = createSignal<DecisionItem[]>([]);
-  const [scenarios, setScenarios] = createSignal<ScenarioInfo[]>([]);
-  const [hubScenarios, setHubScenarios] = createSignal<HubScenario[]>([]);
-  const [manualLog, setManualLog] = createSignal<ManualBlockLog[]>([]);
-  const [alerts, setAlerts] = createSignal<AlertItem[]>([]);
-  const [loading, setLoading] = createSignal(true);
-  const [actionLoading, setActionLoading] = createSignal<string | null>(null);
-  const [serviceEnabled, setServiceEnabled] = createSignal(true);
   const [scenarioSearch, setScenarioSearch] = createSignal("");
   const [hubExpanded, setHubExpanded] = createSignal(false);
   const [expandedCards, setExpandedCards] = createSignal<Set<string>>(new Set());
@@ -72,24 +46,31 @@ export default function CrowdSec() {
   const [blockDuration, setBlockDuration] = createSignal("4h");
   const [blockReason, setBlockReason] = createSignal("manual block");
   const [blockConnectionIds, setBlockConnectionIds] = createSignal<number[]>([]);
-  const [connections, setConnections] = createSignal<Connection[]>([]);
   const [domainDropdownOpen, setDomainDropdownOpen] = createSignal(false);
 
   let gearPopoverRef: HTMLDivElement | undefined;
   let domainDropdownRef: HTMLDivElement | undefined;
 
-  const [toast, setToast] = createSignal<{
-    message: string;
-    type: "success" | "error" | "info";
-  } | null>(null);
+  const panel = useCrowdSecPanel({
+    connectionId: () => filters.connectionId,
+    selectedHours: () => filters.selectedHours,
+    isAlertsOpen: () => expandedCards().has("alerts"),
+    t: settings.t,
+  });
 
-  function showToast(
-    message: string,
-    type: "success" | "error" | "info"
-  ) {
-    setToast({ message, type });
-    setTimeout(() => setToast(null), 4000);
-  }
+  const {
+    status,
+    decisions,
+    scenarios,
+    hubScenarios,
+    manualLog,
+    alerts,
+    connections,
+    loading,
+    actionLoading,
+    serviceEnabled,
+    toast,
+  } = panel;
 
   function toggleCard(card: string) {
     setExpandedCards((prev) => {
@@ -100,9 +81,9 @@ export default function CrowdSec() {
         next.add(card);
         // Load data on expand
         if (card === "alerts" && alerts().length === 0) {
-          loadAlerts();
+          void panel.loadAlerts();
         } else if (card === "scenarios" && hubScenarios().length === 0) {
-          loadHubScenarios();
+          void loadHubScenarios();
         }
       }
       return next;
@@ -113,222 +94,27 @@ export default function CrowdSec() {
     return expandedCards().has(card);
   }
 
-  const loadData = async () => {
-    setLoading(true);
-    try {
-      const connId = filters.connectionId;
-      const [s, d, sc, ml, svc, conns] = await Promise.all([
-        api.getCrowdSecStatus(connId),
-        api.getCrowdSecDecisions(connId),
-        api.getCrowdSecScenarios(),
-        api.getCrowdSecManualBlocks(50, filters.selectedHours),
-        api.getCrowdSecServiceStatus().catch(() => ({ enabled: true })),
-        api.getConnections().catch(() => [] as Connection[]),
-      ]);
-      setStatus(s);
-      setDecisions(d);
-      setScenarios(sc);
-      setManualLog(ml);
-      setServiceEnabled(svc.enabled);
-      setConnections(conns);
-    } catch {
-      showToast(settings.t("crowdsec.error.loadFailed"), "error");
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  createEffect(() => {
-    void loadData();
-  });
-
-  // Refresh alerts panel when time window changes (only if user has opened it)
-  createEffect(() => {
-    // track selectedHours reactively
-    const hours = filters.selectedHours;
-    if (expandedCards().has("alerts")) {
-      loadAlerts();
-    }
-  });
-
-  async function loadAlerts() {
-    try {
-      const items = await api.getCrowdSecAlerts(filters.selectedHours);
-      setAlerts(items);
-    } catch (e: any) {
-      showToast(e.message, "error");
-    }
-  }
-
   async function handleBlock() {
     if (!blockIp().trim()) {
-      showToast(settings.t("crowdsec.input.ipRequired"), "error");
+      panel.showToast(settings.t("crowdsec.input.ipRequired"), "error");
       return;
     }
-    setActionLoading("block");
-    try {
-      const payload: any = {
-        ip: blockIp().trim(),
-        duration: blockDuration(),
-        reason: blockReason(),
-        type: "ban",
-      };
-      if (blockConnectionIds().length > 0) {
-        payload.connection_ids = blockConnectionIds();
-      }
-      const result = await api.addCrowdSecDecision(payload);
-      if (result.success) {
-        const domainInfo = blockConnectionIds().length > 0
-          ? ` on ${blockConnectionIds().length} domain(s)`
-          : " on all domains";
-        showToast(settings.t("crowdsec.toast.ipBlocked", { ip: blockIp(), domainInfo }), "success");
-        setBlockIp("");
-        setBlockReason("manual block");
-        setBlockConnectionIds([]);
-        void loadData();
-      } else {
-        showToast(result.message || settings.t("crowdsec.toast.blockFailed"), "error");
-      }
-    } catch (e: any) {
-      showToast(e.message || settings.t("crowdsec.toast.blockFailed"), "error");
-    } finally {
-      setActionLoading(null);
-    }
-  }
-
-  async function handleUnblock(ip: string) {
-    setActionLoading(`unblock-${ip}`);
-    try {
-      const result = await api.deleteCrowdSecDecision(ip);
-      if (result.success) {
-        showToast(settings.t("crowdsec.toast.ipUnblocked", { ip }), "success");
-        void loadData();
-      } else {
-        showToast(result.message || settings.t("crowdsec.toast.unblockFailed"), "error");
-      }
-    } catch (e: any) {
-      showToast(e.message || settings.t("crowdsec.toast.unblockFailed"), "error");
-    } finally {
-      setActionLoading(null);
-    }
-  }
-
-  async function handleDeleteAllDecisions() {
-    setActionLoading("deleteAll");
-    try {
-      const result = await api.deleteAllCrowdSecDecisions();
-      if (result.success) {
-        showToast(settings.t("crowdsec.toast.allRemoved"), "success");
-        void loadData();
-      } else {
-        showToast(result.message || settings.t("crowdsec.toast.removeAllFailed"), "error");
-      }
-    } catch (e: any) {
-      showToast(e.message || settings.t("crowdsec.toast.removeAllFailed"), "error");
-    } finally {
-      setActionLoading(null);
-    }
-  }
-
-  async function handleInstallScenario(name: string) {
-    setActionLoading(`install-${name}`);
-    try {
-      const result = await api.installCrowdSecScenario(name);
-      showToast(
-        result.success ? settings.t("crowdsec.toast.scenarioInstalled") : result.message || settings.t("crowdsec.toast.scenarioInstallFailed"),
-        result.success ? "success" : "error"
-      );
-      void loadData();
-    } catch (e: any) {
-      showToast(e.message, "error");
-    } finally {
-      setActionLoading(null);
-    }
-  }
-
-  async function handleRemoveScenario(name: string) {
-    setActionLoading(`remove-${name}`);
-    try {
-      const result = await api.removeCrowdSecScenario(name);
-      showToast(
-        result.success ? settings.t("crowdsec.toast.scenarioRemoved") : result.message || settings.t("crowdsec.toast.scenarioRemoveFailed"),
-        result.success ? "success" : "error"
-      );
-      void loadData();
-    } catch (e: any) {
-      showToast(e.message, "error");
-    } finally {
-      setActionLoading(null);
-    }
-  }
-
-  async function handleToggleScenario(name: string) {
-    setActionLoading(`toggle-${name}`);
-    try {
-      const result = await api.toggleCrowdSecScenario(name);
-      showToast(
-        result.success
-          ? (result.enabled ? settings.t("crowdsec.toast.scenarioEnabled") : settings.t("crowdsec.toast.scenarioDisabled"))
-          : result.message || settings.t("crowdsec.toast.toggleFailed"),
-        result.success ? "success" : "error"
-      );
-      void loadData();
-    } catch (e: any) {
-      showToast(e.message, "error");
-    } finally {
-      setActionLoading(null);
-    }
-  }
-
-  async function handleToggleService() {
-    const target = !serviceEnabled();
-    setActionLoading("toggleService");
-    try {
-      const result = await api.toggleCrowdSecService(target);
-      if (result.success) {
-        showToast(
-          result.enabled ? settings.t("crowdsec.toast.serviceEnabled") : settings.t("crowdsec.toast.serviceDisabled"),
-          "success"
-        );
-        setServiceEnabled(result.enabled);
-        void loadData();
-      } else {
-        showToast(result.message || settings.t("crowdsec.toast.serviceToggleFailed"), "error");
-      }
-    } catch (e: any) {
-      showToast(e.message || settings.t("crowdsec.toast.serviceToggleFailed"), "error");
-    } finally {
-      setActionLoading(null);
-    }
-  }
-
-  async function handleReload() {
-    setActionLoading("reload");
-    try {
-      const result = await api.reloadCrowdSec();
-      showToast(
-        result.success ? settings.t("crowdsec.toast.reloaded") : result.message || settings.t("crowdsec.toast.reloadFailed"),
-        result.success ? "success" : "error"
-      );
-      void loadData();
-    } catch (e: any) {
-      showToast(e.message, "error");
-    } finally {
-      setActionLoading(null);
+    const ok = await panel.block({
+      ip: blockIp().trim(),
+      duration: blockDuration(),
+      reason: blockReason(),
+      connectionIds: blockConnectionIds(),
+    });
+    if (ok) {
+      setBlockIp("");
+      setBlockReason("manual block");
+      setBlockConnectionIds([]);
     }
   }
 
   async function loadHubScenarios() {
-    setActionLoading("hub");
-    try {
-      const items = await api.getCrowdSecScenarioHub();
-      setHubScenarios(items);
-      setHubExpanded(true);
-    } catch (e: any) {
-      showToast(e.message, "error");
-    } finally {
-      setActionLoading(null);
-    }
+    await panel.loadHubScenarios();
+    setHubExpanded(true);
   }
 
   // Filtered lists based on search
@@ -644,7 +430,7 @@ export default function CrowdSec() {
                   <div style={{ display: "flex", gap: "8px" }}>
                     <button
                       class={`btn ${serviceEnabled() ? "btn-danger" : "btn-success"}`}
-                      onClick={() => handleToggleService()}
+                      onClick={() => panel.toggleService()}
                       disabled={actionLoading() === "toggleService"}
                     >
                       <Show
@@ -657,7 +443,7 @@ export default function CrowdSec() {
                     </button>
                     <button
                       class="btn btn-outline"
-                      onClick={() => handleReload()}
+                      onClick={() => panel.reloadEngine()}
                       disabled={actionLoading() === "reload"}
                     >
                       <RefreshCw
@@ -895,7 +681,7 @@ export default function CrowdSec() {
                       </h4>
                       <button
                         class="btn btn-outline btn-sm"
-                        onClick={() => handleDeleteAllDecisions()}
+                        onClick={() => panel.deleteAllDecisions()}
                         disabled={actionLoading() === "deleteAll" || decisions().length === 0}
                       >
                         <Trash2 size={11} />
@@ -972,7 +758,7 @@ export default function CrowdSec() {
                                   <td>
                                     <button
                                       class="btn btn-outline btn-sm"
-                                      onClick={() => handleUnblock(d.value)}
+                                      onClick={() => panel.unblock(d.value)}
                                       disabled={actionLoading() === `unblock-${d.value}`}
                                       style={{ color: "var(--success)", "border-color": "rgba(16,185,129,0.3)" }}
                                     >
@@ -1212,7 +998,7 @@ export default function CrowdSec() {
                                     <div style={{ display: "flex", gap: "4px" }}>
                                       <button
                                         class="btn btn-outline btn-sm"
-                                        onClick={() => handleToggleScenario(s.name)}
+                                        onClick={() => panel.toggleScenario(s.name)}
                                         disabled={actionLoading() === `toggle-${s.name}`}
                                         style={{
                                           color: s.loaded ? "var(--warning)" : "var(--success)",
@@ -1232,7 +1018,7 @@ export default function CrowdSec() {
                                       </button>
                                       <button
                                         class="btn btn-outline btn-sm"
-                                        onClick={() => handleRemoveScenario(s.name)}
+                                        onClick={() => panel.removeScenario(s.name)}
                                         disabled={actionLoading() === `remove-${s.name}`}
                                         style={{ color: "var(--danger)", "border-color": "rgba(244,63,94,0.2)", "font-size": "10px", padding: "2px 6px" }}
                                       >
@@ -1311,7 +1097,7 @@ export default function CrowdSec() {
                                           fallback={
                                             <button
                                               class="btn btn-outline btn-sm"
-                                              onClick={() => handleInstallScenario(s.name)}
+                                              onClick={() => panel.installScenario(s.name)}
                                               disabled={actionLoading() === `install-${s.name}`}
                                               style={{ "font-size": "10px", padding: "2px 6px" }}
                                             >

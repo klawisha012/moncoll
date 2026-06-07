@@ -1226,10 +1226,10 @@ const file_connections_v1_connections_proto_rawDesc = "" +
 	"\x02id\x18\x01 \x01(\x03R\x02id\x12!\n" +
 	"\fmodsec_state\x18\x02 \x01(\tR\vmodsecState\x124\n" +
 	"\x16geoip_denied_countries\x18\x03 \x03(\tR\x14geoipDeniedCountries\x12'\n" +
-	"\x0fcrowdsec_active\x18\x04 \x01(\bR\x0ecrowdsecActive2\xa8\n" +
+	"\x0fcrowdsec_active\x18\x04 \x01(\bR\x0ecrowdsecActive2\x9c\n" +
 	"\n" +
-	"\x12ConnectionsService\x12t\n" +
-	"\vGetEdgeInfo\x12\x1f.connections.v1.EdgeInfoRequest\x1a .connections.v1.EdgeInfoResponse\"\"\x82\xd3\xe4\x93\x02\x1c\x12\x1a/api/connections/edge-info\x12\x89\x01\n" +
+	"\x12ConnectionsService\x12h\n" +
+	"\vGetEdgeInfo\x12\x1f.connections.v1.EdgeInfoRequest\x1a .connections.v1.EdgeInfoResponse\"\x16\x82\xd3\xe4\x93\x02\x10\x12\x0e/api/edge-info\x12\x89\x01\n" +
 	"\x0fListConnections\x12&.connections.v1.ListConnectionsRequest\x1a'.connections.v1.ListConnectionsResponse\"%\x82\xd3\xe4\x93\x02\x1fb\vconnections\x12\x10/api/connections\x12p\n" +
 	"\rGetConnection\x12$.connections.v1.GetConnectionRequest\x1a\x1a.connections.v1.Connection\"\x1d\x82\xd3\xe4\x93\x02\x17\x12\x15/api/connections/{id}\x12\x82\x01\n" +
 	"\x10CreateConnection\x12'.connections.v1.CreateConnectionRequest\x1a(.connections.v1.CreateConnectionResponse\"\x1b\x82\xd3\xe4\x93\x02\x15:\x01*\"\x10/api/connections\x12y\n" +

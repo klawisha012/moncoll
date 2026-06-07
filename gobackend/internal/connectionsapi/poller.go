@@ -194,6 +194,19 @@ func (p *Poller) tickVerification(ctx context.Context, row *store.Connection, ps
 		d := "Domain ownership verified."
 		ps.StatusDetail = &d
 		p.log.Info("poller: TXT verified", "conn", row.ID)
+
+		if len(row.OriginHosts) == 0 {
+			if ips, err := p.dns.LookupHost(ctx, row.Domain); err == nil && len(ips) > 0 {
+				_, updateErr := p.store.UpdateConnection(ctx, row.TenantID, row.ID, store.ConnectionUpdate{
+					OriginHosts: ips,
+				})
+				if updateErr == nil {
+					row.OriginHosts = ips
+				} else {
+					p.log.Warn("poller: failed to save resolved origin hosts", "conn", row.ID, "err", updateErr)
+				}
+			}
+		}
 	} else {
 		d := "Waiting for TXT _waf-verify record to propagate."
 		ps.StatusDetail = &d
