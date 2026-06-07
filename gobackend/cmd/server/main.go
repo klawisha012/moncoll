@@ -21,6 +21,7 @@ import (
 	adminv1 "github.com/zwarder/waf/gobackend/gen/admin/v1"
 	authv1 "github.com/zwarder/waf/gobackend/gen/auth/v1"
 	connectionsv1 "github.com/zwarder/waf/gobackend/gen/connections/v1"
+	teamsv1 "github.com/zwarder/waf/gobackend/gen/teams/v1"
 	crowdsecv1 "github.com/zwarder/waf/gobackend/gen/crowdsec/v1"
 	dashboardv1 "github.com/zwarder/waf/gobackend/gen/dashboard/v1"
 	modsecurityv1 "github.com/zwarder/waf/gobackend/gen/modsecurity/v1"
@@ -40,6 +41,7 @@ import (
 	"github.com/zwarder/waf/gobackend/internal/config"
 	"github.com/zwarder/waf/gobackend/internal/conndns"
 	"github.com/zwarder/waf/gobackend/internal/connectionsapi"
+	"github.com/zwarder/waf/gobackend/internal/teamsapi"
 	"github.com/zwarder/waf/gobackend/internal/crowdsec"
 	"github.com/zwarder/waf/gobackend/internal/crowdsecapi"
 	"github.com/zwarder/waf/gobackend/internal/cscli"
@@ -299,6 +301,9 @@ func runServer(ctx context.Context, log *slog.Logger) {
 		testsv1.TestsService_RunTest_FullMethodName:             auth.LevelVerified,
 		testsv1.TestsService_GetCrowdsecCatalog_FullMethodName:  auth.LevelVerified,
 		testsv1.TestsService_RunCrowdsecScenario_FullMethodName: auth.LevelVerified,
+		// teams: require_verified (tenant-scoped membership + active-team switch)
+		teamsv1.TeamsService_ListMyTeams_FullMethodName: auth.LevelVerified,
+		teamsv1.TeamsService_SwitchTeam_FullMethodName:  auth.LevelVerified,
 		// auth: all methods are LevelPublic — public endpoints (login/signup/...)
 		// have no session yet, and the cookie-validating endpoints (me, totp/setup,
 		// totp/confirm) read + verify their OWN cookie inside the handler.
@@ -342,6 +347,10 @@ func runServer(ctx context.Context, log *slog.Logger) {
 		log,
 	)
 	connectionsv1.RegisterConnectionsServiceServer(grpcSrv, connSvc)
+
+	// ── Teams (membership + active-team switch) ───────────────────────────────
+	teamsSvc := teamsapi.New(st, log)
+	teamsv1.RegisterTeamsServiceServer(grpcSrv, teamsSvc)
 
 	// ── Auth service (11 endpoints) ───────────────────────────────────────────
 	authCfg := authapi.Config{
