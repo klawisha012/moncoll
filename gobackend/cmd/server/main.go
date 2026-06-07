@@ -310,6 +310,10 @@ func runServer(ctx context.Context, log *slog.Logger) {
 		teamsv1.TeamsService_DeclineInvitation_FullMethodName: auth.LevelVerified,
 		teamsv1.TeamsService_RevokeInvitation_FullMethodName:  auth.LevelVerified,
 		teamsv1.TeamsService_ResendInvitation_FullMethodName:  auth.LevelVerified,
+		teamsv1.TeamsService_ListMembers_FullMethodName:  auth.LevelVerified,
+		teamsv1.TeamsService_RemoveMember_FullMethodName: auth.LevelVerified,
+		teamsv1.TeamsService_ChangeRole_FullMethodName:   auth.LevelVerified,
+		teamsv1.TeamsService_LeaveTeam_FullMethodName:    auth.LevelVerified,
 		// auth: all methods are LevelPublic — public endpoints (login/signup/...)
 		// have no session yet, and the cookie-validating endpoints (me, totp/setup,
 		// totp/confirm) read + verify their OWN cookie inside the handler.
