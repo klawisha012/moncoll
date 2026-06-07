@@ -28,6 +28,10 @@ const (
 	TeamsService_DeclineInvitation_FullMethodName = "/teams.v1.TeamsService/DeclineInvitation"
 	TeamsService_RevokeInvitation_FullMethodName  = "/teams.v1.TeamsService/RevokeInvitation"
 	TeamsService_ResendInvitation_FullMethodName  = "/teams.v1.TeamsService/ResendInvitation"
+	TeamsService_ListMembers_FullMethodName       = "/teams.v1.TeamsService/ListMembers"
+	TeamsService_RemoveMember_FullMethodName      = "/teams.v1.TeamsService/RemoveMember"
+	TeamsService_ChangeRole_FullMethodName        = "/teams.v1.TeamsService/ChangeRole"
+	TeamsService_LeaveTeam_FullMethodName         = "/teams.v1.TeamsService/LeaveTeam"
 )
 
 // TeamsServiceClient is the client API for TeamsService service.
@@ -44,6 +48,10 @@ type TeamsServiceClient interface {
 	DeclineInvitation(ctx context.Context, in *InvitationIdRequest, opts ...grpc.CallOption) (*emptypb.Empty, error)
 	RevokeInvitation(ctx context.Context, in *InvitationIdRequest, opts ...grpc.CallOption) (*emptypb.Empty, error)
 	ResendInvitation(ctx context.Context, in *InvitationIdRequest, opts ...grpc.CallOption) (*Invitation, error)
+	ListMembers(ctx context.Context, in *ListMembersRequest, opts ...grpc.CallOption) (*ListMembersResponse, error)
+	RemoveMember(ctx context.Context, in *MemberRequest, opts ...grpc.CallOption) (*emptypb.Empty, error)
+	ChangeRole(ctx context.Context, in *ChangeRoleRequest, opts ...grpc.CallOption) (*emptypb.Empty, error)
+	LeaveTeam(ctx context.Context, in *LeaveTeamRequest, opts ...grpc.CallOption) (*emptypb.Empty, error)
 }
 
 type teamsServiceClient struct {
@@ -134,6 +142,46 @@ func (c *teamsServiceClient) ResendInvitation(ctx context.Context, in *Invitatio
 	return out, nil
 }
 
+func (c *teamsServiceClient) ListMembers(ctx context.Context, in *ListMembersRequest, opts ...grpc.CallOption) (*ListMembersResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ListMembersResponse)
+	err := c.cc.Invoke(ctx, TeamsService_ListMembers_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *teamsServiceClient) RemoveMember(ctx context.Context, in *MemberRequest, opts ...grpc.CallOption) (*emptypb.Empty, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(emptypb.Empty)
+	err := c.cc.Invoke(ctx, TeamsService_RemoveMember_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *teamsServiceClient) ChangeRole(ctx context.Context, in *ChangeRoleRequest, opts ...grpc.CallOption) (*emptypb.Empty, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(emptypb.Empty)
+	err := c.cc.Invoke(ctx, TeamsService_ChangeRole_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *teamsServiceClient) LeaveTeam(ctx context.Context, in *LeaveTeamRequest, opts ...grpc.CallOption) (*emptypb.Empty, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(emptypb.Empty)
+	err := c.cc.Invoke(ctx, TeamsService_LeaveTeam_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // TeamsServiceServer is the server API for TeamsService service.
 // All implementations must embed UnimplementedTeamsServiceServer
 // for forward compatibility.
@@ -148,6 +196,10 @@ type TeamsServiceServer interface {
 	DeclineInvitation(context.Context, *InvitationIdRequest) (*emptypb.Empty, error)
 	RevokeInvitation(context.Context, *InvitationIdRequest) (*emptypb.Empty, error)
 	ResendInvitation(context.Context, *InvitationIdRequest) (*Invitation, error)
+	ListMembers(context.Context, *ListMembersRequest) (*ListMembersResponse, error)
+	RemoveMember(context.Context, *MemberRequest) (*emptypb.Empty, error)
+	ChangeRole(context.Context, *ChangeRoleRequest) (*emptypb.Empty, error)
+	LeaveTeam(context.Context, *LeaveTeamRequest) (*emptypb.Empty, error)
 	mustEmbedUnimplementedTeamsServiceServer()
 }
 
@@ -181,6 +233,18 @@ func (UnimplementedTeamsServiceServer) RevokeInvitation(context.Context, *Invita
 }
 func (UnimplementedTeamsServiceServer) ResendInvitation(context.Context, *InvitationIdRequest) (*Invitation, error) {
 	return nil, status.Error(codes.Unimplemented, "method ResendInvitation not implemented")
+}
+func (UnimplementedTeamsServiceServer) ListMembers(context.Context, *ListMembersRequest) (*ListMembersResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method ListMembers not implemented")
+}
+func (UnimplementedTeamsServiceServer) RemoveMember(context.Context, *MemberRequest) (*emptypb.Empty, error) {
+	return nil, status.Error(codes.Unimplemented, "method RemoveMember not implemented")
+}
+func (UnimplementedTeamsServiceServer) ChangeRole(context.Context, *ChangeRoleRequest) (*emptypb.Empty, error) {
+	return nil, status.Error(codes.Unimplemented, "method ChangeRole not implemented")
+}
+func (UnimplementedTeamsServiceServer) LeaveTeam(context.Context, *LeaveTeamRequest) (*emptypb.Empty, error) {
+	return nil, status.Error(codes.Unimplemented, "method LeaveTeam not implemented")
 }
 func (UnimplementedTeamsServiceServer) mustEmbedUnimplementedTeamsServiceServer() {}
 func (UnimplementedTeamsServiceServer) testEmbeddedByValue()                      {}
@@ -347,6 +411,78 @@ func _TeamsService_ResendInvitation_Handler(srv interface{}, ctx context.Context
 	return interceptor(ctx, in, info, handler)
 }
 
+func _TeamsService_ListMembers_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ListMembersRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(TeamsServiceServer).ListMembers(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: TeamsService_ListMembers_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(TeamsServiceServer).ListMembers(ctx, req.(*ListMembersRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _TeamsService_RemoveMember_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(MemberRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(TeamsServiceServer).RemoveMember(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: TeamsService_RemoveMember_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(TeamsServiceServer).RemoveMember(ctx, req.(*MemberRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _TeamsService_ChangeRole_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ChangeRoleRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(TeamsServiceServer).ChangeRole(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: TeamsService_ChangeRole_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(TeamsServiceServer).ChangeRole(ctx, req.(*ChangeRoleRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _TeamsService_LeaveTeam_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(LeaveTeamRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(TeamsServiceServer).LeaveTeam(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: TeamsService_LeaveTeam_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(TeamsServiceServer).LeaveTeam(ctx, req.(*LeaveTeamRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // TeamsService_ServiceDesc is the grpc.ServiceDesc for TeamsService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -385,6 +521,22 @@ var TeamsService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "ResendInvitation",
 			Handler:    _TeamsService_ResendInvitation_Handler,
+		},
+		{
+			MethodName: "ListMembers",
+			Handler:    _TeamsService_ListMembers_Handler,
+		},
+		{
+			MethodName: "RemoveMember",
+			Handler:    _TeamsService_RemoveMember_Handler,
+		},
+		{
+			MethodName: "ChangeRole",
+			Handler:    _TeamsService_ChangeRole_Handler,
+		},
+		{
+			MethodName: "LeaveTeam",
+			Handler:    _TeamsService_LeaveTeam_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},
