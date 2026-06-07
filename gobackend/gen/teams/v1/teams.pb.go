@@ -223,6 +223,326 @@ func (x *SwitchTeamRequest) GetTenantId() int64 {
 	return 0
 }
 
+type Invitation struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Id            int64                  `protobuf:"varint,1,opt,name=id,proto3" json:"id,omitempty"`
+	TenantId      int64                  `protobuf:"varint,2,opt,name=tenant_id,json=tenantId,proto3" json:"tenant_id,omitempty"`
+	Email         string                 `protobuf:"bytes,3,opt,name=email,proto3" json:"email,omitempty"`
+	Role          string                 `protobuf:"bytes,4,opt,name=role,proto3" json:"role,omitempty"`
+	Status        string                 `protobuf:"bytes,5,opt,name=status,proto3" json:"status,omitempty"`
+	TeamName      string                 `protobuf:"bytes,6,opt,name=team_name,json=teamName,proto3" json:"team_name,omitempty"`
+	ExpiresAt     string                 `protobuf:"bytes,7,opt,name=expires_at,json=expiresAt,proto3" json:"expires_at,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *Invitation) Reset() {
+	*x = Invitation{}
+	mi := &file_teams_v1_teams_proto_msgTypes[4]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *Invitation) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*Invitation) ProtoMessage() {}
+
+func (x *Invitation) ProtoReflect() protoreflect.Message {
+	mi := &file_teams_v1_teams_proto_msgTypes[4]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use Invitation.ProtoReflect.Descriptor instead.
+func (*Invitation) Descriptor() ([]byte, []int) {
+	return file_teams_v1_teams_proto_rawDescGZIP(), []int{4}
+}
+
+func (x *Invitation) GetId() int64 {
+	if x != nil {
+		return x.Id
+	}
+	return 0
+}
+
+func (x *Invitation) GetTenantId() int64 {
+	if x != nil {
+		return x.TenantId
+	}
+	return 0
+}
+
+func (x *Invitation) GetEmail() string {
+	if x != nil {
+		return x.Email
+	}
+	return ""
+}
+
+func (x *Invitation) GetRole() string {
+	if x != nil {
+		return x.Role
+	}
+	return ""
+}
+
+func (x *Invitation) GetStatus() string {
+	if x != nil {
+		return x.Status
+	}
+	return ""
+}
+
+func (x *Invitation) GetTeamName() string {
+	if x != nil {
+		return x.TeamName
+	}
+	return ""
+}
+
+func (x *Invitation) GetExpiresAt() string {
+	if x != nil {
+		return x.ExpiresAt
+	}
+	return ""
+}
+
+type CreateInvitationRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Email         string                 `protobuf:"bytes,1,opt,name=email,proto3" json:"email,omitempty"`
+	Role          string                 `protobuf:"bytes,2,opt,name=role,proto3" json:"role,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *CreateInvitationRequest) Reset() {
+	*x = CreateInvitationRequest{}
+	mi := &file_teams_v1_teams_proto_msgTypes[5]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *CreateInvitationRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*CreateInvitationRequest) ProtoMessage() {}
+
+func (x *CreateInvitationRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_teams_v1_teams_proto_msgTypes[5]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use CreateInvitationRequest.ProtoReflect.Descriptor instead.
+func (*CreateInvitationRequest) Descriptor() ([]byte, []int) {
+	return file_teams_v1_teams_proto_rawDescGZIP(), []int{5}
+}
+
+func (x *CreateInvitationRequest) GetEmail() string {
+	if x != nil {
+		return x.Email
+	}
+	return ""
+}
+
+func (x *CreateInvitationRequest) GetRole() string {
+	if x != nil {
+		return x.Role
+	}
+	return ""
+}
+
+type ListInvitationsRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ListInvitationsRequest) Reset() {
+	*x = ListInvitationsRequest{}
+	mi := &file_teams_v1_teams_proto_msgTypes[6]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ListInvitationsRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ListInvitationsRequest) ProtoMessage() {}
+
+func (x *ListInvitationsRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_teams_v1_teams_proto_msgTypes[6]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ListInvitationsRequest.ProtoReflect.Descriptor instead.
+func (*ListInvitationsRequest) Descriptor() ([]byte, []int) {
+	return file_teams_v1_teams_proto_rawDescGZIP(), []int{6}
+}
+
+type ListInvitationsResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Outgoing      []*Invitation          `protobuf:"bytes,1,rep,name=outgoing,proto3" json:"outgoing,omitempty"`
+	Incoming      []*Invitation          `protobuf:"bytes,2,rep,name=incoming,proto3" json:"incoming,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ListInvitationsResponse) Reset() {
+	*x = ListInvitationsResponse{}
+	mi := &file_teams_v1_teams_proto_msgTypes[7]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ListInvitationsResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ListInvitationsResponse) ProtoMessage() {}
+
+func (x *ListInvitationsResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_teams_v1_teams_proto_msgTypes[7]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ListInvitationsResponse.ProtoReflect.Descriptor instead.
+func (*ListInvitationsResponse) Descriptor() ([]byte, []int) {
+	return file_teams_v1_teams_proto_rawDescGZIP(), []int{7}
+}
+
+func (x *ListInvitationsResponse) GetOutgoing() []*Invitation {
+	if x != nil {
+		return x.Outgoing
+	}
+	return nil
+}
+
+func (x *ListInvitationsResponse) GetIncoming() []*Invitation {
+	if x != nil {
+		return x.Incoming
+	}
+	return nil
+}
+
+type AcceptInvitationRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Token         string                 `protobuf:"bytes,1,opt,name=token,proto3" json:"token,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *AcceptInvitationRequest) Reset() {
+	*x = AcceptInvitationRequest{}
+	mi := &file_teams_v1_teams_proto_msgTypes[8]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *AcceptInvitationRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*AcceptInvitationRequest) ProtoMessage() {}
+
+func (x *AcceptInvitationRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_teams_v1_teams_proto_msgTypes[8]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use AcceptInvitationRequest.ProtoReflect.Descriptor instead.
+func (*AcceptInvitationRequest) Descriptor() ([]byte, []int) {
+	return file_teams_v1_teams_proto_rawDescGZIP(), []int{8}
+}
+
+func (x *AcceptInvitationRequest) GetToken() string {
+	if x != nil {
+		return x.Token
+	}
+	return ""
+}
+
+type InvitationIdRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Id            int64                  `protobuf:"varint,1,opt,name=id,proto3" json:"id,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *InvitationIdRequest) Reset() {
+	*x = InvitationIdRequest{}
+	mi := &file_teams_v1_teams_proto_msgTypes[9]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *InvitationIdRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*InvitationIdRequest) ProtoMessage() {}
+
+func (x *InvitationIdRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_teams_v1_teams_proto_msgTypes[9]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use InvitationIdRequest.ProtoReflect.Descriptor instead.
+func (*InvitationIdRequest) Descriptor() ([]byte, []int) {
+	return file_teams_v1_teams_proto_rawDescGZIP(), []int{9}
+}
+
+func (x *InvitationIdRequest) GetId() int64 {
+	if x != nil {
+		return x.Id
+	}
+	return 0
+}
+
 var File_teams_v1_teams_proto protoreflect.FileDescriptor
 
 const file_teams_v1_teams_proto_rawDesc = "" +
@@ -238,12 +558,39 @@ const file_teams_v1_teams_proto_rawDesc = "" +
 	"\x13ListMyTeamsResponse\x12$\n" +
 	"\x05teams\x18\x01 \x03(\v2\x0e.teams.v1.TeamR\x05teams\"0\n" +
 	"\x11SwitchTeamRequest\x12\x1b\n" +
-	"\ttenant_id\x18\x01 \x01(\x03R\btenantId2\xcf\x01\n" +
+	"\ttenant_id\x18\x01 \x01(\x03R\btenantId\"\xb7\x01\n" +
+	"\n" +
+	"Invitation\x12\x0e\n" +
+	"\x02id\x18\x01 \x01(\x03R\x02id\x12\x1b\n" +
+	"\ttenant_id\x18\x02 \x01(\x03R\btenantId\x12\x14\n" +
+	"\x05email\x18\x03 \x01(\tR\x05email\x12\x12\n" +
+	"\x04role\x18\x04 \x01(\tR\x04role\x12\x16\n" +
+	"\x06status\x18\x05 \x01(\tR\x06status\x12\x1b\n" +
+	"\tteam_name\x18\x06 \x01(\tR\bteamName\x12\x1d\n" +
+	"\n" +
+	"expires_at\x18\a \x01(\tR\texpiresAt\"C\n" +
+	"\x17CreateInvitationRequest\x12\x14\n" +
+	"\x05email\x18\x01 \x01(\tR\x05email\x12\x12\n" +
+	"\x04role\x18\x02 \x01(\tR\x04role\"\x18\n" +
+	"\x16ListInvitationsRequest\"}\n" +
+	"\x17ListInvitationsResponse\x120\n" +
+	"\boutgoing\x18\x01 \x03(\v2\x14.teams.v1.InvitationR\boutgoing\x120\n" +
+	"\bincoming\x18\x02 \x03(\v2\x14.teams.v1.InvitationR\bincoming\"/\n" +
+	"\x17AcceptInvitationRequest\x12\x14\n" +
+	"\x05token\x18\x01 \x01(\tR\x05token\"%\n" +
+	"\x13InvitationIdRequest\x12\x0e\n" +
+	"\x02id\x18\x01 \x01(\x03R\x02id2\x8f\a\n" +
 	"\fTeamsService\x12^\n" +
 	"\vListMyTeams\x12\x1c.teams.v1.ListMyTeamsRequest\x1a\x1d.teams.v1.ListMyTeamsResponse\"\x12\x82\xd3\xe4\x93\x02\f\x12\n" +
 	"/api/teams\x12_\n" +
 	"\n" +
-	"SwitchTeam\x12\x1b.teams.v1.SwitchTeamRequest\x1a\x16.google.protobuf.Empty\"\x1c\x82\xd3\xe4\x93\x02\x16:\x01*\"\x11/api/teams/switchB\x92\x01\n" +
+	"SwitchTeam\x12\x1b.teams.v1.SwitchTeamRequest\x1a\x16.google.protobuf.Empty\"\x1c\x82\xd3\xe4\x93\x02\x16:\x01*\"\x11/api/teams/switch\x12v\n" +
+	"\x0fListInvitations\x12 .teams.v1.ListInvitationsRequest\x1a!.teams.v1.ListInvitationsResponse\"\x1e\x82\xd3\xe4\x93\x02\x18\x12\x16/api/teams/invitations\x12n\n" +
+	"\x10CreateInvitation\x12!.teams.v1.CreateInvitationRequest\x1a\x14.teams.v1.Invitation\"!\x82\xd3\xe4\x93\x02\x1b:\x01*\"\x16/api/teams/invitations\x12w\n" +
+	"\x10AcceptInvitation\x12!.teams.v1.AcceptInvitationRequest\x1a\x16.google.protobuf.Empty\"(\x82\xd3\xe4\x93\x02\":\x01*\"\x1d/api/teams/invitations/accept\x12u\n" +
+	"\x11DeclineInvitation\x12\x1d.teams.v1.InvitationIdRequest\x1a\x16.google.protobuf.Empty\")\x82\xd3\xe4\x93\x02#:\x01*\"\x1e/api/teams/invitations/decline\x12s\n" +
+	"\x10RevokeInvitation\x12\x1d.teams.v1.InvitationIdRequest\x1a\x16.google.protobuf.Empty\"(\x82\xd3\xe4\x93\x02\":\x01*\"\x1d/api/teams/invitations/revoke\x12q\n" +
+	"\x10ResendInvitation\x12\x1d.teams.v1.InvitationIdRequest\x1a\x14.teams.v1.Invitation\"(\x82\xd3\xe4\x93\x02\":\x01*\"\x1d/api/teams/invitations/resendB\x92\x01\n" +
 	"\fcom.teams.v1B\n" +
 	"TeamsProtoP\x01Z5github.com/zwarder/waf/gobackend/gen/teams/v1;teamsv1\xa2\x02\x03TXX\xaa\x02\bTeams.V1\xca\x02\bTeams\\V1\xe2\x02\x14Teams\\V1\\GPBMetadata\xea\x02\tTeams::V1b\x06proto3"
 
@@ -259,25 +606,45 @@ func file_teams_v1_teams_proto_rawDescGZIP() []byte {
 	return file_teams_v1_teams_proto_rawDescData
 }
 
-var file_teams_v1_teams_proto_msgTypes = make([]protoimpl.MessageInfo, 4)
+var file_teams_v1_teams_proto_msgTypes = make([]protoimpl.MessageInfo, 10)
 var file_teams_v1_teams_proto_goTypes = []any{
-	(*ListMyTeamsRequest)(nil),  // 0: teams.v1.ListMyTeamsRequest
-	(*Team)(nil),                // 1: teams.v1.Team
-	(*ListMyTeamsResponse)(nil), // 2: teams.v1.ListMyTeamsResponse
-	(*SwitchTeamRequest)(nil),   // 3: teams.v1.SwitchTeamRequest
-	(*emptypb.Empty)(nil),       // 4: google.protobuf.Empty
+	(*ListMyTeamsRequest)(nil),      // 0: teams.v1.ListMyTeamsRequest
+	(*Team)(nil),                    // 1: teams.v1.Team
+	(*ListMyTeamsResponse)(nil),     // 2: teams.v1.ListMyTeamsResponse
+	(*SwitchTeamRequest)(nil),       // 3: teams.v1.SwitchTeamRequest
+	(*Invitation)(nil),              // 4: teams.v1.Invitation
+	(*CreateInvitationRequest)(nil), // 5: teams.v1.CreateInvitationRequest
+	(*ListInvitationsRequest)(nil),  // 6: teams.v1.ListInvitationsRequest
+	(*ListInvitationsResponse)(nil), // 7: teams.v1.ListInvitationsResponse
+	(*AcceptInvitationRequest)(nil), // 8: teams.v1.AcceptInvitationRequest
+	(*InvitationIdRequest)(nil),     // 9: teams.v1.InvitationIdRequest
+	(*emptypb.Empty)(nil),           // 10: google.protobuf.Empty
 }
 var file_teams_v1_teams_proto_depIdxs = []int32{
-	1, // 0: teams.v1.ListMyTeamsResponse.teams:type_name -> teams.v1.Team
-	0, // 1: teams.v1.TeamsService.ListMyTeams:input_type -> teams.v1.ListMyTeamsRequest
-	3, // 2: teams.v1.TeamsService.SwitchTeam:input_type -> teams.v1.SwitchTeamRequest
-	2, // 3: teams.v1.TeamsService.ListMyTeams:output_type -> teams.v1.ListMyTeamsResponse
-	4, // 4: teams.v1.TeamsService.SwitchTeam:output_type -> google.protobuf.Empty
-	3, // [3:5] is the sub-list for method output_type
-	1, // [1:3] is the sub-list for method input_type
-	1, // [1:1] is the sub-list for extension type_name
-	1, // [1:1] is the sub-list for extension extendee
-	0, // [0:1] is the sub-list for field type_name
+	1,  // 0: teams.v1.ListMyTeamsResponse.teams:type_name -> teams.v1.Team
+	4,  // 1: teams.v1.ListInvitationsResponse.outgoing:type_name -> teams.v1.Invitation
+	4,  // 2: teams.v1.ListInvitationsResponse.incoming:type_name -> teams.v1.Invitation
+	0,  // 3: teams.v1.TeamsService.ListMyTeams:input_type -> teams.v1.ListMyTeamsRequest
+	3,  // 4: teams.v1.TeamsService.SwitchTeam:input_type -> teams.v1.SwitchTeamRequest
+	6,  // 5: teams.v1.TeamsService.ListInvitations:input_type -> teams.v1.ListInvitationsRequest
+	5,  // 6: teams.v1.TeamsService.CreateInvitation:input_type -> teams.v1.CreateInvitationRequest
+	8,  // 7: teams.v1.TeamsService.AcceptInvitation:input_type -> teams.v1.AcceptInvitationRequest
+	9,  // 8: teams.v1.TeamsService.DeclineInvitation:input_type -> teams.v1.InvitationIdRequest
+	9,  // 9: teams.v1.TeamsService.RevokeInvitation:input_type -> teams.v1.InvitationIdRequest
+	9,  // 10: teams.v1.TeamsService.ResendInvitation:input_type -> teams.v1.InvitationIdRequest
+	2,  // 11: teams.v1.TeamsService.ListMyTeams:output_type -> teams.v1.ListMyTeamsResponse
+	10, // 12: teams.v1.TeamsService.SwitchTeam:output_type -> google.protobuf.Empty
+	7,  // 13: teams.v1.TeamsService.ListInvitations:output_type -> teams.v1.ListInvitationsResponse
+	4,  // 14: teams.v1.TeamsService.CreateInvitation:output_type -> teams.v1.Invitation
+	10, // 15: teams.v1.TeamsService.AcceptInvitation:output_type -> google.protobuf.Empty
+	10, // 16: teams.v1.TeamsService.DeclineInvitation:output_type -> google.protobuf.Empty
+	10, // 17: teams.v1.TeamsService.RevokeInvitation:output_type -> google.protobuf.Empty
+	4,  // 18: teams.v1.TeamsService.ResendInvitation:output_type -> teams.v1.Invitation
+	11, // [11:19] is the sub-list for method output_type
+	3,  // [3:11] is the sub-list for method input_type
+	3,  // [3:3] is the sub-list for extension type_name
+	3,  // [3:3] is the sub-list for extension extendee
+	0,  // [0:3] is the sub-list for field type_name
 }
 
 func init() { file_teams_v1_teams_proto_init() }
@@ -291,7 +658,7 @@ func file_teams_v1_teams_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_teams_v1_teams_proto_rawDesc), len(file_teams_v1_teams_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   4,
+			NumMessages:   10,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

@@ -18,6 +18,25 @@ service TeamsService {
       body: "*"
     };
   }
+
+  rpc ListInvitations(ListInvitationsRequest) returns (ListInvitationsResponse) {
+    option (google.api.http) = {get: "/api/teams/invitations"};
+  }
+  rpc CreateInvitation(CreateInvitationRequest) returns (Invitation) {
+    option (google.api.http) = {post: "/api/teams/invitations" body: "*"};
+  }
+  rpc AcceptInvitation(AcceptInvitationRequest) returns (google.protobuf.Empty) {
+    option (google.api.http) = {post: "/api/teams/invitations/accept" body: "*"};
+  }
+  rpc DeclineInvitation(InvitationIdRequest) returns (google.protobuf.Empty) {
+    option (google.api.http) = {post: "/api/teams/invitations/decline" body: "*"};
+  }
+  rpc RevokeInvitation(InvitationIdRequest) returns (google.protobuf.Empty) {
+    option (google.api.http) = {post: "/api/teams/invitations/revoke" body: "*"};
+  }
+  rpc ResendInvitation(InvitationIdRequest) returns (Invitation) {
+    option (google.api.http) = {post: "/api/teams/invitations/resend" body: "*"};
+  }
 }
 
 message ListMyTeamsRequest {}
@@ -36,4 +55,29 @@ message ListMyTeamsResponse {
 
 message SwitchTeamRequest {
   int64 tenant_id = 1;
+}
+
+message Invitation {
+  int64 id = 1;
+  int64 tenant_id = 2;
+  string email = 3;
+  string role = 4;
+  string status = 5;
+  string team_name = 6;
+  string expires_at = 7;
+}
+message CreateInvitationRequest {
+  string email = 1;
+  string role = 2;
+}
+message ListInvitationsRequest {}
+message ListInvitationsResponse {
+  repeated Invitation outgoing = 1;
+  repeated Invitation incoming = 2;
+}
+message AcceptInvitationRequest {
+  string token = 1;
+}
+message InvitationIdRequest {
+  int64 id = 1;
 }

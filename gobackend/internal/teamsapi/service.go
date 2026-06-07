@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"log/slog"
+	"strings"
+	"time"
 
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -19,18 +21,38 @@ type Store interface {
 	ListMyTeams(ctx context.Context, userID int64) ([]store.MyTeam, error)
 	GetMembership(ctx context.Context, userID, tenantID int64) (*store.Membership, error)
 	SetActiveTenant(ctx context.Context, userID, tenantID int64) error
+
+	GetUserByID(ctx context.Context, id int64) (*store.User, error)
+	GetUserByEmail(ctx context.Context, email string) (*store.User, error)
+	GetTenantDisplayName(ctx context.Context, tenantID int64) (string, error)
+	CreateInvitation(ctx context.Context, inv *store.Invitation) (*store.Invitation, error)
+	GetPendingInvitationForEmail(ctx context.Context, tenantID int64, email string) (*store.Invitation, error)
+	GetInvitationByTokenHash(ctx context.Context, tokenHash string) (*store.Invitation, error)
+	GetInvitationByID(ctx context.Context, id int64) (*store.Invitation, error)
+	ListInvitationsForTenant(ctx context.Context, tenantID int64) ([]store.Invitation, error)
+	ListPendingInvitationsForEmail(ctx context.Context, email string) ([]store.Invitation, error)
+	ResendInvitation(ctx context.Context, id int64, tokenHash string, expiresAt time.Time) error
+	SetInvitationStatus(ctx context.Context, id int64, status string) error
+	AcceptInvitation(ctx context.Context, inv *store.Invitation, userID int64) error
+}
+
+// Mailer is the email surface teamsapi needs.
+type Mailer interface {
+	SendInvitationEmail(ctx context.Context, to, teamName, inviteURL string) error
 }
 
 // Service implements teamsv1.TeamsServiceServer.
 type Service struct {
 	teamsv1.UnimplementedTeamsServiceServer
-	store Store
-	log   *slog.Logger
+	store         Store
+	mail          Mailer
+	publicBaseURL string
+	log           *slog.Logger
 }
 
 // New constructs a Service.
-func New(st Store, log *slog.Logger) *Service {
-	return &Service{store: st, log: log}
+func New(st Store, mail Mailer, publicBaseURL string, log *slog.Logger) *Service {
+	return &Service{store: st, mail: mail, publicBaseURL: strings.TrimRight(publicBaseURL, "/"), log: log}
 }
 
 func identity(ctx context.Context) (*auth.Identity, error) {

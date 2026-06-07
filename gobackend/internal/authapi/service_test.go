@@ -37,9 +37,12 @@ type fakeStore struct {
 	tenants      map[string]*store.Tenant
 	nextID       int64
 
-	createUserErr error
-	updates       []store.UserUpdate
-	memberships   [][3]any // [tenantID, userID, role]
+	createUserErr  error
+	updates        []store.UserUpdate
+	memberships    [][3]any // [tenantID, userID, role]
+	pendingInvites map[string][]store.Invitation
+	acceptedInvites []int64
+	activeTenant   int64
 }
 
 func newFakeStore() *fakeStore {
@@ -165,6 +168,17 @@ func (f *fakeStore) AutoCreateTenantForUser(_ context.Context, email, displayNam
 }
 func (f *fakeStore) CreateMembership(_ context.Context, tenantID, userID int64, role string) error {
 	f.memberships = append(f.memberships, [3]any{tenantID, userID, role})
+	return nil
+}
+func (f *fakeStore) ListPendingInvitationsForEmail(_ context.Context, email string) ([]store.Invitation, error) {
+	return f.pendingInvites[email], nil
+}
+func (f *fakeStore) AcceptInvitation(_ context.Context, inv *store.Invitation, _ int64) error {
+	f.acceptedInvites = append(f.acceptedInvites, inv.ID)
+	return nil
+}
+func (f *fakeStore) SetActiveTenant(_ context.Context, _ int64, tenantID int64) error {
+	f.activeTenant = tenantID
 	return nil
 }
 
@@ -387,6 +401,26 @@ func TestVerifyEmailBadToken(t *testing.T) {
 	h := newHarness(t, Config{})
 	_, err := h.svc.VerifyEmail(context.Background(), &authv1.VerifyEmailRequest{Token: "nope"})
 	require.Equal(t, codes.InvalidArgument, status.Code(err))
+}
+
+func TestVerifyEmailAutoAcceptsInvites(t *testing.T) {
+	h := newHarness(t, Config{})
+	// Seed an unverified user + a verify token.
+	u := &store.User{ID: 6, Email: "invited@example.com", PlatformRole: "client", DisplayName: "inv"}
+	h.st.usersByID[6] = u
+	h.st.verifs[sha256Hex("invtok")+"|verify_email"] = &store.EmailVerification{ID: 10, UserID: 6, Purpose: "verify_email"}
+	// Seed a pending invitation addressed to the same email.
+	h.st.pendingInvites = map[string][]store.Invitation{
+		"invited@example.com": {{ID: 42, TenantID: 99, Email: "invited@example.com", Role: "member", Status: "pending"}},
+	}
+
+	_, err := runWithMD(context.Background(), func(ctx context.Context) error {
+		_, e := h.svc.VerifyEmail(ctx, &authv1.VerifyEmailRequest{Token: "invtok"})
+		return e
+	})
+	require.NoError(t, err)
+	require.Equal(t, []int64{42}, h.st.acceptedInvites)
+	require.Equal(t, int64(99), h.st.activeTenant)
 }
 
 // ── login ─────────────────────────────────────────────────────────────────────

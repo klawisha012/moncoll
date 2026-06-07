@@ -51,6 +51,10 @@ type Store interface {
 	AutoCreateTenantForUser(ctx context.Context, email, displayName string) (*store.Tenant, error)
 
 	CreateMembership(ctx context.Context, tenantID, userID int64, role string) error
+
+	ListPendingInvitationsForEmail(ctx context.Context, email string) ([]store.Invitation, error)
+	AcceptInvitation(ctx context.Context, inv *store.Invitation, userID int64) error
+	SetActiveTenant(ctx context.Context, userID, tenantID int64) error
 }
 
 // EmailSender mirrors internal/email.Sender (verify + reset emails).

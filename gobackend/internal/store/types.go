@@ -93,6 +93,20 @@ type MyTeam struct {
 	Role        string // owner | admin | member
 }
 
+// Invitation mirrors a row of the invitations table.
+type Invitation struct {
+	ID              int64
+	TenantID        int64
+	Email           string
+	Role            string // admin | member
+	TokenHash       string
+	InvitedByUserID int64
+	Status          string // pending | accepted | revoked | expired
+	ExpiresAt       time.Time
+	AcceptedAt      *time.Time
+	CreatedAt       time.Time
+}
+
 // Reader is the read-only surface the auth policy depends on. Implemented by
 // the pgx store and by fakes in tests.
 type Reader interface {

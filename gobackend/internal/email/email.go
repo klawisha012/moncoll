@@ -33,6 +33,11 @@ var resetPasswordTmpl = template.Must(template.New("reset_password").Parse(`<p>H
 <p><a href="{{.ResetURL}}">{{.ResetURL}}</a></p>
 <p>This link expires in 1 hour. Ignore if you didn't request it.</p>`))
 
+var inviteTmpl = template.Must(template.New("team_invite").Parse(`<p>Hi,</p>
+<p>You've been invited to join the team <strong>{{.TeamName}}</strong> on WAF.</p>
+<p><a href="{{.InviteURL}}">{{.InviteURL}}</a></p>
+<p>This invitation expires in 7 days. Ignore this email if you didn't expect it.</p>`))
+
 // -----------------------------------------------------------------------
 // Config
 // -----------------------------------------------------------------------
@@ -123,6 +128,21 @@ func (s *Sender) SendVerificationEmail(ctx context.Context, to, displayName, ver
 		return fmt.Errorf("email: render verify_email template: %w", err)
 	}
 	return s.send(ctx, to, "Verify your WAF email", buf.String())
+}
+
+// InviteData holds template variables for SendInvitationEmail.
+type InviteData struct {
+	TeamName  string
+	InviteURL string
+}
+
+// SendInvitationEmail sends a team invitation with a tokenized accept link.
+func (s *Sender) SendInvitationEmail(ctx context.Context, to, teamName, inviteURL string) error {
+	var buf bytes.Buffer
+	if err := inviteTmpl.Execute(&buf, InviteData{TeamName: teamName, InviteURL: inviteURL}); err != nil {
+		return fmt.Errorf("email: render team_invite template: %w", err)
+	}
+	return s.send(ctx, to, "You've been invited to a WAF team", buf.String())
 }
 
 // SendPasswordResetEmail sends "Reset your WAF password" to the given address.
