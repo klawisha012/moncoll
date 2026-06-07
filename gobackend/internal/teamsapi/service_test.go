@@ -27,12 +27,25 @@ type fakeStore struct {
 	invites     map[int64]*store.Invitation
 	nextInvID   int64
 	tenantNames map[int64]string
+
+	members     []store.TeamMember
+	memberRoles map[int64]string
+	deleted     []int64
+	roleUpdates []string
+	ownerCount  int
 }
 
 func (f *fakeStore) ListMyTeams(_ context.Context, _ int64) ([]store.MyTeam, error) {
 	return f.teams, nil
 }
-func (f *fakeStore) GetMembership(_ context.Context, _ int64, tenantID int64) (*store.Membership, error) {
+func (f *fakeStore) GetMembership(_ context.Context, userID int64, tenantID int64) (*store.Membership, error) {
+	if f.memberRoles != nil {
+		role, ok := f.memberRoles[userID]
+		if !ok {
+			return nil, &store.NotFoundError{Entity: "membership"}
+		}
+		return &store.Membership{TenantID: tenantID, UserID: userID, Role: role}, nil
+	}
 	role, ok := f.memberships[tenantID]
 	if !ok {
 		return nil, &store.NotFoundError{Entity: "membership"}
@@ -140,6 +153,21 @@ func (f *fakeStore) AcceptInvitation(_ context.Context, inv *store.Invitation, u
 	}
 	f.memberships[inv.TenantID] = inv.Role
 	return nil
+}
+
+func (f *fakeStore) ListMembersForTenant(_ context.Context, _ int64) ([]store.TeamMember, error) {
+	return f.members, nil
+}
+func (f *fakeStore) DeleteMembership(_ context.Context, _ int64, userID int64) error {
+	f.deleted = append(f.deleted, userID)
+	return nil
+}
+func (f *fakeStore) UpdateMembershipRole(_ context.Context, _ int64, userID int64, role string) error {
+	f.roleUpdates = append(f.roleUpdates, role)
+	return nil
+}
+func (f *fakeStore) CountOwners(_ context.Context, _ int64) (int, error) {
+	return f.ownerCount, nil
 }
 
 type fakeMailer struct{ sent []string }

@@ -543,6 +543,294 @@ func (x *InvitationIdRequest) GetId() int64 {
 	return 0
 }
 
+type Member struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	UserId        int64                  `protobuf:"varint,1,opt,name=user_id,json=userId,proto3" json:"user_id,omitempty"`
+	Email         string                 `protobuf:"bytes,2,opt,name=email,proto3" json:"email,omitempty"`
+	DisplayName   string                 `protobuf:"bytes,3,opt,name=display_name,json=displayName,proto3" json:"display_name,omitempty"`
+	Role          string                 `protobuf:"bytes,4,opt,name=role,proto3" json:"role,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *Member) Reset() {
+	*x = Member{}
+	mi := &file_teams_v1_teams_proto_msgTypes[10]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *Member) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*Member) ProtoMessage() {}
+
+func (x *Member) ProtoReflect() protoreflect.Message {
+	mi := &file_teams_v1_teams_proto_msgTypes[10]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use Member.ProtoReflect.Descriptor instead.
+func (*Member) Descriptor() ([]byte, []int) {
+	return file_teams_v1_teams_proto_rawDescGZIP(), []int{10}
+}
+
+func (x *Member) GetUserId() int64 {
+	if x != nil {
+		return x.UserId
+	}
+	return 0
+}
+
+func (x *Member) GetEmail() string {
+	if x != nil {
+		return x.Email
+	}
+	return ""
+}
+
+func (x *Member) GetDisplayName() string {
+	if x != nil {
+		return x.DisplayName
+	}
+	return ""
+}
+
+func (x *Member) GetRole() string {
+	if x != nil {
+		return x.Role
+	}
+	return ""
+}
+
+type ListMembersRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ListMembersRequest) Reset() {
+	*x = ListMembersRequest{}
+	mi := &file_teams_v1_teams_proto_msgTypes[11]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ListMembersRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ListMembersRequest) ProtoMessage() {}
+
+func (x *ListMembersRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_teams_v1_teams_proto_msgTypes[11]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ListMembersRequest.ProtoReflect.Descriptor instead.
+func (*ListMembersRequest) Descriptor() ([]byte, []int) {
+	return file_teams_v1_teams_proto_rawDescGZIP(), []int{11}
+}
+
+type ListMembersResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Members       []*Member              `protobuf:"bytes,1,rep,name=members,proto3" json:"members,omitempty"`
+	MyRole        string                 `protobuf:"bytes,2,opt,name=my_role,json=myRole,proto3" json:"my_role,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ListMembersResponse) Reset() {
+	*x = ListMembersResponse{}
+	mi := &file_teams_v1_teams_proto_msgTypes[12]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ListMembersResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ListMembersResponse) ProtoMessage() {}
+
+func (x *ListMembersResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_teams_v1_teams_proto_msgTypes[12]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ListMembersResponse.ProtoReflect.Descriptor instead.
+func (*ListMembersResponse) Descriptor() ([]byte, []int) {
+	return file_teams_v1_teams_proto_rawDescGZIP(), []int{12}
+}
+
+func (x *ListMembersResponse) GetMembers() []*Member {
+	if x != nil {
+		return x.Members
+	}
+	return nil
+}
+
+func (x *ListMembersResponse) GetMyRole() string {
+	if x != nil {
+		return x.MyRole
+	}
+	return ""
+}
+
+type MemberRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	UserId        int64                  `protobuf:"varint,1,opt,name=user_id,json=userId,proto3" json:"user_id,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *MemberRequest) Reset() {
+	*x = MemberRequest{}
+	mi := &file_teams_v1_teams_proto_msgTypes[13]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *MemberRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*MemberRequest) ProtoMessage() {}
+
+func (x *MemberRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_teams_v1_teams_proto_msgTypes[13]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use MemberRequest.ProtoReflect.Descriptor instead.
+func (*MemberRequest) Descriptor() ([]byte, []int) {
+	return file_teams_v1_teams_proto_rawDescGZIP(), []int{13}
+}
+
+func (x *MemberRequest) GetUserId() int64 {
+	if x != nil {
+		return x.UserId
+	}
+	return 0
+}
+
+type ChangeRoleRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	UserId        int64                  `protobuf:"varint,1,opt,name=user_id,json=userId,proto3" json:"user_id,omitempty"`
+	Role          string                 `protobuf:"bytes,2,opt,name=role,proto3" json:"role,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ChangeRoleRequest) Reset() {
+	*x = ChangeRoleRequest{}
+	mi := &file_teams_v1_teams_proto_msgTypes[14]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ChangeRoleRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ChangeRoleRequest) ProtoMessage() {}
+
+func (x *ChangeRoleRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_teams_v1_teams_proto_msgTypes[14]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ChangeRoleRequest.ProtoReflect.Descriptor instead.
+func (*ChangeRoleRequest) Descriptor() ([]byte, []int) {
+	return file_teams_v1_teams_proto_rawDescGZIP(), []int{14}
+}
+
+func (x *ChangeRoleRequest) GetUserId() int64 {
+	if x != nil {
+		return x.UserId
+	}
+	return 0
+}
+
+func (x *ChangeRoleRequest) GetRole() string {
+	if x != nil {
+		return x.Role
+	}
+	return ""
+}
+
+type LeaveTeamRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *LeaveTeamRequest) Reset() {
+	*x = LeaveTeamRequest{}
+	mi := &file_teams_v1_teams_proto_msgTypes[15]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *LeaveTeamRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*LeaveTeamRequest) ProtoMessage() {}
+
+func (x *LeaveTeamRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_teams_v1_teams_proto_msgTypes[15]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use LeaveTeamRequest.ProtoReflect.Descriptor instead.
+func (*LeaveTeamRequest) Descriptor() ([]byte, []int) {
+	return file_teams_v1_teams_proto_rawDescGZIP(), []int{15}
+}
+
 var File_teams_v1_teams_proto protoreflect.FileDescriptor
 
 const file_teams_v1_teams_proto_rawDesc = "" +
@@ -579,7 +867,23 @@ const file_teams_v1_teams_proto_rawDesc = "" +
 	"\x17AcceptInvitationRequest\x12\x14\n" +
 	"\x05token\x18\x01 \x01(\tR\x05token\"%\n" +
 	"\x13InvitationIdRequest\x12\x0e\n" +
-	"\x02id\x18\x01 \x01(\x03R\x02id2\x8f\a\n" +
+	"\x02id\x18\x01 \x01(\x03R\x02id\"n\n" +
+	"\x06Member\x12\x17\n" +
+	"\auser_id\x18\x01 \x01(\x03R\x06userId\x12\x14\n" +
+	"\x05email\x18\x02 \x01(\tR\x05email\x12!\n" +
+	"\fdisplay_name\x18\x03 \x01(\tR\vdisplayName\x12\x12\n" +
+	"\x04role\x18\x04 \x01(\tR\x04role\"\x14\n" +
+	"\x12ListMembersRequest\"Z\n" +
+	"\x13ListMembersResponse\x12*\n" +
+	"\amembers\x18\x01 \x03(\v2\x10.teams.v1.MemberR\amembers\x12\x17\n" +
+	"\amy_role\x18\x02 \x01(\tR\x06myRole\"(\n" +
+	"\rMemberRequest\x12\x17\n" +
+	"\auser_id\x18\x01 \x01(\x03R\x06userId\"@\n" +
+	"\x11ChangeRoleRequest\x12\x17\n" +
+	"\auser_id\x18\x01 \x01(\x03R\x06userId\x12\x12\n" +
+	"\x04role\x18\x02 \x01(\tR\x04role\"\x12\n" +
+	"\x10LeaveTeamRequest2\xa3\n" +
+	"\n" +
 	"\fTeamsService\x12^\n" +
 	"\vListMyTeams\x12\x1c.teams.v1.ListMyTeamsRequest\x1a\x1d.teams.v1.ListMyTeamsResponse\"\x12\x82\xd3\xe4\x93\x02\f\x12\n" +
 	"/api/teams\x12_\n" +
@@ -590,7 +894,12 @@ const file_teams_v1_teams_proto_rawDesc = "" +
 	"\x10AcceptInvitation\x12!.teams.v1.AcceptInvitationRequest\x1a\x16.google.protobuf.Empty\"(\x82\xd3\xe4\x93\x02\":\x01*\"\x1d/api/teams/invitations/accept\x12u\n" +
 	"\x11DeclineInvitation\x12\x1d.teams.v1.InvitationIdRequest\x1a\x16.google.protobuf.Empty\")\x82\xd3\xe4\x93\x02#:\x01*\"\x1e/api/teams/invitations/decline\x12s\n" +
 	"\x10RevokeInvitation\x12\x1d.teams.v1.InvitationIdRequest\x1a\x16.google.protobuf.Empty\"(\x82\xd3\xe4\x93\x02\":\x01*\"\x1d/api/teams/invitations/revoke\x12q\n" +
-	"\x10ResendInvitation\x12\x1d.teams.v1.InvitationIdRequest\x1a\x14.teams.v1.Invitation\"(\x82\xd3\xe4\x93\x02\":\x01*\"\x1d/api/teams/invitations/resendB\x92\x01\n" +
+	"\x10ResendInvitation\x12\x1d.teams.v1.InvitationIdRequest\x1a\x14.teams.v1.Invitation\"(\x82\xd3\xe4\x93\x02\":\x01*\"\x1d/api/teams/invitations/resend\x12f\n" +
+	"\vListMembers\x12\x1c.teams.v1.ListMembersRequest\x1a\x1d.teams.v1.ListMembersResponse\"\x1a\x82\xd3\xe4\x93\x02\x14\x12\x12/api/teams/members\x12e\n" +
+	"\fRemoveMember\x12\x17.teams.v1.MemberRequest\x1a\x16.google.protobuf.Empty\"$\x82\xd3\xe4\x93\x02\x1e:\x01*\"\x19/api/teams/members/remove\x12e\n" +
+	"\n" +
+	"ChangeRole\x12\x1b.teams.v1.ChangeRoleRequest\x1a\x16.google.protobuf.Empty\"\"\x82\xd3\xe4\x93\x02\x1c:\x01*\"\x17/api/teams/members/role\x12\\\n" +
+	"\tLeaveTeam\x12\x1a.teams.v1.LeaveTeamRequest\x1a\x16.google.protobuf.Empty\"\x1b\x82\xd3\xe4\x93\x02\x15:\x01*\"\x10/api/teams/leaveB\x92\x01\n" +
 	"\fcom.teams.v1B\n" +
 	"TeamsProtoP\x01Z5github.com/zwarder/waf/gobackend/gen/teams/v1;teamsv1\xa2\x02\x03TXX\xaa\x02\bTeams.V1\xca\x02\bTeams\\V1\xe2\x02\x14Teams\\V1\\GPBMetadata\xea\x02\tTeams::V1b\x06proto3"
 
@@ -606,7 +915,7 @@ func file_teams_v1_teams_proto_rawDescGZIP() []byte {
 	return file_teams_v1_teams_proto_rawDescData
 }
 
-var file_teams_v1_teams_proto_msgTypes = make([]protoimpl.MessageInfo, 10)
+var file_teams_v1_teams_proto_msgTypes = make([]protoimpl.MessageInfo, 16)
 var file_teams_v1_teams_proto_goTypes = []any{
 	(*ListMyTeamsRequest)(nil),      // 0: teams.v1.ListMyTeamsRequest
 	(*Team)(nil),                    // 1: teams.v1.Team
@@ -618,33 +927,48 @@ var file_teams_v1_teams_proto_goTypes = []any{
 	(*ListInvitationsResponse)(nil), // 7: teams.v1.ListInvitationsResponse
 	(*AcceptInvitationRequest)(nil), // 8: teams.v1.AcceptInvitationRequest
 	(*InvitationIdRequest)(nil),     // 9: teams.v1.InvitationIdRequest
-	(*emptypb.Empty)(nil),           // 10: google.protobuf.Empty
+	(*Member)(nil),                  // 10: teams.v1.Member
+	(*ListMembersRequest)(nil),      // 11: teams.v1.ListMembersRequest
+	(*ListMembersResponse)(nil),     // 12: teams.v1.ListMembersResponse
+	(*MemberRequest)(nil),           // 13: teams.v1.MemberRequest
+	(*ChangeRoleRequest)(nil),       // 14: teams.v1.ChangeRoleRequest
+	(*LeaveTeamRequest)(nil),        // 15: teams.v1.LeaveTeamRequest
+	(*emptypb.Empty)(nil),           // 16: google.protobuf.Empty
 }
 var file_teams_v1_teams_proto_depIdxs = []int32{
 	1,  // 0: teams.v1.ListMyTeamsResponse.teams:type_name -> teams.v1.Team
 	4,  // 1: teams.v1.ListInvitationsResponse.outgoing:type_name -> teams.v1.Invitation
 	4,  // 2: teams.v1.ListInvitationsResponse.incoming:type_name -> teams.v1.Invitation
-	0,  // 3: teams.v1.TeamsService.ListMyTeams:input_type -> teams.v1.ListMyTeamsRequest
-	3,  // 4: teams.v1.TeamsService.SwitchTeam:input_type -> teams.v1.SwitchTeamRequest
-	6,  // 5: teams.v1.TeamsService.ListInvitations:input_type -> teams.v1.ListInvitationsRequest
-	5,  // 6: teams.v1.TeamsService.CreateInvitation:input_type -> teams.v1.CreateInvitationRequest
-	8,  // 7: teams.v1.TeamsService.AcceptInvitation:input_type -> teams.v1.AcceptInvitationRequest
-	9,  // 8: teams.v1.TeamsService.DeclineInvitation:input_type -> teams.v1.InvitationIdRequest
-	9,  // 9: teams.v1.TeamsService.RevokeInvitation:input_type -> teams.v1.InvitationIdRequest
-	9,  // 10: teams.v1.TeamsService.ResendInvitation:input_type -> teams.v1.InvitationIdRequest
-	2,  // 11: teams.v1.TeamsService.ListMyTeams:output_type -> teams.v1.ListMyTeamsResponse
-	10, // 12: teams.v1.TeamsService.SwitchTeam:output_type -> google.protobuf.Empty
-	7,  // 13: teams.v1.TeamsService.ListInvitations:output_type -> teams.v1.ListInvitationsResponse
-	4,  // 14: teams.v1.TeamsService.CreateInvitation:output_type -> teams.v1.Invitation
-	10, // 15: teams.v1.TeamsService.AcceptInvitation:output_type -> google.protobuf.Empty
-	10, // 16: teams.v1.TeamsService.DeclineInvitation:output_type -> google.protobuf.Empty
-	10, // 17: teams.v1.TeamsService.RevokeInvitation:output_type -> google.protobuf.Empty
-	4,  // 18: teams.v1.TeamsService.ResendInvitation:output_type -> teams.v1.Invitation
-	11, // [11:19] is the sub-list for method output_type
-	3,  // [3:11] is the sub-list for method input_type
-	3,  // [3:3] is the sub-list for extension type_name
-	3,  // [3:3] is the sub-list for extension extendee
-	0,  // [0:3] is the sub-list for field type_name
+	10, // 3: teams.v1.ListMembersResponse.members:type_name -> teams.v1.Member
+	0,  // 4: teams.v1.TeamsService.ListMyTeams:input_type -> teams.v1.ListMyTeamsRequest
+	3,  // 5: teams.v1.TeamsService.SwitchTeam:input_type -> teams.v1.SwitchTeamRequest
+	6,  // 6: teams.v1.TeamsService.ListInvitations:input_type -> teams.v1.ListInvitationsRequest
+	5,  // 7: teams.v1.TeamsService.CreateInvitation:input_type -> teams.v1.CreateInvitationRequest
+	8,  // 8: teams.v1.TeamsService.AcceptInvitation:input_type -> teams.v1.AcceptInvitationRequest
+	9,  // 9: teams.v1.TeamsService.DeclineInvitation:input_type -> teams.v1.InvitationIdRequest
+	9,  // 10: teams.v1.TeamsService.RevokeInvitation:input_type -> teams.v1.InvitationIdRequest
+	9,  // 11: teams.v1.TeamsService.ResendInvitation:input_type -> teams.v1.InvitationIdRequest
+	11, // 12: teams.v1.TeamsService.ListMembers:input_type -> teams.v1.ListMembersRequest
+	13, // 13: teams.v1.TeamsService.RemoveMember:input_type -> teams.v1.MemberRequest
+	14, // 14: teams.v1.TeamsService.ChangeRole:input_type -> teams.v1.ChangeRoleRequest
+	15, // 15: teams.v1.TeamsService.LeaveTeam:input_type -> teams.v1.LeaveTeamRequest
+	2,  // 16: teams.v1.TeamsService.ListMyTeams:output_type -> teams.v1.ListMyTeamsResponse
+	16, // 17: teams.v1.TeamsService.SwitchTeam:output_type -> google.protobuf.Empty
+	7,  // 18: teams.v1.TeamsService.ListInvitations:output_type -> teams.v1.ListInvitationsResponse
+	4,  // 19: teams.v1.TeamsService.CreateInvitation:output_type -> teams.v1.Invitation
+	16, // 20: teams.v1.TeamsService.AcceptInvitation:output_type -> google.protobuf.Empty
+	16, // 21: teams.v1.TeamsService.DeclineInvitation:output_type -> google.protobuf.Empty
+	16, // 22: teams.v1.TeamsService.RevokeInvitation:output_type -> google.protobuf.Empty
+	4,  // 23: teams.v1.TeamsService.ResendInvitation:output_type -> teams.v1.Invitation
+	12, // 24: teams.v1.TeamsService.ListMembers:output_type -> teams.v1.ListMembersResponse
+	16, // 25: teams.v1.TeamsService.RemoveMember:output_type -> google.protobuf.Empty
+	16, // 26: teams.v1.TeamsService.ChangeRole:output_type -> google.protobuf.Empty
+	16, // 27: teams.v1.TeamsService.LeaveTeam:output_type -> google.protobuf.Empty
+	16, // [16:28] is the sub-list for method output_type
+	4,  // [4:16] is the sub-list for method input_type
+	4,  // [4:4] is the sub-list for extension type_name
+	4,  // [4:4] is the sub-list for extension extendee
+	0,  // [0:4] is the sub-list for field type_name
 }
 
 func init() { file_teams_v1_teams_proto_init() }
@@ -658,7 +982,7 @@ func file_teams_v1_teams_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_teams_v1_teams_proto_rawDesc), len(file_teams_v1_teams_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   10,
+			NumMessages:   16,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

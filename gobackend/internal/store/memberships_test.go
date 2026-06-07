@@ -65,6 +65,37 @@ func TestListMyTeamsAndSwitch(t *testing.T) {
 	assert.Equal(t, t2, *u.TenantID)
 }
 
+func TestMemberManagement(t *testing.T) {
+	st := authTestStore(t)
+	ctx := context.Background()
+	tid, ownerID := seedTenantUser(t, st, "mgmt", "owner@mgmt.test")
+	_, memberID := seedTenantUser(t, st, "mgmt-personal", "member@mgmt.test")
+	require.NoError(t, st.CreateMembership(ctx, tid, ownerID, "owner"))
+	require.NoError(t, st.CreateMembership(ctx, tid, memberID, "member"))
+
+	members, err := st.ListMembersForTenant(ctx, tid)
+	require.NoError(t, err)
+	require.Len(t, members, 2)
+	assert.Equal(t, "owner", members[0].Role)
+
+	n, err := st.CountOwners(ctx, tid)
+	require.NoError(t, err)
+	assert.Equal(t, 1, n)
+
+	require.NoError(t, st.UpdateMembershipRole(ctx, tid, memberID, "admin"))
+	m, err := st.GetMembership(ctx, memberID, tid)
+	require.NoError(t, err)
+	assert.Equal(t, "admin", m.Role)
+
+	require.NoError(t, st.DeleteMembership(ctx, tid, memberID))
+	_, err = st.GetMembership(ctx, memberID, tid)
+	var nf *NotFoundError
+	assert.ErrorAs(t, err, &nf)
+
+	err = st.DeleteMembership(ctx, tid, memberID)
+	assert.ErrorAs(t, err, &nf)
+}
+
 func TestBackfillCreatesMembership(t *testing.T) {
 	st := authTestStore(t)
 	ctx := context.Background()

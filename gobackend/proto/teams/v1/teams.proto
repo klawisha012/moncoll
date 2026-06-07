@@ -37,6 +37,19 @@ service TeamsService {
   rpc ResendInvitation(InvitationIdRequest) returns (Invitation) {
     option (google.api.http) = {post: "/api/teams/invitations/resend" body: "*"};
   }
+
+  rpc ListMembers(ListMembersRequest) returns (ListMembersResponse) {
+    option (google.api.http) = {get: "/api/teams/members"};
+  }
+  rpc RemoveMember(MemberRequest) returns (google.protobuf.Empty) {
+    option (google.api.http) = {post: "/api/teams/members/remove" body: "*"};
+  }
+  rpc ChangeRole(ChangeRoleRequest) returns (google.protobuf.Empty) {
+    option (google.api.http) = {post: "/api/teams/members/role" body: "*"};
+  }
+  rpc LeaveTeam(LeaveTeamRequest) returns (google.protobuf.Empty) {
+    option (google.api.http) = {post: "/api/teams/leave" body: "*"};
+  }
 }
 
 message ListMyTeamsRequest {}
@@ -81,3 +94,23 @@ message AcceptInvitationRequest {
 message InvitationIdRequest {
   int64 id = 1;
 }
+
+message Member {
+  int64 user_id = 1;
+  string email = 2;
+  string display_name = 3;
+  string role = 4;
+}
+message ListMembersRequest {}
+message ListMembersResponse {
+  repeated Member members = 1;
+  string my_role = 2;
+}
+message MemberRequest {
+  int64 user_id = 1;
+}
+message ChangeRoleRequest {
+  int64 user_id = 1;
+  string role = 2;
+}
+message LeaveTeamRequest {}

@@ -14,11 +14,13 @@ import {
   Home as HomeIcon,
   PanelLeftClose,
   PanelLeftOpen,
+  Users2,
 } from "lucide-solid";
 import { useSettings } from "../context/SettingsContext";
 import { useAuth } from "../context/AuthContext";
 import SettingsPopover from "./SettingsPopover";
 import GlobalFilters from "./GlobalFilters";
+import TeamSwitcher from "./TeamSwitcher";
 import logoDark from "../assets/images/dark theme logo.png";
 import logoLight from "../assets/images/ligth theme logo.png";
 
@@ -58,6 +60,7 @@ const CLIENT_NAV: NavSection[] = [
     items: [
       { path: "/connections", labelKey: "nav.connections", icon: <Link2 /> },
       { path: "/config", labelKey: "nav.configuration", icon: <Settings /> },
+      { path: "/team", labelKey: "team.title", icon: <Users2 /> },
     ],
   },
   {
@@ -137,6 +140,7 @@ export default function Layout(props: { children?: JSX.Element }) {
 
         <Show when={!collapsed()}>
           <GlobalFilters />
+          <TeamSwitcher />
         </Show>
 
         <nav class="sidebar-nav">
