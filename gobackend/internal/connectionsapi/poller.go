@@ -219,7 +219,7 @@ func (p *Poller) tickVerification(ctx context.Context, row *store.Connection, ps
 func (p *Poller) tickPendingDNS(ctx context.Context, row *store.Connection, ps *store.PollerState) error {
 	targets := p.edge.Resolve(ctx)
 	if len(targets.IPs) == 0 {
-		ps.Status = "error"
+		p.log.Warn("poller: edge not configured; cannot detect DNS flip", "conn", row.ID)
 		d := "Edge not configured; cannot detect DNS flip."
 		ps.StatusDetail = &d
 		return nil
@@ -345,11 +345,4 @@ func (p *Poller) writeCertConfig(ctx context.Context, row *store.Connection, ps 
 		SSLKeyPath:     tmp.SSLKeyPath,
 	}
 	return p.cfg.Write(tenantBaseDir(tmp.TenantID), cfg)
-}
-
-func orUnset(s string) string {
-	if s == "" {
-		return "<unset>"
-	}
-	return s
 }
