@@ -19,6 +19,11 @@ RUN apt-get update \
         ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 RUN groupadd -g 1000 appuser && useradd -u 1000 -g 1000 -M -s /usr/sbin/nologin appuser
+# Pre-create the backend-data dir owned by uid 1000 so a freshly created named
+# volume inherits writable ownership (Docker copies the image dir's perms onto
+# an empty volume on first mount). The crowdsec sync loop writes
+# connections.json / blocked_ips_mapping.json here as uid 1000.
+RUN mkdir -p /var/lib/angie/data && chown 1000:1000 /var/lib/angie/data
 COPY --from=build /out/server /server
 USER 1000
 EXPOSE 8080
