@@ -26,6 +26,7 @@ import (
 
 	"github.com/zwarder/waf/gobackend/internal/angiecfg"
 	"github.com/zwarder/waf/gobackend/internal/conndns"
+	"github.com/zwarder/waf/gobackend/internal/edge"
 	"github.com/zwarder/waf/gobackend/internal/store"
 )
 
@@ -33,20 +34,20 @@ import (
 type Poller struct {
 	store    Store
 	dns      conndns.Resolver
+	edge     edge.Resolver
 	cfg      CfgWriter
 	certs    CertManager
 	reloader AngieReloader
 	log      *slog.Logger
 
 	tickInterval time.Duration
-	edgeIP       string
 }
 
-// NewPoller constructs a Poller. edgeIP comes from WAF_EDGE_IPV4 at
-// construction time (mirrors EDGE_IPV4 module-level in poller.py).
+// NewPoller constructs a Poller.
 func NewPoller(
 	store Store,
 	dns conndns.Resolver,
+	edgeResolver edge.Resolver,
 	cfg CfgWriter,
 	certs CertManager,
 	reloader AngieReloader,
@@ -61,12 +62,12 @@ func NewPoller(
 	return &Poller{
 		store:        store,
 		dns:          dns,
+		edge:         edgeResolver,
 		cfg:          cfg,
 		certs:        certs,
 		reloader:     reloader,
 		log:          log,
 		tickInterval: tick,
-		edgeIP:       strings.TrimSpace(os.Getenv("WAF_EDGE_IPV4")),
 	}
 }
 
@@ -75,7 +76,7 @@ func NewPoller(
 func (p *Poller) Run(ctx context.Context) {
 	p.log.Info("connections poller starting",
 		"tick", p.tickInterval,
-		"edge_ipv4", orUnset(p.edgeIP),
+		"edge_mode", "resolver",
 	)
 	for {
 		select {
@@ -216,13 +217,14 @@ func (p *Poller) tickVerification(ctx context.Context, row *store.Connection, ps
 
 // tickPendingDNS mirrors _tick_pending_dns in poller.py.
 func (p *Poller) tickPendingDNS(ctx context.Context, row *store.Connection, ps *store.PollerState) error {
-	if p.edgeIP == "" {
+	targets := p.edge.Resolve(ctx)
+	if len(targets.IPs) == 0 {
 		ps.Status = "error"
-		d := "WAF_EDGE_IPV4 env var not set; cannot detect DNS flip."
+		d := "Edge not configured; cannot detect DNS flip."
 		ps.StatusDetail = &d
 		return nil
 	}
-	result := conndns.PointsToEdge(ctx, p.dns, row.Domain, p.edgeIP)
+	result := conndns.PointsToAnyEdge(ctx, p.dns, row.Domain, targets.IPs)
 	if result.Err != nil {
 		d := fmt.Sprintf("DNS lookup: %v", result.Err)
 		ps.StatusDetail = &d
@@ -235,7 +237,7 @@ func (p *Poller) tickPendingDNS(ctx context.Context, row *store.Connection, ps *
 		ps.StatusDetail = &d
 		p.log.Info("poller: DNS flipped to edge", "conn", row.ID)
 	} else {
-		d := fmt.Sprintf("A-record points to %s; expecting %s.", strings.Join(result.ResolvedIPs, ","), p.edgeIP)
+		d := fmt.Sprintf("A-record points to %s; expecting %s.", strings.Join(result.ResolvedIPs, ","), result.EdgeIP)
 		ps.StatusDetail = &d
 	}
 	return nil
