@@ -5,6 +5,7 @@ package authapi
 
 import (
 	"context"
+	"strings"
 	"time"
 
 	"google.golang.org/grpc/codes"
@@ -131,6 +132,21 @@ func (s *Service) VerifyEmail(ctx context.Context, req *authv1.VerifyEmailReques
 		return nil, status.Error(codes.Internal, "verify update failed")
 	}
 	u.EmailVerifiedAt = &now
+	// Auto-accept any pending team invitations addressed to this (now verified)
+	// email: the user joins those teams; switch their active team to the first.
+	if invites, iErr := s.store.ListPendingInvitationsForEmail(ctx, strings.ToLower(u.Email)); iErr == nil {
+		for i := range invites {
+			if aErr := s.store.AcceptInvitation(ctx, &invites[i], u.ID); aErr != nil {
+				s.log.Warn("verify: auto-accept invite failed", "inv", invites[i].ID, "err", aErr)
+				continue
+			}
+		}
+		if len(invites) > 0 {
+			if aErr := s.store.SetActiveTenant(ctx, u.ID, invites[0].TenantID); aErr != nil {
+				s.log.Warn("verify: set active team failed", "err", aErr)
+			}
+		}
+	}
 	if err := s.issueSessionCookie(ctx, u); err != nil {
 		return nil, err
 	}
