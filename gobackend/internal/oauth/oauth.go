@@ -141,8 +141,17 @@ func (p *Provider) Name() string { return p.name }
 // AuthCodeURL returns the provider's authorization redirect URL with the given
 // state embedded.  Mirrors client.get_authorization_url(redirect_uri, state,
 // scope) from routers/oauth.py.
-func (p *Provider) AuthCodeURL(state string) string {
-	return p.cfg.AuthCodeURL(state, oauth2.AccessTypeOnline)
+//
+// redirectURI overrides the statically configured RedirectURL when non-empty,
+// so the callback returns to the actual public host the user came in on
+// (e.g. https://zwarder.ru/...) rather than the build-time env value. It must
+// match the redirect_uri sent at token exchange (see Exchange).
+func (p *Provider) AuthCodeURL(state, redirectURI string) string {
+	opts := []oauth2.AuthCodeOption{oauth2.AccessTypeOnline}
+	if redirectURI != "" {
+		opts = append(opts, oauth2.SetAuthURLParam("redirect_uri", redirectURI))
+	}
+	return p.cfg.AuthCodeURL(state, opts...)
 }
 
 // Exchange performs the authorization-code → access-token exchange and then
@@ -155,8 +164,16 @@ func (p *Provider) AuthCodeURL(state string) string {
 // When EmailVerified is false on the returned UserInfo the caller (auth
 // service, A4) must reject the login with "email_not_verified", matching step 5
 // in routers/oauth.py.
-func (p *Provider) Exchange(ctx context.Context, code string) (*UserInfo, error) {
-	tok, err := p.cfg.Exchange(ctx, code)
+//
+// redirectURI must equal the value passed to AuthCodeURL for this flow; Google
+// rejects the exchange when the two redirect_uri values differ. Empty falls
+// back to the statically configured RedirectURL.
+func (p *Provider) Exchange(ctx context.Context, code, redirectURI string) (*UserInfo, error) {
+	var opts []oauth2.AuthCodeOption
+	if redirectURI != "" {
+		opts = append(opts, oauth2.SetAuthURLParam("redirect_uri", redirectURI))
+	}
+	tok, err := p.cfg.Exchange(ctx, code, opts...)
 	if err != nil {
 		return nil, fmt.Errorf("oauth %s: token exchange: %w", p.name, err)
 	}

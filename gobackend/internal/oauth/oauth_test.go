@@ -59,7 +59,7 @@ func TestNewProvider_Google_Configured(t *testing.T) {
 	}
 
 	// Authorize URL must contain Google's OAuth2 host
-	authURL := p.AuthCodeURL("test-state")
+	authURL := p.AuthCodeURL("test-state", "")
 	if !strings.Contains(authURL, "accounts.google.com") {
 		t.Errorf("AuthCodeURL missing accounts.google.com: %s", authURL)
 	}
@@ -100,7 +100,7 @@ func TestNewProvider_GitHub_Configured(t *testing.T) {
 		t.Errorf("scopes=%v, want %v", p.cfg.Scopes, wantScopes)
 	}
 
-	authURL := p.AuthCodeURL("gh-state")
+	authURL := p.AuthCodeURL("gh-state", "")
 	if !strings.Contains(authURL, "github.com") {
 		t.Errorf("AuthCodeURL missing github.com: %s", authURL)
 	}
@@ -204,7 +204,7 @@ func TestExchange_Google_ParsesProfile(t *testing.T) {
 	// Override token + userinfo endpoints to point at test servers.
 	p = p.withEndpoints(tokenSrv.URL+"/token", userSrv.URL, "")
 
-	info, err := p.Exchange(context.Background(), "auth-code")
+	info, err := p.Exchange(context.Background(), "auth-code", "")
 	if err != nil {
 		t.Fatalf("Exchange error: %v", err)
 	}
@@ -243,7 +243,7 @@ func TestExchange_Google_UnverifiedEmail(t *testing.T) {
 	p, _ := buildProvider("google", func(k string) string { return env[k] })
 	p = p.withEndpoints(tokenSrv.URL+"/token", userSrv.URL, "")
 
-	info, err := p.Exchange(context.Background(), "code")
+	info, err := p.Exchange(context.Background(), "code", "")
 	if err != nil {
 		t.Fatalf("Exchange error: %v", err)
 	}
@@ -284,7 +284,7 @@ func TestExchange_GitHub_PrimaryVerifiedEmail(t *testing.T) {
 	// /user and /user/emails are served by the same ghSrv.
 	p = p.withEndpoints(tokenSrv.URL+"/token", ghSrv.URL+"/user", ghSrv.URL+"/user/emails")
 
-	info, err := p.Exchange(context.Background(), "auth-code")
+	info, err := p.Exchange(context.Background(), "auth-code", "")
 	if err != nil {
 		t.Fatalf("Exchange error: %v", err)
 	}
@@ -324,7 +324,7 @@ func TestExchange_GitHub_NoPrimaryVerifiedEmail(t *testing.T) {
 	p, _ := buildProvider("github", func(k string) string { return env[k] })
 	p = p.withEndpoints(tokenSrv.URL+"/token", ghSrv.URL+"/user", ghSrv.URL+"/user/emails")
 
-	info, err := p.Exchange(context.Background(), "code")
+	info, err := p.Exchange(context.Background(), "code", "")
 	if err != nil {
 		t.Fatalf("Exchange error: %v", err)
 	}
@@ -361,7 +361,7 @@ func TestExchange_GitHub_FallsBackToLogin_WhenNameEmpty(t *testing.T) {
 	p, _ := buildProvider("github", func(k string) string { return env[k] })
 	p = p.withEndpoints(tokenSrv.URL+"/token", ghSrv.URL+"/user", ghSrv.URL+"/user/emails")
 
-	info, err := p.Exchange(context.Background(), "code")
+	info, err := p.Exchange(context.Background(), "code", "")
 	if err != nil {
 		t.Fatalf("Exchange error: %v", err)
 	}
@@ -385,7 +385,7 @@ func TestExchange_TokenExchangeFails(t *testing.T) {
 	p, _ := buildProvider("google", func(k string) string { return env[k] })
 	p = p.withEndpoints(tokenSrv.URL+"/token", "http://unused", "")
 
-	_, err := p.Exchange(context.Background(), "bad-code")
+	_, err := p.Exchange(context.Background(), "bad-code", "")
 	if err == nil {
 		t.Fatal("expected error when token exchange returns 400")
 	}
@@ -402,7 +402,7 @@ func TestAuthCodeURL_Google_Endpoint(t *testing.T) {
 		"WAF_OAUTH_GOOGLE_REDIRECT_URI":  "https://app.example.com/api/auth/oauth/google/callback",
 	}
 	p, _ := buildProvider("google", func(k string) string { return env[k] })
-	url := p.AuthCodeURL("mystate")
+	url := p.AuthCodeURL("mystate", "")
 
 	checks := []struct{ label, want string }{
 		{"host", "accounts.google.com"},
@@ -426,7 +426,7 @@ func TestAuthCodeURL_GitHub_Endpoint(t *testing.T) {
 		"WAF_OAUTH_GITHUB_REDIRECT_URI":  "https://app.example.com/api/auth/oauth/github/callback",
 	}
 	p, _ := buildProvider("github", func(k string) string { return env[k] })
-	url := p.AuthCodeURL("ghstate")
+	url := p.AuthCodeURL("ghstate", "")
 
 	checks := []struct{ label, want string }{
 		{"host", "github.com"},

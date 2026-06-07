@@ -213,10 +213,10 @@ type fakeOAuthProvider struct {
 	exchErr error
 }
 
-func (p *fakeOAuthProvider) AuthCodeURL(state string) string {
+func (p *fakeOAuthProvider) AuthCodeURL(state, _ string) string {
 	return p.authURL + "?state=" + state
 }
-func (p *fakeOAuthProvider) Exchange(_ context.Context, _ string) (*oauth.UserInfo, error) {
+func (p *fakeOAuthProvider) Exchange(_ context.Context, _, _ string) (*oauth.UserInfo, error) {
 	return p.info, p.exchErr
 }
 

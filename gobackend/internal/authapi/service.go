@@ -68,10 +68,12 @@ type OAuthProviderFactory interface {
 	Provider(name string) (OAuthProvider, bool)
 }
 
-// OAuthProvider is the per-provider surface the service uses.
+// OAuthProvider is the per-provider surface the service uses. redirectURI is
+// the dynamic callback URL (derived from the incoming host) and must be the
+// same value for both calls within one flow.
 type OAuthProvider interface {
-	AuthCodeURL(state string) string
-	Exchange(ctx context.Context, code string) (*oauth.UserInfo, error)
+	AuthCodeURL(state, redirectURI string) string
+	Exchange(ctx context.Context, code, redirectURI string) (*oauth.UserInfo, error)
 }
 
 // Config carries runtime feature flags + the PASETO key (for Fernet).

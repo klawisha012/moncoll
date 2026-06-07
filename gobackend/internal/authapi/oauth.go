@@ -126,8 +126,10 @@ func (s *Service) OauthStart(ctx context.Context, req *authv1.OauthStartRequest)
 		return nil, status.Error(codes.Internal, "oauth state sign failed")
 	}
 
-	_ = ru // redirect_uri is baked into the provider's oauth2.Config; AuthCodeURL uses it.
-	authURL := prov.AuthCodeURL(state)
+	// Use the dynamic redirect_uri (public host) so the provider returns to the
+	// same host that set the state cookie. The exchange in OauthCallback must
+	// recompute and pass the identical value.
+	authURL := prov.AuthCodeURL(state, ru)
 	emitSetCookie(ctx, buildCookie(oauthStateCookie, state, 600, s.cfg.CookieSecure))
 	emitRedirect(ctx, authURL)
 	return &authv1.OauthRedirect{Location: authURL}, nil
@@ -166,8 +168,9 @@ func (s *Service) OauthCallback(ctx context.Context, req *authv1.OauthCallbackRe
 		return s.redirectWithError(ctx, intent, "provider_unavailable")
 	}
 
-	// 3+4. Exchange code → token → profile.
-	info, err := prov.Exchange(ctx, req.GetCode())
+	// 3+4. Exchange code → token → profile. redirect_uri must match the one
+	// sent at OauthStart, recomputed here from the (same) incoming host.
+	info, err := prov.Exchange(ctx, req.GetCode(), s.providerRedirectURI(ctx, provider))
 	if err != nil {
 		s.log.Warn("oauth callback: exchange failed", "err", err)
 		return s.redirectWithError(ctx, intent, "token_exchange_failed")
