@@ -16,7 +16,7 @@ CREATE TABLE IF NOT EXISTS memberships (
     UNIQUE (tenant_id, user_id)
 );
 
-CREATE INDEX IF NOT EXISTS memberships_user_id_idx ON memberships(user_id);
+CREATE INDEX IF NOT EXISTS ix_memberships_user_id ON memberships(user_id);
 
 INSERT INTO memberships (tenant_id, user_id, role)
 SELECT tenant_id, id, COALESCE(tenant_role::text, 'owner')::membership_role
