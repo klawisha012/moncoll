@@ -33,7 +33,7 @@ import (
 // Poller runs the background DNS/ACME state machine for connections.
 type Poller struct {
 	store    Store
-	dns      conndns.Resolver
+	dns      conndns.Verifier
 	edge     edge.Resolver
 	cfg      CfgWriter
 	certs    CertManager
@@ -46,7 +46,7 @@ type Poller struct {
 // NewPoller constructs a Poller.
 func NewPoller(
 	store Store,
-	dns conndns.Resolver,
+	dns conndns.Verifier,
 	edgeResolver edge.Resolver,
 	cfg CfgWriter,
 	certs CertManager,
@@ -187,7 +187,7 @@ func (p *Poller) processOne(ctx context.Context, row *store.Connection) {
 
 // tickVerification mirrors _tick_verification in poller.py.
 func (p *Poller) tickVerification(ctx context.Context, row *store.Connection, ps *store.PollerState) error {
-	found, _ := conndns.VerifyTXTToken(ctx, p.dns, row.Domain, row.VerifyToken)
+	found, _ := p.dns.VerifyTXT(ctx, row.Domain, row.VerifyToken)
 	if found {
 		ps.Status = "pending_dns"
 		now := time.Now().UTC()
@@ -197,7 +197,7 @@ func (p *Poller) tickVerification(ctx context.Context, row *store.Connection, ps
 		p.log.Info("poller: TXT verified", "conn", row.ID)
 
 		if len(row.OriginHosts) == 0 {
-			if ips, err := p.dns.LookupHost(ctx, row.Domain); err == nil && len(ips) > 0 {
+			if ips, err := p.dns.LookupOriginHosts(ctx, row.Domain); err == nil && len(ips) > 0 {
 				_, updateErr := p.store.UpdateConnection(ctx, row.TenantID, row.ID, store.ConnectionUpdate{
 					OriginHosts: ips,
 				})
@@ -224,7 +224,7 @@ func (p *Poller) tickPendingDNS(ctx context.Context, row *store.Connection, ps *
 		ps.StatusDetail = &d
 		return nil
 	}
-	result := conndns.PointsToAnyEdge(ctx, p.dns, row.Domain, targets.IPs)
+	result := p.dns.VerifyEdge(ctx, row.Domain, targets.IPs)
 	if result.Err != nil {
 		d := fmt.Sprintf("DNS lookup: %v", result.Err)
 		ps.StatusDetail = &d

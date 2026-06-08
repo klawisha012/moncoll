@@ -113,7 +113,7 @@ type Service struct {
 	connectionsv1.UnimplementedConnectionsServiceServer
 
 	store    Store
-	dns      conndns.Resolver
+	dns      conndns.Verifier
 	edge     edge.Resolver
 	cfg      CfgWriter
 	certs    CertManager
@@ -124,7 +124,7 @@ type Service struct {
 // New constructs a Service with the given dependencies.
 func New(
 	store Store,
-	dns conndns.Resolver,
+	dns conndns.Verifier,
 	edgeResolver edge.Resolver,
 	cfg CfgWriter,
 	certs CertManager,
@@ -139,6 +139,21 @@ func New(
 		certs:    certs,
 		reloader: reloader,
 		log:      log,
+	}
+}
+
+func (s *Service) AuthLevels() map[string]auth.Level {
+	return map[string]auth.Level{
+		connectionsv1.ConnectionsService_GetEdgeInfo_FullMethodName:              auth.LevelVerified,
+		connectionsv1.ConnectionsService_ListConnections_FullMethodName:          auth.LevelVerified,
+		connectionsv1.ConnectionsService_GetConnection_FullMethodName:            auth.LevelVerified,
+		connectionsv1.ConnectionsService_CreateConnection_FullMethodName:          auth.LevelVerified,
+		connectionsv1.ConnectionsService_UpdateConnection_FullMethodName:          auth.LevelVerified,
+		connectionsv1.ConnectionsService_DeleteConnection_FullMethodName:          auth.LevelVerified,
+		connectionsv1.ConnectionsService_ProbeConnection_FullMethodName:           auth.LevelVerified,
+		connectionsv1.ConnectionsService_ReloadConnections_FullMethodName:        auth.LevelAdmin,
+		connectionsv1.ConnectionsService_GetConnectionSecurity_FullMethodName:    auth.LevelVerified,
+		connectionsv1.ConnectionsService_UpdateConnectionSecurity_FullMethodName: auth.LevelVerified,
 	}
 }
 
@@ -423,7 +438,7 @@ func (s *Service) CreateConnection(ctx context.Context, req *connectionsv1.Creat
 
 	// Fast-path: if the domain already resolves to our edge, jump to cert.
 	if len(targets.IPs) > 0 {
-		result := conndns.PointsToAnyEdge(ctx, s.dns, domain, targets.IPs)
+		result := s.dns.VerifyEdge(ctx, domain, targets.IPs)
 		if result.FlippedToEdge {
 			now := time.Now().UTC()
 			verifiedAt = &now
@@ -446,7 +461,7 @@ func (s *Service) CreateConnection(ctx context.Context, req *connectionsv1.Creat
 		}
 	}
 	if len(originHosts) == 0 {
-		if ips, err := s.dns.LookupHost(ctx, domain); err == nil && len(ips) > 0 {
+		if ips, err := s.dns.LookupOriginHosts(ctx, domain); err == nil && len(ips) > 0 {
 			originHosts = ips
 		}
 	}
@@ -635,7 +650,7 @@ func (s *Service) ProbeConnection(ctx context.Context, req *connectionsv1.ProbeC
 
 	switch conn.Status {
 	case "pending_verification":
-		found, _ := conndns.VerifyTXTToken(ctx, s.dns, conn.Domain, conn.VerifyToken)
+		found, _ := s.dns.VerifyTXT(ctx, conn.Domain, conn.VerifyToken)
 		if found {
 			ps.Status = "pending_dns"
 			verifiedAt := now
@@ -644,7 +659,7 @@ func (s *Service) ProbeConnection(ctx context.Context, req *connectionsv1.ProbeC
 			ps.StatusDetail = &d
 
 			if len(conn.OriginHosts) == 0 {
-				if ips, err := s.dns.LookupHost(ctx, conn.Domain); err == nil && len(ips) > 0 {
+				if ips, err := s.dns.LookupOriginHosts(ctx, conn.Domain); err == nil && len(ips) > 0 {
 					_, updateErr := s.store.UpdateConnection(ctx, tenantID, conn.ID, store.ConnectionUpdate{
 						OriginHosts: ips,
 					})
@@ -664,7 +679,7 @@ func (s *Service) ProbeConnection(ctx context.Context, req *connectionsv1.ProbeC
 			d := "Edge not configured; ask the operator."
 			ps.StatusDetail = &d
 		} else {
-			result := conndns.PointsToAnyEdge(ctx, s.dns, conn.Domain, targets.IPs)
+			result := s.dns.VerifyEdge(ctx, conn.Domain, targets.IPs)
 			if result.Err != nil {
 				d := fmt.Sprintf("DNS lookup: %v", result.Err)
 				ps.StatusDetail = &d

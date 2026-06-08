@@ -29,6 +29,11 @@ const (
 	LevelPublic
 )
 
+// AuthorizableService defines an interface for gRPC services to declare their RPC authorization levels.
+type AuthorizableService interface {
+	AuthLevels() map[string]Level
+}
+
 // NewInterceptor builds a unary interceptor. levels maps a gRPC full method
 // name (e.g. "/modsecurity.v1.ModSecurityService/GetConfig") to its required
 // Level. Methods absent from the map default to LevelAdmin (fail closed).

@@ -53,6 +53,10 @@ func NewGatewayMux(ctx context.Context, grpcAddr string) (*runtime.ServeMux, err
 		runtime.WithIncomingHeaderMatcher(authHeaderMatcher),
 		runtime.WithForwardResponseOption(cookieRedirectForwarder),
 		runtime.WithForwardResponseOption(func(_ context.Context, w http.ResponseWriter, resp proto.Message) error {
+			// Authenticated, dynamic API: never let a browser/proxy cache it.
+			// Prevents stale GETs (e.g. an empty catalog fetched before its data
+			// existed) from sticking around across reloads.
+			w.Header().Set("Cache-Control", "no-store")
 			if _, ok := resp.(*emptypb.Empty); ok {
 				w.WriteHeader(http.StatusNoContent)
 			}

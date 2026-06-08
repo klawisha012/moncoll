@@ -22,6 +22,40 @@ import (
 	"strings"
 )
 
+// ─── Verifier interface ───────────────────────────────────────────────────────
+
+// Verifier abstracts DNS verification invariants.
+type Verifier interface {
+	VerifyTXT(ctx context.Context, domain, expectedToken string) (bool, error)
+	VerifyEdge(ctx context.Context, domain string, edgeIPs []string) PointsToEdgeResult
+	LookupOriginHosts(ctx context.Context, domain string) ([]string, error)
+}
+
+// DNSVerifier is a stateful implementation of Verifier wrapping a Resolver.
+type DNSVerifier struct {
+	resolver Resolver
+}
+
+// NewVerifier constructs a DNSVerifier wrapping a Resolver.
+func NewVerifier(r Resolver) *DNSVerifier {
+	return &DNSVerifier{resolver: r}
+}
+
+// VerifyTXT wraps VerifyTXTToken.
+func (v *DNSVerifier) VerifyTXT(ctx context.Context, domain, expectedToken string) (bool, error) {
+	return VerifyTXTToken(ctx, v.resolver, domain, expectedToken)
+}
+
+// VerifyEdge wraps PointsToAnyEdge.
+func (v *DNSVerifier) VerifyEdge(ctx context.Context, domain string, edgeIPs []string) PointsToEdgeResult {
+	return PointsToAnyEdge(ctx, v.resolver, domain, edgeIPs)
+}
+
+// LookupOriginHosts wraps LookupHost.
+func (v *DNSVerifier) LookupOriginHosts(ctx context.Context, domain string) ([]string, error) {
+	return v.resolver.LookupHost(ctx, domain)
+}
+
 // ─── Resolver interface ───────────────────────────────────────────────────────
 
 // Resolver abstracts DNS lookups so the logic is testable without live DNS.

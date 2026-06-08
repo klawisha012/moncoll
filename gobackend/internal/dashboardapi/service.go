@@ -15,8 +15,6 @@ import (
 	"log/slog"
 	"math"
 	"regexp"
-	"strings"
-	"time"
 
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -27,13 +25,30 @@ import (
 	"github.com/zwarder/waf/gobackend/internal/store"
 )
 
-// Executor is the query interface used by every RPC handler. It is satisfied by
-// *chdash.Client and by fakeExecutor in tests.
-type Executor interface {
-	// Query executes without the Redis cache (for test-traffic / fresh data).
-	Query(ctx context.Context, sql string) ([][]interface{}, error)
-	// QueryCached executes with the Redis TTL cache.
-	QueryCached(ctx context.Context, sql string) ([][]interface{}, error)
+// DashboardBackend is the interface used by every RPC handler to fetch ClickHouse analytics.
+// It is satisfied by *chdash.Client.
+type DashboardBackend interface {
+	GetMetrics(ctx context.Context, minutes, prevMinutes int, domains []string) (*chdash.Metrics, error)
+	GetTraffic(ctx context.Context, minutes int, timeFunc string, domains []string) ([]chdash.TrafficPoint, error)
+	GetGeoipMap(ctx context.Context, minutes int, domains []string) ([]chdash.GeoipMapPoint, error)
+	GetGeoipUnresolved(ctx context.Context, minutes int, domains []string) ([]chdash.UnresolvedIp, error)
+	GetThreatOrigins(ctx context.Context, minutes int, domains []string) (*chdash.ThreatOrigins, error)
+	GetEvents(ctx context.Context, minutes int, severityFilter string, domains []string, limit int64) ([]chdash.SecurityEvent, error)
+	GetWafEventsTimeline(ctx context.Context, minutes int, domains []string) ([]chdash.TimelinePoint, error)
+	GetTopRules(ctx context.Context, minutes int, domains []string) ([]chdash.RuleHit, error)
+	GetSeverityDistribution(ctx context.Context, minutes int, domains []string) ([]chdash.SeveritySlice, error)
+	GetTopAttackingIps(ctx context.Context, minutes int, domains []string) ([]chdash.IpHit, error)
+	GetAnomalyScore(ctx context.Context, minutes int, domains []string) ([]chdash.AnomalyPoint, error)
+	GetTopTags(ctx context.Context, minutes int, domains []string) ([]chdash.TagHit, error)
+	GetTopUris(ctx context.Context, minutes int, domains []string) ([]chdash.UriHit, error)
+	GetTopRuleFiles(ctx context.Context, minutes int, domains []string) ([]chdash.RuleFileHit, error)
+	GetStatusCodes(ctx context.Context, minutes int, domains []string) ([]chdash.StatusCodePoint, error)
+	GetTopUserAgents(ctx context.Context, minutes int, domains []string) ([]chdash.UserAgentHit, error)
+	GetTrafficVolume(ctx context.Context, minutes int, domains []string) ([]chdash.BytesPoint, error)
+	GetRequestsPerSecond(ctx context.Context, minutes int, metric, timeFunc string, domains []string) ([]chdash.RpsPoint, error)
+	GetRequestsByCountry(ctx context.Context, minutes int, domains []string) ([]chdash.CountryHit, error)
+	GetTopClientIps(ctx context.Context, minutes int, domains []string) ([]chdash.IpHit, error)
+	GetTestTraffic(ctx context.Context, marker string, domains []string) ([]chdash.TestTrafficEvent, error)
 }
 
 // DomainResolver is the tenant-scoping interface. It is satisfied by
@@ -56,18 +71,44 @@ func (r *storeResolver) DomainsForConnection(ctx context.Context, connID *int64,
 // Service implements dashboardv1.DashboardServiceServer.
 type Service struct {
 	dashboardv1.UnimplementedDashboardServiceServer
-	ex  Executor
+	db  DashboardBackend
 	dr  DomainResolver
 }
 
 // New constructs a Service with a real *chdash.Client and *store.Store.
 func New(ch *chdash.Client, st *store.Store) *Service {
-	return &Service{ex: ch, dr: &storeResolver{s: st}}
+	return &Service{db: ch, dr: &storeResolver{s: st}}
 }
 
-// newWithDeps constructs a Service with injected executor + resolver (for tests).
-func newWithDeps(ex Executor, dr DomainResolver) *Service {
-	return &Service{ex: ex, dr: dr}
+func (s *Service) AuthLevels() map[string]auth.Level {
+	return map[string]auth.Level{
+		dashboardv1.DashboardService_GetMetrics_FullMethodName:              auth.LevelVerified,
+		dashboardv1.DashboardService_GetTraffic_FullMethodName:              auth.LevelVerified,
+		dashboardv1.DashboardService_GetGeoipMap_FullMethodName:             auth.LevelVerified,
+		dashboardv1.DashboardService_GetGeoipUnresolved_FullMethodName:      auth.LevelVerified,
+		dashboardv1.DashboardService_GetThreatOrigins_FullMethodName:        auth.LevelVerified,
+		dashboardv1.DashboardService_GetEvents_FullMethodName:               auth.LevelVerified,
+		dashboardv1.DashboardService_GetWafEventsTimeline_FullMethodName:    auth.LevelVerified,
+		dashboardv1.DashboardService_GetTopRules_FullMethodName:             auth.LevelVerified,
+		dashboardv1.DashboardService_GetSeverityDistribution_FullMethodName: auth.LevelVerified,
+		dashboardv1.DashboardService_GetTopAttackingIps_FullMethodName:      auth.LevelVerified,
+		dashboardv1.DashboardService_GetAnomalyScore_FullMethodName:         auth.LevelVerified,
+		dashboardv1.DashboardService_GetTopTags_FullMethodName:              auth.LevelVerified,
+		dashboardv1.DashboardService_GetTopUris_FullMethodName:              auth.LevelVerified,
+		dashboardv1.DashboardService_GetTopRuleFiles_FullMethodName:         auth.LevelVerified,
+		dashboardv1.DashboardService_GetStatusCodes_FullMethodName:          auth.LevelVerified,
+		dashboardv1.DashboardService_GetTopUserAgents_FullMethodName:        auth.LevelVerified,
+		dashboardv1.DashboardService_GetTrafficVolume_FullMethodName:        auth.LevelVerified,
+		dashboardv1.DashboardService_GetRequestsPerSecond_FullMethodName:    auth.LevelVerified,
+		dashboardv1.DashboardService_GetRequestsByCountry_FullMethodName:    auth.LevelVerified,
+		dashboardv1.DashboardService_GetTopClientIps_FullMethodName:         auth.LevelVerified,
+		dashboardv1.DashboardService_GetTestTraffic_FullMethodName:          auth.LevelVerified,
+	}
+}
+
+// newWithDeps constructs a Service with injected backend + resolver (for tests).
+func newWithDeps(db DashboardBackend, dr DomainResolver) *Service {
+	return &Service{db: db, dr: dr}
 }
 
 // ─── helpers ─────────────────────────────────────────────────────────────────
@@ -105,81 +146,6 @@ func (s *Service) domains(ctx context.Context, connID *int64, tid *int64) []stri
 		return nil // fail-open for admins
 	}
 	return d
-}
-
-// toInt64 safely converts an interface{} cell from a ClickHouse row to int64.
-func toInt64(v interface{}) int64 {
-	if v == nil {
-		return 0
-	}
-	switch x := v.(type) {
-	case int64:
-		return x
-	case uint64:
-		return int64(x) //nolint:gosec
-	case uint32:
-		return int64(x)
-	case int32:
-		return int64(x)
-	case float64:
-		return int64(x)
-	case int:
-		return int64(x)
-	}
-	return 0
-}
-
-// toFloat64 safely converts an interface{} cell to float64.
-func toFloat64(v interface{}) float64 {
-	if v == nil {
-		return 0
-	}
-	switch x := v.(type) {
-	case float64:
-		return x
-	case float32:
-		return float64(x)
-	case int64:
-		return float64(x)
-	case uint64:
-		return float64(x) //nolint:gosec
-	case int:
-		return float64(x)
-	}
-	return 0
-}
-
-// toString safely converts an interface{} cell to string.
-func toString(v interface{}) string {
-	if v == nil {
-		return ""
-	}
-	if s, ok := v.(string); ok {
-		return s
-	}
-	return fmt.Sprintf("%v", v)
-}
-
-// toISO converts a ClickHouse time.Time cell to an ISO-8601 string.
-// Mirrors Python _iso.
-func toISO(v interface{}) string {
-	if v == nil {
-		return ""
-	}
-	if t, ok := v.(time.Time); ok {
-		return t.Format(time.RFC3339Nano)
-	}
-	return toString(v)
-}
-
-// scalar extracts the first cell of the first row as int64. Mirrors Python _scalar.
-func scalar(rows [][]interface{}) int64 {
-	return chdash.Scalar(rows, 0)
-}
-
-// clampMinutes wraps chdash.ClampMinutes.
-func clampMinutes(hours float64) int {
-	return chdash.ClampMinutes(hours)
 }
 
 // defaultHours returns hours or 24 if hours is 0 (proto default).
@@ -236,37 +202,16 @@ func secSeverityLabel(sev int64) string {
 	return "info"
 }
 
-// uuid4RE is the strict UUID4 validator for the test-traffic marker. It mirrors
-// the Python router's _UUID4_RE (backend/src/dashboard/router.py) exactly:
-//   - case-insensitive (?i)
-//   - version nibble fixed to 4, variant nibble in [89ab]
-//   - anchored with \A ... \z (NOT $) so a trailing newline cannot smuggle a
-//     payload like "<uuid>\n; DROP ..." past the check.
-//
-// Validation runs BEFORE any SQL is constructed — it is the SQL-injection
-// barrier for GetTestTraffic, which interpolates the marker into a ClickHouse
-// query string.
+// uuid4RE is the strict UUID4 validator for the test-traffic marker.
 var uuid4RE = regexp.MustCompile(
 	`(?i)\A[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\z`,
 )
-
-// safeMarker strips characters that could break ClickHouse string parsing.
-// Mirrors Python safe_marker in get_test_traffic_by_marker.
-func safeMarker(marker string) string {
-	marker = strings.ReplaceAll(marker, "'", "")
-	marker = strings.ReplaceAll(marker, "\\", "")
-	marker = strings.ReplaceAll(marker, "\x00", "")
-	return marker
-}
-
-// testMarkerHeader mirrors Python _TEST_MARKER_HEADER.
-const testMarkerHeader = "X-Test-Marker"
 
 // ─── 1. GetMetrics ────────────────────────────────────────────────────────────
 
 func (s *Service) GetMetrics(ctx context.Context, req *dashboardv1.DashboardRequest) (*dashboardv1.MetricsResponse, error) {
 	hours := defaultHours(req.GetHours())
-	minutes := clampMinutes(hours)
+	minutes := chdash.ClampMinutes(hours)
 	prevMinutes := int(math.Max(1, float64(minutes*2)))
 
 	var connID *int64
@@ -276,57 +221,23 @@ func (s *Service) GetMetrics(ctx context.Context, req *dashboardv1.DashboardRequ
 	}
 	tid := tenantID(ctx)
 	doms := s.domains(ctx, connID, tid)
-	nginxFilter := chdash.HostFilterNginx(doms)
-	wafFilter := chdash.HostFilterWAF(doms)
 
-	totalRows, _ := s.ex.QueryCached(ctx, fmt.Sprintf(
-		"SELECT count() FROM logs.nginx_access_log WHERE time_local >= now() - INTERVAL %d MINUTE%s",
-		minutes, nginxFilter))
-	totalRequests := scalar(totalRows)
-
-	prevRows, _ := s.ex.QueryCached(ctx, fmt.Sprintf(
-		"SELECT count() FROM logs.nginx_access_log WHERE time_local >= now() - INTERVAL %d MINUTE AND time_local < now() - INTERVAL %d MINUTE%s",
-		prevMinutes, minutes, nginxFilter))
-	prevTotal := scalar(prevRows)
-
-	var totalRequestsChange float64
-	if prevTotal > 0 {
-		totalRequestsChange = math.Round(float64(totalRequests-prevTotal)/float64(prevTotal)*100*10) / 10
+	metrics, err := s.db.GetMetrics(ctx, minutes, prevMinutes, doms)
+	if err != nil {
+		return nil, status.Error(codes.Internal, err.Error())
 	}
-
-	blockedRows, _ := s.ex.QueryCached(ctx, fmt.Sprintf(
-		"SELECT count() FROM logs.waf_audit_log WHERE timestamp >= now() - INTERVAL %d MINUTE%s",
-		minutes, wafFilter))
-	blockedThreats := scalar(blockedRows)
-
-	highRows, _ := s.ex.QueryCached(ctx, fmt.Sprintf(
-		"SELECT count() FROM logs.waf_audit_log ARRAY JOIN messages AS m WHERE timestamp >= now() - INTERVAL %d MINUTE AND m.severity >= 2%s",
-		minutes, wafFilter))
-	highSeverity := scalar(highRows)
-
-	activeRulesRows, _ := s.ex.QueryCached(ctx, fmt.Sprintf(
-		"SELECT count(DISTINCT m.ruleId) FROM logs.waf_audit_log ARRAY JOIN messages AS m WHERE timestamp >= now() - INTERVAL %d MINUTE%s",
-		minutes, wafFilter))
-	activeRules := scalar(activeRulesRows)
-
-	errorRows, _ := s.ex.QueryCached(ctx, fmt.Sprintf(
-		"SELECT count() FROM logs.nginx_access_log WHERE time_local >= now() - INTERVAL %d MINUTE AND status >= 500%s",
-		minutes, nginxFilter))
-	errorResponses := scalar(errorRows)
-
-	systemHealth := 100.0
-	if totalRequests > 0 {
-		systemHealth = math.Round(float64(totalRequests-errorResponses)/float64(totalRequests)*100*10) / 10
+	if metrics == nil {
+		return &dashboardv1.MetricsResponse{}, nil
 	}
 
 	return &dashboardv1.MetricsResponse{
-		TotalRequests:       totalRequests,
-		TotalRequestsChange: totalRequestsChange,
-		BlockedThreats:      blockedThreats,
-		HighSeverityCount:   highSeverity,
-		SystemHealth:        systemHealth,
-		AvgLatencyMs:        0.0,
-		ActiveRules:         activeRules,
+		TotalRequests:       metrics.TotalRequests,
+		TotalRequestsChange: metrics.TotalRequestsChange,
+		BlockedThreats:      metrics.BlockedThreats,
+		HighSeverityCount:   metrics.HighSeverityCount,
+		SystemHealth:        metrics.SystemHealth,
+		AvgLatencyMs:        metrics.AvgLatencyMs,
+		ActiveRules:         metrics.ActiveRules,
 	}, nil
 }
 
@@ -334,7 +245,7 @@ func (s *Service) GetMetrics(ctx context.Context, req *dashboardv1.DashboardRequ
 
 func (s *Service) GetTraffic(ctx context.Context, req *dashboardv1.DashboardRequest) (*dashboardv1.TrafficListResponse, error) {
 	hours := defaultHours(req.GetHours())
-	minutes := clampMinutes(hours)
+	minutes := chdash.ClampMinutes(hours)
 
 	var connID *int64
 	if req.GetConnectionId() != nil {
@@ -343,83 +254,33 @@ func (s *Service) GetTraffic(ctx context.Context, req *dashboardv1.DashboardRequ
 	}
 	tid := tenantID(ctx)
 	doms := s.domains(ctx, connID, tid)
-	nginxFilter := chdash.HostFilterNginx(doms)
-	wafFilter := chdash.HostFilterWAF(doms)
 
 	timeFunc := "toStartOfHour"
 	if hours <= 2.0 {
 		timeFunc = "toStartOfMinute"
 	}
 
-	rows, _ := s.ex.QueryCached(ctx, fmt.Sprintf(
-		"SELECT %s(time_local) AS t, count() AS total FROM logs.nginx_access_log WHERE time_local >= now() - INTERVAL %d MINUTE%s GROUP BY t ORDER BY t",
-		timeFunc, minutes, nginxFilter))
-	malRows, _ := s.ex.QueryCached(ctx, fmt.Sprintf(
-		"SELECT %s(timestamp) AS t, count() AS total FROM logs.waf_audit_log WHERE timestamp >= now() - INTERVAL %d MINUTE%s GROUP BY t ORDER BY t",
-		timeFunc, minutes, wafFilter))
-
-	// Build maps keyed by time.Time for merge.
-	nginxMap := make(map[time.Time]int64)
-	malMap := make(map[time.Time]int64)
-	allTimes := make(map[time.Time]struct{})
-
-	for _, r := range rows {
-		if len(r) < 2 {
-			continue
-		}
-		if t, ok := r[0].(time.Time); ok {
-			nginxMap[t] = toInt64(r[1])
-			allTimes[t] = struct{}{}
-		}
-	}
-	for _, r := range malRows {
-		if len(r) < 2 {
-			continue
-		}
-		if t, ok := r[0].(time.Time); ok {
-			malMap[t] = toInt64(r[1])
-			allTimes[t] = struct{}{}
-		}
+	points, err := s.db.GetTraffic(ctx, minutes, timeFunc, doms)
+	if err != nil {
+		return nil, status.Error(codes.Internal, err.Error())
 	}
 
-	// Sort times.
-	times := make([]time.Time, 0, len(allTimes))
-	for t := range allTimes {
-		times = append(times, t)
-	}
-	sortTimes(times)
-
-	points := make([]*dashboardv1.TrafficPoint, 0, len(times))
-	for _, t := range times {
-		total := nginxMap[t]
-		mal := malMap[t]
-		clean := total - mal
-		if clean < 0 {
-			clean = 0
-		}
-		points = append(points, &dashboardv1.TrafficPoint{
-			Timestamp: chdash.ISO(t),
-			Clean:     clean,
-			Malicious: mal,
+	respPoints := make([]*dashboardv1.TrafficPoint, 0, len(points))
+	for _, p := range points {
+		respPoints = append(respPoints, &dashboardv1.TrafficPoint{
+			Timestamp: chdash.ISO(p.Timestamp),
+			Clean:     p.Clean,
+			Malicious: p.Malicious,
 		})
 	}
-	return &dashboardv1.TrafficListResponse{Points: points}, nil
-}
-
-func sortTimes(ts []time.Time) {
-	// Simple insertion sort for small slices; correct for any size.
-	for i := 1; i < len(ts); i++ {
-		for j := i; j > 0 && ts[j].Before(ts[j-1]); j-- {
-			ts[j], ts[j-1] = ts[j-1], ts[j]
-		}
-	}
+	return &dashboardv1.TrafficListResponse{Points: respPoints}, nil
 }
 
 // ─── 3. GetGeoipMap ───────────────────────────────────────────────────────────
 
 func (s *Service) GetGeoipMap(ctx context.Context, req *dashboardv1.DashboardRequest) (*dashboardv1.GeoipMapListResponse, error) {
 	hours := defaultHours(req.GetHours())
-	minutes := clampMinutes(hours)
+	minutes := chdash.ClampMinutes(hours)
 
 	var connID *int64
 	if req.GetConnectionId() != nil {
@@ -428,44 +289,30 @@ func (s *Service) GetGeoipMap(ctx context.Context, req *dashboardv1.DashboardReq
 	}
 	tid := tenantID(ctx)
 	doms := s.domains(ctx, connID, tid)
-	nginxFilter := chdash.HostFilterNginx(doms)
 
-	rows, _ := s.ex.QueryCached(ctx, fmt.Sprintf(
-		"SELECT geoip_longitude, geoip_latitude, geoip_country_code, geoip_city_name, count() AS cnt "+
-			"FROM logs.nginx_access_log "+
-			"WHERE time_local >= now() - INTERVAL %d MINUTE "+
-			"AND geoip_latitude != 0 AND geoip_longitude != 0 "+
-			"AND geoip_country_code != ''%s "+
-			"GROUP BY geoip_longitude, geoip_latitude, geoip_country_code, geoip_city_name "+
-			"ORDER BY cnt DESC "+
-			"LIMIT 500",
-		minutes, nginxFilter))
+	points, err := s.db.GetGeoipMap(ctx, minutes, doms)
+	if err != nil {
+		return nil, status.Error(codes.Internal, err.Error())
+	}
 
-	points := make([]*dashboardv1.GeoipMapPoint, 0, len(rows))
-	for _, r := range rows {
-		if len(r) < 5 {
-			continue
-		}
-		cc := toString(r[2])
-		if cc == "" {
-			cc = "UNKNOWN"
-		}
-		points = append(points, &dashboardv1.GeoipMapPoint{
-			Longitude:   toFloat64(r[0]),
-			Latitude:    toFloat64(r[1]),
-			CountryCode: cc,
-			CityName:    toString(r[3]),
-			Hits:        toInt64(r[4]),
+	respPoints := make([]*dashboardv1.GeoipMapPoint, 0, len(points))
+	for _, p := range points {
+		respPoints = append(respPoints, &dashboardv1.GeoipMapPoint{
+			Longitude:   p.Longitude,
+			Latitude:    p.Latitude,
+			CountryCode: p.CountryCode,
+			CityName:    p.CityName,
+			Hits:        p.Hits,
 		})
 	}
-	return &dashboardv1.GeoipMapListResponse{Points: points}, nil
+	return &dashboardv1.GeoipMapListResponse{Points: respPoints}, nil
 }
 
 // ─── 4. GetGeoipUnresolved ────────────────────────────────────────────────────
 
 func (s *Service) GetGeoipUnresolved(ctx context.Context, req *dashboardv1.DashboardRequest) (*dashboardv1.UnresolvedIpListResponse, error) {
 	hours := defaultHours(req.GetHours())
-	minutes := clampMinutes(hours)
+	minutes := chdash.ClampMinutes(hours)
 
 	var connID *int64
 	if req.GetConnectionId() != nil {
@@ -474,43 +321,27 @@ func (s *Service) GetGeoipUnresolved(ctx context.Context, req *dashboardv1.Dashb
 	}
 	tid := tenantID(ctx)
 	doms := s.domains(ctx, connID, tid)
-	nginxFilter := chdash.HostFilterNginx(doms)
 
-	rows, _ := s.ex.QueryCached(ctx, fmt.Sprintf(
-		"SELECT IPv4NumToString(remote_addr) AS ip, count() AS cnt "+
-			"FROM logs.nginx_access_log "+
-			"WHERE time_local >= now() - INTERVAL %d MINUTE "+
-			"AND toUInt32(remote_addr) != 0 "+
-			"AND (geoip_country_code = '' OR geoip_latitude = 0 OR geoip_longitude = 0) "+
-			"AND NOT (toUInt32(remote_addr) BETWEEN toUInt32(toIPv4('127.0.0.0')) AND toUInt32(toIPv4('127.255.255.255'))) "+
-			"AND NOT (toUInt32(remote_addr) BETWEEN toUInt32(toIPv4('10.0.0.0')) AND toUInt32(toIPv4('10.255.255.255'))) "+
-			"AND NOT (toUInt32(remote_addr) BETWEEN toUInt32(toIPv4('172.16.0.0')) AND toUInt32(toIPv4('172.31.255.255'))) "+
-			"AND NOT (toUInt32(remote_addr) BETWEEN toUInt32(toIPv4('192.168.0.0')) AND toUInt32(toIPv4('192.168.255.255'))) "+
-			"AND NOT (toUInt32(remote_addr) BETWEEN toUInt32(toIPv4('169.254.0.0')) AND toUInt32(toIPv4('169.254.255.255'))) "+
-			"%s "+
-			"GROUP BY remote_addr "+
-			"ORDER BY cnt DESC "+
-			"LIMIT 30",
-		minutes, nginxFilter))
+	ips, err := s.db.GetGeoipUnresolved(ctx, minutes, doms)
+	if err != nil {
+		return nil, status.Error(codes.Internal, err.Error())
+	}
 
-	ips := make([]*dashboardv1.UnresolvedIp, 0, len(rows))
-	for _, r := range rows {
-		if len(r) < 2 {
-			continue
-		}
-		ips = append(ips, &dashboardv1.UnresolvedIp{
-			Ip:   toString(r[0]),
-			Hits: toInt64(r[1]),
+	respIps := make([]*dashboardv1.UnresolvedIp, 0, len(ips))
+	for _, ip := range ips {
+		respIps = append(respIps, &dashboardv1.UnresolvedIp{
+			Ip:   ip.Ip,
+			Hits: ip.Hits,
 		})
 	}
-	return &dashboardv1.UnresolvedIpListResponse{Ips: ips}, nil
+	return &dashboardv1.UnresolvedIpListResponse{Ips: respIps}, nil
 }
 
 // ─── 5. GetThreatOrigins ──────────────────────────────────────────────────────
 
 func (s *Service) GetThreatOrigins(ctx context.Context, req *dashboardv1.DashboardRequest) (*dashboardv1.ThreatOriginListResponse, error) {
 	hours := defaultHours(req.GetHours())
-	minutes := clampMinutes(hours)
+	minutes := chdash.ClampMinutes(hours)
 
 	var connID *int64
 	if req.GetConnectionId() != nil {
@@ -519,68 +350,33 @@ func (s *Service) GetThreatOrigins(ctx context.Context, req *dashboardv1.Dashboa
 	}
 	tid := tenantID(ctx)
 	doms := s.domains(ctx, connID, tid)
-	wafFilter := chdash.HostFilterWAF(doms)
 
-	totalRows, _ := s.ex.QueryCached(ctx, fmt.Sprintf(
-		"SELECT count() FROM logs.waf_audit_log WHERE timestamp >= now() - INTERVAL %d MINUTE%s",
-		minutes, wafFilter))
-	totalBlocks := scalar(totalRows)
-	if totalBlocks == 0 {
+	origins, err := s.db.GetThreatOrigins(ctx, minutes, doms)
+	if err != nil {
+		return nil, status.Error(codes.Internal, err.Error())
+	}
+
+	if origins == nil || origins.TotalBlocks == 0 {
 		return &dashboardv1.ThreatOriginListResponse{}, nil
 	}
 
-	rows, _ := s.ex.QueryCached(ctx, fmt.Sprintf(
-		"SELECT any(n.geoip_country_code) AS country_code, count() AS cnt "+
-			"FROM logs.waf_audit_log AS w "+
-			"INNER JOIN ("+
-			"  SELECT toString(remote_addr) AS ip, any(geoip_country_code) AS geoip_country_code "+
-			"  FROM logs.nginx_access_log "+
-			"  WHERE time_local >= now() - INTERVAL %d MINUTE "+
-			"  AND toString(remote_addr) IN ("+
-			"    SELECT DISTINCT toString(client_ip) FROM logs.waf_audit_log "+
-			"    WHERE timestamp >= now() - INTERVAL %d MINUTE%s"+
-			"  ) GROUP BY ip"+
-			") AS n ON toString(w.client_ip) = n.ip "+
-			"WHERE w.timestamp >= now() - INTERVAL %d MINUTE%s "+
-			"GROUP BY country_code "+
-			"ORDER BY cnt DESC "+
-			"LIMIT 10",
-		minutes, minutes, wafFilter, minutes, wafFilter))
-
-	if rows == nil {
-		// Fallback: all blocks attributed to UNKNOWN (mirrors Python: rows = [("UNKNOWN", total_blocks)]).
-		return &dashboardv1.ThreatOriginListResponse{
-			Origins: []*dashboardv1.ThreatOrigin{
-				{Country: "UNKNOWN", CountryCode: "UNKNOWN", BlocksPercent: 100.0},
-			},
-		}, nil
-	}
-
-	origins := make([]*dashboardv1.ThreatOrigin, 0, len(rows))
-	for _, r := range rows {
-		if len(r) < 2 {
-			continue
-		}
-		cc := toString(r[0])
-		if cc == "" {
-			cc = "UNKNOWN"
-		}
-		cnt := toInt64(r[1])
-		pct := math.Round(float64(cnt)/float64(totalBlocks)*100*10) / 10
-		origins = append(origins, &dashboardv1.ThreatOrigin{
-			Country:       cc,
-			CountryCode:   cc,
+	respOrigins := make([]*dashboardv1.ThreatOrigin, 0, len(origins.Origins))
+	for _, o := range origins.Origins {
+		pct := math.Round(float64(o.Hits)/float64(origins.TotalBlocks)*100*10) / 10
+		respOrigins = append(respOrigins, &dashboardv1.ThreatOrigin{
+			Country:       o.CountryCode,
+			CountryCode:   o.CountryCode,
 			BlocksPercent: pct,
 		})
 	}
-	return &dashboardv1.ThreatOriginListResponse{Origins: origins}, nil
+	return &dashboardv1.ThreatOriginListResponse{Origins: respOrigins}, nil
 }
 
 // ─── 6. GetEvents ─────────────────────────────────────────────────────────────
 
 func (s *Service) GetEvents(ctx context.Context, req *dashboardv1.EventsRequest) (*dashboardv1.SecurityEventListResponse, error) {
 	hours := defaultHours(req.GetHours())
-	minutes := clampMinutes(hours)
+	minutes := chdash.ClampMinutes(hours)
 	limit := defaultLimit(req.GetLimit(), 50)
 
 	var connID *int64
@@ -590,57 +386,39 @@ func (s *Service) GetEvents(ctx context.Context, req *dashboardv1.EventsRequest)
 	}
 	tid := tenantID(ctx)
 	doms := s.domains(ctx, connID, tid)
-	wafFilter := chdash.HostFilterWAF(doms)
 
-	severityFilter := ""
-	switch req.GetSeverity() {
-	case "high":
-		severityFilter = "AND m.severity >= 2"
-	case "critical":
-		severityFilter = "AND m.severity >= 3"
+	events, err := s.db.GetEvents(ctx, minutes, req.GetSeverity(), doms, limit)
+	if err != nil {
+		return nil, status.Error(codes.Internal, err.Error())
 	}
 
-	rows, _ := s.ex.QueryCached(ctx, fmt.Sprintf(
-		"SELECT w.timestamp, m.ruleId, w.client_ip, m.severity, w.request_uri, m.message "+
-			"FROM logs.waf_audit_log AS w "+
-			"ARRAY JOIN messages AS m "+
-			"WHERE w.timestamp >= now() - INTERVAL %d MINUTE "+
-			"%s%s "+
-			"ORDER BY w.timestamp DESC "+
-			"LIMIT %d",
-		minutes, severityFilter, wafFilter, limit))
-
-	events := make([]*dashboardv1.SecurityEvent, 0, len(rows))
-	for _, r := range rows {
-		if len(r) < 6 {
-			continue
-		}
-		sev := toInt64(r[3])
-		ruleID := toString(r[1])
+	respEvents := make([]*dashboardv1.SecurityEvent, 0, len(events))
+	for _, e := range events {
+		ruleID := e.RuleId
 		if ruleID == "" {
 			ruleID = "unknown"
 		}
-		ip := toString(r[2])
+		ip := e.ClientIp
 		if ip == "" {
 			ip = "0.0.0.0"
 		}
-		events = append(events, &dashboardv1.SecurityEvent{
-			Timestamp: toISO(r[0]),
+		respEvents = append(respEvents, &dashboardv1.SecurityEvent{
+			Timestamp: chdash.ISO(e.Timestamp),
 			Type:      ruleID,
 			Ip:        ip,
 			Country:   "",
-			Path:      toString(r[4]),
-			Severity:  secSeverityLabel(sev),
+			Path:      e.Path,
+			Severity:  secSeverityLabel(e.Severity),
 		})
 	}
-	return &dashboardv1.SecurityEventListResponse{Events: events}, nil
+	return &dashboardv1.SecurityEventListResponse{Events: respEvents}, nil
 }
 
 // ─── 7. GetWafEventsTimeline ──────────────────────────────────────────────────
 
 func (s *Service) GetWafEventsTimeline(ctx context.Context, req *dashboardv1.DashboardRequest) (*dashboardv1.TimelineListResponse, error) {
 	hours := defaultHours(req.GetHours())
-	minutes := clampMinutes(hours)
+	minutes := chdash.ClampMinutes(hours)
 
 	var connID *int64
 	if req.GetConnectionId() != nil {
@@ -649,33 +427,27 @@ func (s *Service) GetWafEventsTimeline(ctx context.Context, req *dashboardv1.Das
 	}
 	tid := tenantID(ctx)
 	doms := s.domains(ctx, connID, tid)
-	wafFilter := chdash.HostFilterWAF(doms)
 
-	rows, _ := s.ex.QueryCached(ctx, fmt.Sprintf(
-		"SELECT toStartOfMinute(timestamp) AS t, count() AS hits "+
-			"FROM logs.waf_audit_log "+
-			"WHERE timestamp >= now() - INTERVAL %d MINUTE%s "+
-			"GROUP BY t ORDER BY t",
-		minutes, wafFilter))
+	points, err := s.db.GetWafEventsTimeline(ctx, minutes, doms)
+	if err != nil {
+		return nil, status.Error(codes.Internal, err.Error())
+	}
 
-	points := make([]*dashboardv1.TimelinePoint, 0, len(rows))
-	for _, r := range rows {
-		if len(r) < 2 {
-			continue
-		}
-		points = append(points, &dashboardv1.TimelinePoint{
-			Timestamp: toISO(r[0]),
-			Hits:      toInt64(r[1]),
+	respPoints := make([]*dashboardv1.TimelinePoint, 0, len(points))
+	for _, p := range points {
+		respPoints = append(respPoints, &dashboardv1.TimelinePoint{
+			Timestamp: chdash.ISO(p.Timestamp),
+			Hits:      p.Hits,
 		})
 	}
-	return &dashboardv1.TimelineListResponse{Points: points}, nil
+	return &dashboardv1.TimelineListResponse{Points: respPoints}, nil
 }
 
 // ─── 8. GetTopRules ───────────────────────────────────────────────────────────
 
 func (s *Service) GetTopRules(ctx context.Context, req *dashboardv1.DashboardRequest) (*dashboardv1.RuleHitListResponse, error) {
 	hours := defaultHours(req.GetHours())
-	minutes := clampMinutes(hours)
+	minutes := chdash.ClampMinutes(hours)
 
 	var connID *int64
 	if req.GetConnectionId() != nil {
@@ -684,34 +456,31 @@ func (s *Service) GetTopRules(ctx context.Context, req *dashboardv1.DashboardReq
 	}
 	tid := tenantID(ctx)
 	doms := s.domains(ctx, connID, tid)
-	wafFilter := chdash.HostFilterWAF(doms)
 
-	rows, _ := s.ex.QueryCached(ctx, fmt.Sprintf(
-		"SELECT m.ruleId AS rule, count() AS hits FROM logs.waf_audit_log "+
-			"ARRAY JOIN messages AS m "+
-			"WHERE timestamp >= now() - INTERVAL %d MINUTE%s "+
-			"GROUP BY rule ORDER BY hits DESC LIMIT 10",
-		minutes, wafFilter))
+	rules, err := s.db.GetTopRules(ctx, minutes, doms)
+	if err != nil {
+		return nil, status.Error(codes.Internal, err.Error())
+	}
 
-	rules := make([]*dashboardv1.RuleHit, 0, len(rows))
-	for _, r := range rows {
-		if len(r) < 2 {
-			continue
-		}
-		rule := toString(r[0])
+	respRules := make([]*dashboardv1.RuleHit, 0, len(rules))
+	for _, r := range rules {
+		rule := r.Rule
 		if rule == "" {
 			rule = "unknown"
 		}
-		rules = append(rules, &dashboardv1.RuleHit{Rule: rule, Hits: toInt64(r[1])})
+		respRules = append(respRules, &dashboardv1.RuleHit{
+			Rule: rule,
+			Hits: r.Hits,
+		})
 	}
-	return &dashboardv1.RuleHitListResponse{Rules: rules}, nil
+	return &dashboardv1.RuleHitListResponse{Rules: respRules}, nil
 }
 
 // ─── 9. GetSeverityDistribution ───────────────────────────────────────────────
 
 func (s *Service) GetSeverityDistribution(ctx context.Context, req *dashboardv1.DashboardRequest) (*dashboardv1.SeveritySliceListResponse, error) {
 	hours := defaultHours(req.GetHours())
-	minutes := clampMinutes(hours)
+	minutes := chdash.ClampMinutes(hours)
 
 	var connID *int64
 	if req.GetConnectionId() != nil {
@@ -720,34 +489,27 @@ func (s *Service) GetSeverityDistribution(ctx context.Context, req *dashboardv1.
 	}
 	tid := tenantID(ctx)
 	doms := s.domains(ctx, connID, tid)
-	wafFilter := chdash.HostFilterWAF(doms)
 
-	rows, _ := s.ex.QueryCached(ctx, fmt.Sprintf(
-		"SELECT m.severity AS sev, count() AS hits FROM logs.waf_audit_log "+
-			"ARRAY JOIN messages AS m "+
-			"WHERE timestamp >= now() - INTERVAL %d MINUTE%s "+
-			"GROUP BY sev ORDER BY sev",
-		minutes, wafFilter))
+	slices, err := s.db.GetSeverityDistribution(ctx, minutes, doms)
+	if err != nil {
+		return nil, status.Error(codes.Internal, err.Error())
+	}
 
-	slices := make([]*dashboardv1.SeveritySlice, 0, len(rows))
-	for _, r := range rows {
-		if len(r) < 2 {
-			continue
-		}
-		sev := toInt64(r[0])
-		slices = append(slices, &dashboardv1.SeveritySlice{
-			Severity: severityLabel(sev),
-			Hits:     toInt64(r[1]),
+	respSlices := make([]*dashboardv1.SeveritySlice, 0, len(slices))
+	for _, sl := range slices {
+		respSlices = append(respSlices, &dashboardv1.SeveritySlice{
+			Severity: severityLabel(sl.Severity),
+			Hits:     sl.Hits,
 		})
 	}
-	return &dashboardv1.SeveritySliceListResponse{Slices: slices}, nil
+	return &dashboardv1.SeveritySliceListResponse{Slices: respSlices}, nil
 }
 
 // ─── 10. GetTopAttackingIps ───────────────────────────────────────────────────
 
 func (s *Service) GetTopAttackingIps(ctx context.Context, req *dashboardv1.DashboardRequest) (*dashboardv1.IpHitListResponse, error) {
 	hours := defaultHours(req.GetHours())
-	minutes := clampMinutes(hours)
+	minutes := chdash.ClampMinutes(hours)
 
 	var connID *int64
 	if req.GetConnectionId() != nil {
@@ -756,33 +518,31 @@ func (s *Service) GetTopAttackingIps(ctx context.Context, req *dashboardv1.Dashb
 	}
 	tid := tenantID(ctx)
 	doms := s.domains(ctx, connID, tid)
-	wafFilter := chdash.HostFilterWAF(doms)
 
-	rows, _ := s.ex.QueryCached(ctx, fmt.Sprintf(
-		"SELECT client_ip, count() AS hits FROM logs.waf_audit_log "+
-			"WHERE timestamp >= now() - INTERVAL %d MINUTE%s "+
-			"GROUP BY client_ip ORDER BY hits DESC LIMIT 15",
-		minutes, wafFilter))
-
-	ips := make([]*dashboardv1.IpHit, 0, len(rows))
-	for _, r := range rows {
-		if len(r) < 2 {
-			continue
-		}
-		ip := toString(r[0])
-		if ip == "" {
-			ip = "0.0.0.0"
-		}
-		ips = append(ips, &dashboardv1.IpHit{Ip: ip, Hits: toInt64(r[1])})
+	ips, err := s.db.GetTopAttackingIps(ctx, minutes, doms)
+	if err != nil {
+		return nil, status.Error(codes.Internal, err.Error())
 	}
-	return &dashboardv1.IpHitListResponse{Ips: ips}, nil
+
+	respIps := make([]*dashboardv1.IpHit, 0, len(ips))
+	for _, ip := range ips {
+		respIp := ip.Ip
+		if respIp == "" {
+			respIp = "0.0.0.0"
+		}
+		respIps = append(respIps, &dashboardv1.IpHit{
+			Ip:   respIp,
+			Hits: ip.Hits,
+		})
+	}
+	return &dashboardv1.IpHitListResponse{Ips: respIps}, nil
 }
 
 // ─── 11. GetAnomalyScore ──────────────────────────────────────────────────────
 
 func (s *Service) GetAnomalyScore(ctx context.Context, req *dashboardv1.DashboardRequest) (*dashboardv1.AnomalyPointListResponse, error) {
 	hours := defaultHours(req.GetHours())
-	minutes := clampMinutes(hours)
+	minutes := chdash.ClampMinutes(hours)
 
 	var connID *int64
 	if req.GetConnectionId() != nil {
@@ -791,33 +551,27 @@ func (s *Service) GetAnomalyScore(ctx context.Context, req *dashboardv1.Dashboar
 	}
 	tid := tenantID(ctx)
 	doms := s.domains(ctx, connID, tid)
-	wafFilter := chdash.HostFilterWAF(doms)
 
-	rows, _ := s.ex.QueryCached(ctx, fmt.Sprintf(
-		"SELECT toStartOfMinute(timestamp) AS t, max(anomaly_score) AS score "+
-			"FROM logs.waf_audit_log "+
-			"WHERE timestamp >= now() - INTERVAL %d MINUTE%s "+
-			"GROUP BY t ORDER BY t",
-		minutes, wafFilter))
+	points, err := s.db.GetAnomalyScore(ctx, minutes, doms)
+	if err != nil {
+		return nil, status.Error(codes.Internal, err.Error())
+	}
 
-	points := make([]*dashboardv1.AnomalyPoint, 0, len(rows))
-	for _, r := range rows {
-		if len(r) < 2 {
-			continue
-		}
-		points = append(points, &dashboardv1.AnomalyPoint{
-			Timestamp: toISO(r[0]),
-			Score:     toInt64(r[1]),
+	respPoints := make([]*dashboardv1.AnomalyPoint, 0, len(points))
+	for _, p := range points {
+		respPoints = append(respPoints, &dashboardv1.AnomalyPoint{
+			Timestamp: chdash.ISO(p.Timestamp),
+			Score:     p.Score,
 		})
 	}
-	return &dashboardv1.AnomalyPointListResponse{Points: points}, nil
+	return &dashboardv1.AnomalyPointListResponse{Points: respPoints}, nil
 }
 
 // ─── 12. GetTopTags ───────────────────────────────────────────────────────────
 
 func (s *Service) GetTopTags(ctx context.Context, req *dashboardv1.DashboardRequest) (*dashboardv1.TagHitListResponse, error) {
 	hours := defaultHours(req.GetHours())
-	minutes := clampMinutes(hours)
+	minutes := chdash.ClampMinutes(hours)
 
 	var connID *int64
 	if req.GetConnectionId() != nil {
@@ -826,30 +580,27 @@ func (s *Service) GetTopTags(ctx context.Context, req *dashboardv1.DashboardRequ
 	}
 	tid := tenantID(ctx)
 	doms := s.domains(ctx, connID, tid)
-	wafFilter := chdash.HostFilterWAF(doms)
 
-	rows, _ := s.ex.QueryCached(ctx, fmt.Sprintf(
-		"SELECT tag, count() AS hits FROM logs.waf_audit_log "+
-			"ARRAY JOIN messages_tags AS tags ARRAY JOIN tags AS tag "+
-			"WHERE timestamp >= now() - INTERVAL %d MINUTE%s "+
-			"GROUP BY tag ORDER BY hits DESC LIMIT 10",
-		minutes, wafFilter))
-
-	tags := make([]*dashboardv1.TagHit, 0, len(rows))
-	for _, r := range rows {
-		if len(r) < 2 {
-			continue
-		}
-		tags = append(tags, &dashboardv1.TagHit{Tag: toString(r[0]), Hits: toInt64(r[1])})
+	tags, err := s.db.GetTopTags(ctx, minutes, doms)
+	if err != nil {
+		return nil, status.Error(codes.Internal, err.Error())
 	}
-	return &dashboardv1.TagHitListResponse{Tags: tags}, nil
+
+	respTags := make([]*dashboardv1.TagHit, 0, len(tags))
+	for _, t := range tags {
+		respTags = append(respTags, &dashboardv1.TagHit{
+			Tag:  t.Tag,
+			Hits: t.Hits,
+		})
+	}
+	return &dashboardv1.TagHitListResponse{Tags: respTags}, nil
 }
 
 // ─── 13. GetTopUris ───────────────────────────────────────────────────────────
 
 func (s *Service) GetTopUris(ctx context.Context, req *dashboardv1.DashboardRequest) (*dashboardv1.UriHitListResponse, error) {
 	hours := defaultHours(req.GetHours())
-	minutes := clampMinutes(hours)
+	minutes := chdash.ClampMinutes(hours)
 
 	var connID *int64
 	if req.GetConnectionId() != nil {
@@ -858,33 +609,31 @@ func (s *Service) GetTopUris(ctx context.Context, req *dashboardv1.DashboardRequ
 	}
 	tid := tenantID(ctx)
 	doms := s.domains(ctx, connID, tid)
-	wafFilter := chdash.HostFilterWAF(doms)
 
-	rows, _ := s.ex.QueryCached(ctx, fmt.Sprintf(
-		"SELECT request_uri AS uri, count() AS hits FROM logs.waf_audit_log "+
-			"WHERE timestamp >= now() - INTERVAL %d MINUTE%s "+
-			"GROUP BY uri ORDER BY hits DESC LIMIT 10",
-		minutes, wafFilter))
+	uris, err := s.db.GetTopUris(ctx, minutes, doms)
+	if err != nil {
+		return nil, status.Error(codes.Internal, err.Error())
+	}
 
-	uris := make([]*dashboardv1.UriHit, 0, len(rows))
-	for _, r := range rows {
-		if len(r) < 2 {
-			continue
-		}
-		uri := toString(r[0])
+	respUris := make([]*dashboardv1.UriHit, 0, len(uris))
+	for _, u := range uris {
+		uri := u.Uri
 		if uri == "" {
 			uri = "/"
 		}
-		uris = append(uris, &dashboardv1.UriHit{Uri: uri, Hits: toInt64(r[1])})
+		respUris = append(respUris, &dashboardv1.UriHit{
+			Uri:  uri,
+			Hits: u.Hits,
+		})
 	}
-	return &dashboardv1.UriHitListResponse{Uris: uris}, nil
+	return &dashboardv1.UriHitListResponse{Uris: respUris}, nil
 }
 
 // ─── 14. GetTopRuleFiles ──────────────────────────────────────────────────────
 
 func (s *Service) GetTopRuleFiles(ctx context.Context, req *dashboardv1.DashboardRequest) (*dashboardv1.RuleFileHitListResponse, error) {
 	hours := defaultHours(req.GetHours())
-	minutes := clampMinutes(hours)
+	minutes := chdash.ClampMinutes(hours)
 
 	var connID *int64
 	if req.GetConnectionId() != nil {
@@ -893,35 +642,31 @@ func (s *Service) GetTopRuleFiles(ctx context.Context, req *dashboardv1.Dashboar
 	}
 	tid := tenantID(ctx)
 	doms := s.domains(ctx, connID, tid)
-	wafFilter := chdash.HostFilterWAF(doms)
 
-	rows, _ := s.ex.QueryCached(ctx, fmt.Sprintf(
-		"SELECT replaceRegexpOne(replaceRegexpOne(m.file, '\\.conf$', ''), '^.*/', '') AS rf, "+
-			"count() AS hits FROM logs.waf_audit_log "+
-			"ARRAY JOIN messages AS m "+
-			"WHERE timestamp >= now() - INTERVAL %d MINUTE%s "+
-			"GROUP BY rf ORDER BY hits DESC LIMIT 10",
-		minutes, wafFilter))
+	files, err := s.db.GetTopRuleFiles(ctx, minutes, doms)
+	if err != nil {
+		return nil, status.Error(codes.Internal, err.Error())
+	}
 
-	files := make([]*dashboardv1.RuleFileHit, 0, len(rows))
-	for _, r := range rows {
-		if len(r) < 2 {
-			continue
-		}
-		rf := toString(r[0])
+	respFiles := make([]*dashboardv1.RuleFileHit, 0, len(files))
+	for _, f := range files {
+		rf := f.File
 		if rf == "" {
 			rf = "unknown"
 		}
-		files = append(files, &dashboardv1.RuleFileHit{File: rf, Hits: toInt64(r[1])})
+		respFiles = append(respFiles, &dashboardv1.RuleFileHit{
+			File: rf,
+			Hits: f.Hits,
+		})
 	}
-	return &dashboardv1.RuleFileHitListResponse{Files: files}, nil
+	return &dashboardv1.RuleFileHitListResponse{Files: respFiles}, nil
 }
 
 // ─── 15. GetStatusCodes ───────────────────────────────────────────────────────
 
 func (s *Service) GetStatusCodes(ctx context.Context, req *dashboardv1.DashboardRequest) (*dashboardv1.StatusCodeListResponse, error) {
 	hours := defaultHours(req.GetHours())
-	minutes := clampMinutes(hours)
+	minutes := chdash.ClampMinutes(hours)
 
 	var connID *int64
 	if req.GetConnectionId() != nil {
@@ -930,40 +675,30 @@ func (s *Service) GetStatusCodes(ctx context.Context, req *dashboardv1.Dashboard
 	}
 	tid := tenantID(ctx)
 	doms := s.domains(ctx, connID, tid)
-	nginxFilter := chdash.HostFilterNginx(doms)
 
-	rows, _ := s.ex.QueryCached(ctx, fmt.Sprintf(
-		"SELECT toStartOfMinute(time_local) AS t, "+
-			"countIf(status >= 200 AND status < 300) AS c2xx, "+
-			"countIf(status >= 300 AND status < 400) AS c3xx, "+
-			"countIf(status >= 400 AND status < 500) AS c4xx, "+
-			"countIf(status >= 500) AS c5xx "+
-			"FROM logs.nginx_access_log "+
-			"WHERE time_local >= now() - INTERVAL %d MINUTE%s "+
-			"GROUP BY t ORDER BY t",
-		minutes, nginxFilter))
+	points, err := s.db.GetStatusCodes(ctx, minutes, doms)
+	if err != nil {
+		return nil, status.Error(codes.Internal, err.Error())
+	}
 
-	points := make([]*dashboardv1.StatusCodePoint, 0, len(rows))
-	for _, r := range rows {
-		if len(r) < 5 {
-			continue
-		}
-		points = append(points, &dashboardv1.StatusCodePoint{
-			Timestamp: toISO(r[0]),
-			C2Xx:      toInt64(r[1]),
-			C3Xx:      toInt64(r[2]),
-			C4Xx:      toInt64(r[3]),
-			C5Xx:      toInt64(r[4]),
+	respPoints := make([]*dashboardv1.StatusCodePoint, 0, len(points))
+	for _, p := range points {
+		respPoints = append(respPoints, &dashboardv1.StatusCodePoint{
+			Timestamp: chdash.ISO(p.Timestamp),
+			C2Xx:      p.C2xx,
+			C3Xx:      p.C3xx,
+			C4Xx:      p.C4xx,
+			C5Xx:      p.C5xx,
 		})
 	}
-	return &dashboardv1.StatusCodeListResponse{Points: points}, nil
+	return &dashboardv1.StatusCodeListResponse{Points: respPoints}, nil
 }
 
 // ─── 16. GetTopUserAgents ─────────────────────────────────────────────────────
 
 func (s *Service) GetTopUserAgents(ctx context.Context, req *dashboardv1.DashboardRequest) (*dashboardv1.UserAgentHitListResponse, error) {
 	hours := defaultHours(req.GetHours())
-	minutes := clampMinutes(hours)
+	minutes := chdash.ClampMinutes(hours)
 
 	var connID *int64
 	if req.GetConnectionId() != nil {
@@ -972,34 +707,31 @@ func (s *Service) GetTopUserAgents(ctx context.Context, req *dashboardv1.Dashboa
 	}
 	tid := tenantID(ctx)
 	doms := s.domains(ctx, connID, tid)
-	nginxFilter := chdash.HostFilterNginx(doms)
 
-	rows, _ := s.ex.QueryCached(ctx, fmt.Sprintf(
-		"SELECT http_user_agent AS ua, count() AS hits "+
-			"FROM logs.nginx_access_log "+
-			"WHERE time_local >= now() - INTERVAL %d MINUTE%s "+
-			"GROUP BY ua ORDER BY hits DESC LIMIT 15",
-		minutes, nginxFilter))
+	agents, err := s.db.GetTopUserAgents(ctx, minutes, doms)
+	if err != nil {
+		return nil, status.Error(codes.Internal, err.Error())
+	}
 
-	agents := make([]*dashboardv1.UserAgentHit, 0, len(rows))
-	for _, r := range rows {
-		if len(r) < 2 {
-			continue
-		}
-		ua := toString(r[0])
+	respAgents := make([]*dashboardv1.UserAgentHit, 0, len(agents))
+	for _, a := range agents {
+		ua := a.UserAgent
 		if ua == "" {
 			ua = "-"
 		}
-		agents = append(agents, &dashboardv1.UserAgentHit{UserAgent: ua, Hits: toInt64(r[1])})
+		respAgents = append(respAgents, &dashboardv1.UserAgentHit{
+			UserAgent: ua,
+			Hits:      a.Hits,
+		})
 	}
-	return &dashboardv1.UserAgentHitListResponse{Agents: agents}, nil
+	return &dashboardv1.UserAgentHitListResponse{Agents: respAgents}, nil
 }
 
 // ─── 17. GetTrafficVolume ─────────────────────────────────────────────────────
 
 func (s *Service) GetTrafficVolume(ctx context.Context, req *dashboardv1.DashboardRequest) (*dashboardv1.BytesPointListResponse, error) {
 	hours := defaultHours(req.GetHours())
-	minutes := clampMinutes(hours)
+	minutes := chdash.ClampMinutes(hours)
 
 	var connID *int64
 	if req.GetConnectionId() != nil {
@@ -1008,33 +740,27 @@ func (s *Service) GetTrafficVolume(ctx context.Context, req *dashboardv1.Dashboa
 	}
 	tid := tenantID(ctx)
 	doms := s.domains(ctx, connID, tid)
-	nginxFilter := chdash.HostFilterNginx(doms)
 
-	rows, _ := s.ex.QueryCached(ctx, fmt.Sprintf(
-		"SELECT toStartOfMinute(time_local) AS t, sum(body_bytes_sent) AS bytes "+
-			"FROM logs.nginx_access_log "+
-			"WHERE time_local >= now() - INTERVAL %d MINUTE%s "+
-			"GROUP BY t ORDER BY t",
-		minutes, nginxFilter))
+	points, err := s.db.GetTrafficVolume(ctx, minutes, doms)
+	if err != nil {
+		return nil, status.Error(codes.Internal, err.Error())
+	}
 
-	points := make([]*dashboardv1.BytesPoint, 0, len(rows))
-	for _, r := range rows {
-		if len(r) < 2 {
-			continue
-		}
-		points = append(points, &dashboardv1.BytesPoint{
-			Timestamp: toISO(r[0]),
-			Bytes:     toInt64(r[1]),
+	respPoints := make([]*dashboardv1.BytesPoint, 0, len(points))
+	for _, p := range points {
+		respPoints = append(respPoints, &dashboardv1.BytesPoint{
+			Timestamp: chdash.ISO(p.Timestamp),
+			Bytes:     p.Bytes,
 		})
 	}
-	return &dashboardv1.BytesPointListResponse{Points: points}, nil
+	return &dashboardv1.BytesPointListResponse{Points: respPoints}, nil
 }
 
 // ─── 18. GetRequestsPerSecond ─────────────────────────────────────────────────
 
 func (s *Service) GetRequestsPerSecond(ctx context.Context, req *dashboardv1.RequestsPerSecondRequest) (*dashboardv1.RpsPointListResponse, error) {
 	hours := defaultHours(req.GetHours())
-	minutes := clampMinutes(hours)
+	minutes := chdash.ClampMinutes(hours)
 
 	var connID *int64
 	if req.GetConnectionId() != nil {
@@ -1043,54 +769,32 @@ func (s *Service) GetRequestsPerSecond(ctx context.Context, req *dashboardv1.Req
 	}
 	tid := tenantID(ctx)
 	doms := s.domains(ctx, connID, tid)
-	nginxFilter := chdash.HostFilterNginx(doms)
 
 	timeFunc := "toStartOfHour"
 	if hours <= 2.0 {
 		timeFunc = "toStartOfMinute"
 	}
 
-	var sql string
-	if req.GetMetric() == "volume" {
-		sql = fmt.Sprintf(
-			"SELECT %s(time_local) AS t, count() AS rps "+
-				"FROM logs.nginx_access_log "+
-				"WHERE time_local >= now() - INTERVAL %d MINUTE%s "+
-				"GROUP BY t ORDER BY t",
-			timeFunc, minutes, nginxFilter)
-	} else {
-		// Peak RPS: max per-second count inside each bucket.
-		sql = fmt.Sprintf(
-			"SELECT %s(time_local) AS t, max(rps_sec) AS rps "+
-				"FROM ("+
-				"  SELECT time_local, count() AS rps_sec "+
-				"  FROM logs.nginx_access_log "+
-				"  WHERE time_local >= now() - INTERVAL %d MINUTE%s "+
-				"  GROUP BY time_local"+
-				") GROUP BY t ORDER BY t",
-			timeFunc, minutes, nginxFilter)
+	points, err := s.db.GetRequestsPerSecond(ctx, minutes, req.GetMetric(), timeFunc, doms)
+	if err != nil {
+		return nil, status.Error(codes.Internal, err.Error())
 	}
 
-	rows, _ := s.ex.QueryCached(ctx, sql)
-
-	points := make([]*dashboardv1.RpsPoint, 0, len(rows))
-	for _, r := range rows {
-		if len(r) < 2 {
-			continue
-		}
-		points = append(points, &dashboardv1.RpsPoint{
-			Timestamp: toISO(r[0]),
-			Rps:       toFloat64(r[1]),
+	respPoints := make([]*dashboardv1.RpsPoint, 0, len(points))
+	for _, p := range points {
+		respPoints = append(respPoints, &dashboardv1.RpsPoint{
+			Timestamp: chdash.ISO(p.Timestamp),
+			Rps:       p.Rps,
 		})
 	}
-	return &dashboardv1.RpsPointListResponse{Points: points}, nil
+	return &dashboardv1.RpsPointListResponse{Points: respPoints}, nil
 }
 
 // ─── 19. GetRequestsByCountry ─────────────────────────────────────────────────
 
 func (s *Service) GetRequestsByCountry(ctx context.Context, req *dashboardv1.DashboardRequest) (*dashboardv1.CountryHitListResponse, error) {
 	hours := defaultHours(req.GetHours())
-	minutes := clampMinutes(hours)
+	minutes := chdash.ClampMinutes(hours)
 
 	var connID *int64
 	if req.GetConnectionId() != nil {
@@ -1099,33 +803,27 @@ func (s *Service) GetRequestsByCountry(ctx context.Context, req *dashboardv1.Das
 	}
 	tid := tenantID(ctx)
 	doms := s.domains(ctx, connID, tid)
-	nginxFilter := chdash.HostFilterNginx(doms)
 
-	rows, _ := s.ex.QueryCached(ctx, fmt.Sprintf(
-		"SELECT if(geoip_country_code = '' OR geoip_country_code IS NULL, 'Unknown', geoip_country_code) "+
-			"AS country, count() AS hits FROM logs.nginx_access_log "+
-			"WHERE time_local >= now() - INTERVAL %d MINUTE%s "+
-			"GROUP BY country ORDER BY hits DESC LIMIT 15",
-		minutes, nginxFilter))
+	countries, err := s.db.GetRequestsByCountry(ctx, minutes, doms)
+	if err != nil {
+		return nil, status.Error(codes.Internal, err.Error())
+	}
 
-	countries := make([]*dashboardv1.CountryHit, 0, len(rows))
-	for _, r := range rows {
-		if len(r) < 2 {
-			continue
-		}
-		countries = append(countries, &dashboardv1.CountryHit{
-			CountryCode: toString(r[0]),
-			Hits:        toInt64(r[1]),
+	respCountries := make([]*dashboardv1.CountryHit, 0, len(countries))
+	for _, c := range countries {
+		respCountries = append(respCountries, &dashboardv1.CountryHit{
+			CountryCode: c.CountryCode,
+			Hits:        c.Hits,
 		})
 	}
-	return &dashboardv1.CountryHitListResponse{Countries: countries}, nil
+	return &dashboardv1.CountryHitListResponse{Countries: respCountries}, nil
 }
 
 // ─── 20. GetTopClientIps ──────────────────────────────────────────────────────
 
 func (s *Service) GetTopClientIps(ctx context.Context, req *dashboardv1.DashboardRequest) (*dashboardv1.IpHitListResponse, error) {
 	hours := defaultHours(req.GetHours())
-	minutes := clampMinutes(hours)
+	minutes := chdash.ClampMinutes(hours)
 
 	var connID *int64
 	if req.GetConnectionId() != nil {
@@ -1134,92 +832,70 @@ func (s *Service) GetTopClientIps(ctx context.Context, req *dashboardv1.Dashboar
 	}
 	tid := tenantID(ctx)
 	doms := s.domains(ctx, connID, tid)
-	nginxFilter := chdash.HostFilterNginx(doms)
 
-	rows, _ := s.ex.QueryCached(ctx, fmt.Sprintf(
-		"SELECT toString(remote_addr) AS ip, count() AS hits "+
-			"FROM logs.nginx_access_log "+
-			"WHERE time_local >= now() - INTERVAL %d MINUTE%s "+
-			"GROUP BY ip ORDER BY hits DESC LIMIT 15",
-		minutes, nginxFilter))
-
-	ips := make([]*dashboardv1.IpHit, 0, len(rows))
-	for _, r := range rows {
-		if len(r) < 2 {
-			continue
-		}
-		ip := toString(r[0])
-		if ip == "" {
-			ip = "0.0.0.0"
-		}
-		ips = append(ips, &dashboardv1.IpHit{Ip: ip, Hits: toInt64(r[1])})
+	ips, err := s.db.GetTopClientIps(ctx, minutes, doms)
+	if err != nil {
+		return nil, status.Error(codes.Internal, err.Error())
 	}
-	return &dashboardv1.IpHitListResponse{Ips: ips}, nil
+
+	respIps := make([]*dashboardv1.IpHit, 0, len(ips))
+	for _, ip := range ips {
+		respIp := ip.Ip
+		if respIp == "" {
+			respIp = "0.0.0.0"
+		}
+		respIps = append(respIps, &dashboardv1.IpHit{
+			Ip:   respIp,
+			Hits: ip.Hits,
+		})
+	}
+	return &dashboardv1.IpHitListResponse{Ips: respIps}, nil
 }
 
 // ─── 21. GetTestTraffic ───────────────────────────────────────────────────────
 
 func (s *Service) GetTestTraffic(ctx context.Context, req *dashboardv1.TestTrafficRequest) (*dashboardv1.TestTrafficResponse, error) {
-	// SQL-injection barrier: the marker is interpolated into the ClickHouse
-	// query below, so it MUST be a strict UUID4 and nothing else. Reject any
-	// non-conforming value with InvalidArgument (→ HTTP 400 via the gateway)
-	// BEFORE building any SQL — mirrors the Python router's _UUID4_RE guard.
 	if !uuid4RE.MatchString(req.GetMarker()) {
 		return nil, status.Error(codes.InvalidArgument, "marker must be a UUID4")
 	}
 
 	tid := tenantID(ctx)
-	// Resolve domains for tenant scoping (connection_id is always nil for test traffic).
 	doms := s.domains(ctx, nil, tid)
-	wafFilter := chdash.HostFilterWAF(doms)
 
-	safe := safeMarker(req.GetMarker())
+	events, err := s.db.GetTestTraffic(ctx, req.GetMarker(), doms)
+	if err != nil {
+		return nil, status.Error(codes.Internal, err.Error())
+	}
 
-	// Uses Query (not QueryCached) — mirrors Python _direct_execute so a
-	// freshly-fired marker is never served stale from cache.
-	rows, _ := s.ex.Query(ctx, fmt.Sprintf(
-		"SELECT w.timestamp, m.ruleId, w.client_ip, w.request_uri, "+
-			"w.request_method, m.severity, m.message, w.anomaly_score "+
-			"FROM logs.waf_audit_log AS w "+
-			"LEFT ARRAY JOIN messages AS m "+
-			"WHERE w.request_headers['%s'] = '%s' "+
-			"AND w.timestamp >= now() - INTERVAL 1 HOUR%s "+
-			"ORDER BY w.timestamp",
-		testMarkerHeader, safe, wafFilter))
-
-	events := make([]*dashboardv1.TestTrafficEvent, 0, len(rows))
+	respEvents := make([]*dashboardv1.TestTrafficEvent, 0, len(events))
 	timestamps := make([]string, 0)
 	seenTS := make(map[string]struct{})
 
-	for _, r := range rows {
-		if len(r) < 8 {
-			continue
-		}
-		iso := toISO(r[0])
-		ruleID := toString(r[1])
+	for _, e := range events {
+		iso := chdash.ISO(e.Timestamp)
+		ruleID := e.RuleId
 		if ruleID == "" {
 			ruleID = "unknown"
 		}
-		ip := toString(r[2])
+		ip := e.ClientIp
 		if ip == "" {
 			ip = "0.0.0.0"
 		}
-		sev := toInt64(r[5])
 
-		events = append(events, &dashboardv1.TestTrafficEvent{
+		respEvents = append(respEvents, &dashboardv1.TestTrafficEvent{
 			Timestamp:    iso,
 			RuleId:       ruleID,
 			ClientIp:     ip,
-			Uri:          toString(r[3]),
-			Method:       toString(r[4]),
-			Severity:     secSeverityLabel(sev),
-			Message:      toString(r[6]),
-			AnomalyScore: toInt64(r[7]),
+			Uri:          e.Uri,
+			Method:       e.Method,
+			Severity:     secSeverityLabel(e.Severity),
+			Message:      e.Message,
+			AnomalyScore: e.AnomalyScore,
 		})
 		if _, seen := seenTS[iso]; !seen {
 			seenTS[iso] = struct{}{}
 			timestamps = append(timestamps, iso)
 		}
 	}
-	return &dashboardv1.TestTrafficResponse{Events: events, Timestamps: timestamps}, nil
+	return &dashboardv1.TestTrafficResponse{Events: respEvents, Timestamps: timestamps}, nil
 }

@@ -31,7 +31,7 @@ echo ""
 
 confirm
 
-COMPOSE_FILES="-f docker-compose.yml"
+COMPOSE_FILES="-f docker-compose.yaml"
 if [ -f "./dev/docker-compose.dev.yml" ]; then
     COMPOSE_FILES="$COMPOSE_FILES -f ./dev/docker-compose.dev.yml"
 fi

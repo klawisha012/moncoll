@@ -197,6 +197,7 @@ services:
     user: "1000:1000"
     group_add:
       - "${DOCKER_GID:-999}"
+      - "0"
     environment:
       WAF_POSTGRES_DSN: postgres://${POSTGRES_USER:-waf}:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD missing - run scripts/generate-env.sh}@postgres:5432/${POSTGRES_DB:-waf}?sslmode=disable
       WAF_PASETO_KEY: ${WAF_PASETO_KEY:-}
@@ -371,7 +372,7 @@ services:
     restart: unless-stopped
     volumes:
       - type: bind
-        source: ./scripts/crowdsec-alerts-exporter.py
+        source: ./scripts/exporters/crowdsec-alerts-exporter.py
         target: /app/crowdsec-alerts-exporter.py
       - type: bind
         source: ./var/log/crowdsec

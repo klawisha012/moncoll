@@ -10,38 +10,25 @@ import (
 	"log/slog"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"google.golang.org/protobuf/types/known/wrapperspb"
+
+	"github.com/zwarder/waf/gobackend/internal/crowdsec"
 )
 
+// cleanUTF8 coerces a string into valid UTF-8 so it can be marshaled into a
+// protobuf string field. cscli stdout/stderr is raw command output and may
+// contain invalid byte sequences; gRPC rejects invalid UTF-8 in string fields
+// with codes.Internal, which the gateway surfaces to the browser as HTTP 500.
+func cleanUTF8(s string) string {
+	if utf8.ValidString(s) {
+		return s
+	}
+	return strings.ToValidUTF8(s, "�")
+}
+
 // ── Helper types for JSON parsing ─────────────────────────────────────────────
-
-// alertShape mirrors the cscli decisions list / alerts list JSON shape.
-type alertShape struct {
-	ID        json.RawMessage `json:"id"`
-	Scenario  string          `json:"scenario"`
-	Message   string          `json:"message"`
-	Source    map[string]any  `json:"source"`
-	Decisions []decisionShape `json:"decisions"`
-	Meta      []metaItem      `json:"meta"`
-	StopAt    string          `json:"stop_at"`
-	StartAt   string          `json:"start_at"`
-	Capacity  json.RawMessage `json:"capacity"`
-}
-
-type decisionShape struct {
-	ID       json.RawMessage `json:"id"`
-	Value    string          `json:"value"`
-	Type     string          `json:"type"`
-	Duration string          `json:"duration"`
-	Origin   string          `json:"origin"`
-	Scope    string          `json:"scope"`
-}
-
-type metaItem struct {
-	Key   string `json:"key"`
-	Value string `json:"value"`
-}
 
 // scenarioItem is the JSON shape of one item from `cscli scenarios list`.
 type scenarioItem struct {
@@ -96,78 +83,13 @@ func sourceScope(src map[string]any) string {
 	return "Ip"
 }
 
-// extractTargetHosts mirrors Python _extract_target_hosts_from_alerts.
-func extractTargetHosts(alerts []alertShape) map[string]map[string]struct{} {
-	result := make(map[string]map[string]struct{})
-	for _, alert := range alerts {
-		ip := sourceValue(alert.Source)
-		if ip == "" {
-			continue
-		}
-		for _, m := range alert.Meta {
-			key := strings.ToLower(m.Key)
-			val := strings.ToLower(strings.TrimSpace(m.Value))
-			if val == "" {
-				continue
-			}
-			switch key {
-			case "target_host", "http_host", "target_fqdn", "host":
-				if result[ip] == nil {
-					result[ip] = make(map[string]struct{})
-				}
-				result[ip][val] = struct{}{}
-			}
-		}
-	}
-	return result
-}
-
-// resolveIPConnections is a thin wrapper around the crowdsec package function
-// using the same shared logic.
-//
-// We re-use crowdsec.resolveIPConnections logic by reimplementing it here via
-// the exported crowdsec package types if needed, but since crowdsec package
-// exposes it indirectly through Syncer, we keep the resolution logic local to
-// the service to keep the service testable without the full Syncer.
-//
-// Priority (mirrors Python _resolve_ip_connections exactly):
-//  1. Manual mapping
-//  2. target_host → domain → conn
-//  3. Fallback: all connections
-func resolveIPConnections(
-	ipValue string,
-	manualMapping map[string][]int64,
-	targetHosts map[string]map[string]struct{},
-	domainToConn map[string]int64,
-	allConnIDs []int64,
-) []int64 {
-	if ids, ok := manualMapping[ipValue]; ok {
-		return ids
-	}
-	hosts := targetHosts[ipValue]
-	connIDSet := make(map[int64]struct{})
-	for host := range hosts {
-		if cid, ok := domainToConn[host]; ok {
-			connIDSet[cid] = struct{}{}
-		}
-	}
-	if len(connIDSet) > 0 {
-		ids := make([]int64, 0, len(connIDSet))
-		for id := range connIDSet {
-			ids = append(ids, id)
-		}
-		return ids
-	}
-	return allConnIDs
-}
-
-// parseAlertsJSON decodes a json.RawMessage as []alertShape. Returns nil on
+// parseAlertsJSON decodes a json.RawMessage as []crowdsec.Alert. Returns nil on
 // error or when raw is empty/null.
-func parseAlertsJSON(raw json.RawMessage) []alertShape {
+func parseAlertsJSON(raw json.RawMessage) []crowdsec.Alert {
 	if raw == nil {
 		return nil
 	}
-	var alerts []alertShape
+	var alerts []crowdsec.Alert
 	if err := json.Unmarshal(raw, &alerts); err != nil {
 		slog.Warn("crowdsecapi: failed to parse alerts JSON", "err", err)
 		return nil

@@ -14,6 +14,8 @@ import (
 	"time"
 
 	crowdsecv1 "github.com/zwarder/waf/gobackend/gen/crowdsec/v1"
+	"github.com/zwarder/waf/gobackend/internal/auth"
+	"github.com/zwarder/waf/gobackend/internal/crowdsec"
 )
 
 // ── Interfaces ────────────────────────────────────────────────────────────────
@@ -47,6 +49,26 @@ func New(runner Runner, syncer Syncer) *Service {
 	return &Service{runner: runner, syncer: syncer}
 }
 
+func (s *Service) AuthLevels() map[string]auth.Level {
+	return map[string]auth.Level{
+		crowdsecv1.CrowdSecService_GetStatus_FullMethodName:          auth.LevelVerified,
+		crowdsecv1.CrowdSecService_GetDecisions_FullMethodName:       auth.LevelVerified,
+		crowdsecv1.CrowdSecService_AddDecision_FullMethodName:        auth.LevelVerified,
+		crowdsecv1.CrowdSecService_DeleteDecision_FullMethodName:     auth.LevelVerified,
+		crowdsecv1.CrowdSecService_DeleteAllDecisions_FullMethodName: auth.LevelVerified,
+		crowdsecv1.CrowdSecService_GetManualBlocks_FullMethodName:    auth.LevelVerified,
+		crowdsecv1.CrowdSecService_GetScenarios_FullMethodName:       auth.LevelVerified,
+		crowdsecv1.CrowdSecService_GetScenarioHub_FullMethodName:     auth.LevelVerified,
+		crowdsecv1.CrowdSecService_InstallScenario_FullMethodName:    auth.LevelVerified,
+		crowdsecv1.CrowdSecService_RemoveScenario_FullMethodName:     auth.LevelVerified,
+		crowdsecv1.CrowdSecService_GetServiceStatus_FullMethodName:   auth.LevelVerified,
+		crowdsecv1.CrowdSecService_ToggleService_FullMethodName:      auth.LevelVerified,
+		crowdsecv1.CrowdSecService_ToggleScenario_FullMethodName:     auth.LevelVerified,
+		crowdsecv1.CrowdSecService_GetAlerts_FullMethodName:          auth.LevelVerified,
+		crowdsecv1.CrowdSecService_Reload_FullMethodName:             auth.LevelVerified,
+	}
+}
+
 // ── 1. GetStatus ──────────────────────────────────────────────────────────────
 
 // GetStatus mirrors Python get_status.
@@ -69,7 +91,7 @@ func (s *Service) GetStatus(ctx context.Context, req *crowdsecv1.GetStatusReques
 	if req.GetConnectionId() != nil {
 		connID := req.GetConnectionId().GetValue()
 		manualMapping := s.syncer.LoadBlockedIPsMapping()
-		targetHosts := extractTargetHosts(alerts)
+		targetHosts := crowdsec.ExtractTargetHosts(alerts)
 		// We don't have a live store here; domainToConn and allConnIDs are
 		// handled by the Syncer internally. For the per-connection filter we
 		// iterate decisions and check manual mapping vs. fallback.
@@ -97,7 +119,7 @@ func (s *Service) GetStatus(ctx context.Context, req *crowdsecv1.GetStatusReques
 				if decValue == "" {
 					decValue = ip
 				}
-				targetConnIDs := resolveIPConnections(decValue, manualMapping, targetHosts, nil, nil)
+				targetConnIDs := crowdsec.ResolveIPConnections(decValue, manualMapping, targetHosts, nil, nil)
 				for _, cid := range targetConnIDs {
 					if cid == connID {
 						decisionsCount++
@@ -156,7 +178,7 @@ func (s *Service) GetStatus(ctx context.Context, req *crowdsecv1.GetStatusReques
 
 	return &crowdsecv1.CrowdSecStatus{
 		Running:        true,
-		Version:        version,
+		Version:        cleanUTF8(version),
 		DecisionsCount: decisionsCount,
 		ScenariosCount: scenariosCount,
 		AlertsCount:    alertsCount,
@@ -177,7 +199,7 @@ func (s *Service) GetDecisions(ctx context.Context, req *crowdsecv1.GetDecisions
 	}
 
 	manualMapping := s.syncer.LoadBlockedIPsMapping()
-	targetHosts := extractTargetHosts(alerts)
+	targetHosts := crowdsec.ExtractTargetHosts(alerts)
 
 	// We don't have store access here, but the blocked_on list uses connection
 	// names from the registry. Since we only have the syncer (no store), we
@@ -195,7 +217,7 @@ func (s *Service) GetDecisions(ctx context.Context, req *crowdsecv1.GetDecisions
 			if decValue == "" {
 				decValue = ip
 			}
-			targetConnIDs := resolveIPConnections(decValue, manualMapping, targetHosts, nil, nil)
+			targetConnIDs := crowdsec.ResolveIPConnections(decValue, manualMapping, targetHosts, nil, nil)
 
 			if connID != nil {
 				found := false
@@ -306,7 +328,7 @@ func (s *Service) AddDecision(ctx context.Context, req *crowdsecv1.DecisionCreat
 	}
 	return &crowdsecv1.DecisionMutationResponse{
 		Success: exitCode == 0,
-		Message: msg,
+		Message: cleanUTF8(msg),
 		Ip:      req.GetIp(),
 		Action:  "block",
 	}, nil
@@ -337,7 +359,7 @@ func (s *Service) DeleteDecision(ctx context.Context, req *crowdsecv1.DeleteDeci
 	}
 	return &crowdsecv1.DecisionMutationResponse{
 		Success: exitCode == 0,
-		Message: msg,
+		Message: cleanUTF8(msg),
 		Ip:      req.GetIp(),
 		Action:  "unblock",
 	}, nil
@@ -365,7 +387,7 @@ func (s *Service) DeleteAllDecisions(ctx context.Context, _ *crowdsecv1.Empty2) 
 	}
 	return &crowdsecv1.SimpleResponse{
 		Success: exitCode == 0,
-		Message: msg,
+		Message: cleanUTF8(msg),
 	}, nil
 }
 
@@ -477,7 +499,7 @@ func (s *Service) InstallScenario(ctx context.Context, req *crowdsecv1.ScenarioN
 	if exitCode != 0 {
 		msg = strings.TrimSpace(stderr)
 	}
-	return &crowdsecv1.SimpleResponse{Success: exitCode == 0, Message: msg}, nil
+	return &crowdsecv1.SimpleResponse{Success: exitCode == 0, Message: cleanUTF8(msg)}, nil
 }
 
 // ── 10. RemoveScenario ────────────────────────────────────────────────────────
@@ -498,7 +520,7 @@ func (s *Service) RemoveScenario(ctx context.Context, req *crowdsecv1.ScenarioNa
 	if exitCode != 0 {
 		msg = strings.TrimSpace(stderr)
 	}
-	return &crowdsecv1.SimpleResponse{Success: exitCode == 0, Message: msg}, nil
+	return &crowdsecv1.SimpleResponse{Success: exitCode == 0, Message: cleanUTF8(msg)}, nil
 }
 
 // ── 11. GetServiceStatus ──────────────────────────────────────────────────────
@@ -606,7 +628,7 @@ func (s *Service) ToggleScenario(ctx context.Context, req *crowdsecv1.ScenarioNa
 
 	return &crowdsecv1.ToggleScenarioResponse{
 		Success: exitCode == 0,
-		Message: msg,
+		Message: cleanUTF8(msg),
 		Name:    name,
 		Enabled: target && exitCode == 0,
 	}, nil
@@ -663,7 +685,7 @@ func (s *Service) Reload(ctx context.Context, _ *crowdsecv1.Empty2) (*crowdsecv1
 	if exitCode != 0 {
 		return &crowdsecv1.SimpleResponse{
 			Success: false,
-			Message: "Hub update failed: " + strings.TrimSpace(stderr),
+			Message: cleanUTF8("Hub update failed: " + strings.TrimSpace(stderr)),
 		}, nil
 	}
 	// hub upgrade — warning only, don't fail

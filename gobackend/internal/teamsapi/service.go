@@ -60,6 +60,23 @@ func New(st Store, mail Mailer, publicBaseURL string, log *slog.Logger) *Service
 	return &Service{store: st, mail: mail, publicBaseURL: strings.TrimRight(publicBaseURL, "/"), log: log}
 }
 
+func (s *Service) AuthLevels() map[string]auth.Level {
+	return map[string]auth.Level{
+		teamsv1.TeamsService_ListMyTeams_FullMethodName:       auth.LevelVerified,
+		teamsv1.TeamsService_SwitchTeam_FullMethodName:        auth.LevelVerified,
+		teamsv1.TeamsService_ListInvitations_FullMethodName:   auth.LevelVerified,
+		teamsv1.TeamsService_CreateInvitation_FullMethodName:  auth.LevelVerified,
+		teamsv1.TeamsService_AcceptInvitation_FullMethodName:  auth.LevelVerified,
+		teamsv1.TeamsService_DeclineInvitation_FullMethodName: auth.LevelVerified,
+		teamsv1.TeamsService_RevokeInvitation_FullMethodName:  auth.LevelVerified,
+		teamsv1.TeamsService_ResendInvitation_FullMethodName:  auth.LevelVerified,
+		teamsv1.TeamsService_ListMembers_FullMethodName:  auth.LevelVerified,
+		teamsv1.TeamsService_RemoveMember_FullMethodName: auth.LevelVerified,
+		teamsv1.TeamsService_ChangeRole_FullMethodName:   auth.LevelVerified,
+		teamsv1.TeamsService_LeaveTeam_FullMethodName:    auth.LevelVerified,
+	}
+}
+
 func identity(ctx context.Context) (*auth.Identity, error) {
 	id, ok := auth.IdentityFromContext(ctx)
 	if !ok || id == nil {

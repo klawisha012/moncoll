@@ -34,7 +34,7 @@ git clone https://github.com/Cringeneers/demo-repository.git waf
 cd ./waf
 
 # Generate fresh environment variables and keys
-./scripts/generate-env.sh
+./scripts/setup/generate-env.sh
 
 # Build and start all services
 docker compose up -d --build
@@ -49,7 +49,7 @@ docker compose up -d --build
    ```
 3. Create the initial administrative account:
    ```bash
-   ./scripts/create-admin.sh --email you@yourdomain.com
+   ./scripts/ops/create-admin.sh --email you@yourdomain.com
    ```
 4. Access the control panel, log in, and register your **TOTP (2FA)** application to unlock administrative endpoints.
 

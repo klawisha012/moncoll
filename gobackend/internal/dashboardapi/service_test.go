@@ -11,6 +11,7 @@ import (
 
 	dashboardv1 "github.com/zwarder/waf/gobackend/gen/dashboard/v1"
 	"github.com/zwarder/waf/gobackend/internal/auth"
+	"github.com/zwarder/waf/gobackend/internal/chdash"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/types/known/wrapperspb"
@@ -81,7 +82,7 @@ func adminCtx() context.Context {
 func TestTenantIsolation_ClientTenantIDFlowsToDomainsForConnection(t *testing.T) {
 	dr := &fakeDomainResolver{domains: []string{"client.example.com"}}
 	ex := &fakeExecutor{cachedRows: [][]interface{}{{int64(0)}}}
-	svc := newWithDeps(ex, dr)
+	svc := newWithDeps(chdash.NewClientWithExecutor(ex), dr)
 
 	ctx := ctxWithIdentity(ptr(int64(7)))
 	_, err := svc.GetMetrics(ctx, &dashboardv1.DashboardRequest{Hours: 1})
@@ -97,7 +98,7 @@ func TestTenantIsolation_ClientTenantIDFlowsToDomainsForConnection(t *testing.T)
 func TestTenantIsolation_AdminPassesNilTenantID(t *testing.T) {
 	dr := &fakeDomainResolver{domains: nil}
 	ex := &fakeExecutor{cachedRows: [][]interface{}{{int64(0)}}}
-	svc := newWithDeps(ex, dr)
+	svc := newWithDeps(chdash.NewClientWithExecutor(ex), dr)
 
 	ctx := adminCtx()
 	_, err := svc.GetMetrics(ctx, &dashboardv1.DashboardRequest{Hours: 1})
@@ -111,7 +112,7 @@ func TestTenantIsolation_AdminPassesNilTenantID(t *testing.T) {
 func TestTenantIsolation_ConnectionIDFromRequest(t *testing.T) {
 	dr := &fakeDomainResolver{domains: []string{"specific.example.com"}}
 	ex := &fakeExecutor{cachedRows: [][]interface{}{{int64(0)}}}
-	svc := newWithDeps(ex, dr)
+	svc := newWithDeps(chdash.NewClientWithExecutor(ex), dr)
 
 	ctx := ctxWithIdentity(ptr(int64(3)))
 	_, err := svc.GetMetrics(ctx, &dashboardv1.DashboardRequest{
@@ -130,7 +131,7 @@ func TestTenantIsolation_ConnectionIDFromRequest(t *testing.T) {
 func TestTenantIsolation_NoConnectionID(t *testing.T) {
 	dr := &fakeDomainResolver{domains: []string{"a.com", "b.com"}}
 	ex := &fakeExecutor{cachedRows: [][]interface{}{{int64(5)}}}
-	svc := newWithDeps(ex, dr)
+	svc := newWithDeps(chdash.NewClientWithExecutor(ex), dr)
 
 	ctx := ctxWithIdentity(ptr(int64(2)))
 	_, err := svc.GetTopRules(ctx, &dashboardv1.DashboardRequest{Hours: 24})
@@ -160,7 +161,7 @@ func TestGetMetrics_RowMapping(t *testing.T) {
 
 	// We need a custom executor that cycles through responses.
 	mex := &multiCallExecutor{responses: responses, callPtr: &callCount}
-	svc := newWithDeps(mex, dr)
+	svc := newWithDeps(chdash.NewClientWithExecutor(mex), dr)
 
 	resp, err := svc.GetMetrics(adminCtx(), &dashboardv1.DashboardRequest{Hours: 24})
 	require.NoError(t, err)
@@ -183,7 +184,7 @@ func TestGetTopRules_RowMapping(t *testing.T) {
 	}
 	ex := &fakeExecutor{cachedRows: cannedRows}
 	dr := &fakeDomainResolver{domains: nil}
-	svc := newWithDeps(ex, dr)
+	svc := newWithDeps(chdash.NewClientWithExecutor(ex), dr)
 
 	resp, err := svc.GetTopRules(adminCtx(), &dashboardv1.DashboardRequest{Hours: 24})
 	require.NoError(t, err)
@@ -205,7 +206,7 @@ func TestGetEvents_RowMapping(t *testing.T) {
 	}
 	ex := &fakeExecutor{cachedRows: cannedRows}
 	dr := &fakeDomainResolver{domains: []string{"example.com"}}
-	svc := newWithDeps(ex, dr)
+	svc := newWithDeps(chdash.NewClientWithExecutor(ex), dr)
 
 	ctx := ctxWithIdentity(ptr(int64(5)))
 	resp, err := svc.GetEvents(ctx, &dashboardv1.EventsRequest{Hours: 24})
@@ -243,7 +244,7 @@ func TestGetTraffic_MergeTimestamps(t *testing.T) {
 	// The executor needs to return different data for first vs second call.
 	mex := &trafficExecutor{nginxRows: nginxRows, wafRows: wafRows}
 	dr := &fakeDomainResolver{domains: nil}
-	svc := newWithDeps(mex, dr)
+	svc := newWithDeps(chdash.NewClientWithExecutor(mex), dr)
 
 	resp, err := svc.GetTraffic(adminCtx(), &dashboardv1.DashboardRequest{Hours: 24})
 	require.NoError(t, err)
@@ -269,7 +270,7 @@ const validMarker = "550e8400-e29b-41d4-a716-446655440000"
 func TestGetTestTraffic_UsesQueryNotQueryCached(t *testing.T) {
 	ex := &fakeExecutor{queryRows: nil}
 	dr := &fakeDomainResolver{domains: nil}
-	svc := newWithDeps(ex, dr)
+	svc := newWithDeps(chdash.NewClientWithExecutor(ex), dr)
 
 	_, err := svc.GetTestTraffic(adminCtx(), &dashboardv1.TestTrafficRequest{Marker: validMarker})
 	require.NoError(t, err)
@@ -277,7 +278,7 @@ func TestGetTestTraffic_UsesQueryNotQueryCached(t *testing.T) {
 	assert.NotEmpty(t, ex.lastQuery, "GetTestTraffic must call Query (not QueryCached)")
 	assert.Empty(t, ex.lastCached, "GetTestTraffic must NOT call QueryCached")
 	assert.Contains(t, ex.lastQuery, validMarker, "marker must appear in the SQL")
-	assert.Contains(t, ex.lastQuery, testMarkerHeader, "test marker header must appear in SQL")
+	assert.Contains(t, ex.lastQuery, chdash.TestMarkerHeader, "test marker header must appear in SQL")
 }
 
 // TestGetTestTraffic_UUID4Validation is the SQL-injection barrier test: a valid
@@ -304,7 +305,7 @@ func TestGetTestTraffic_UUID4Validation(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			ex := &fakeExecutor{queryRows: nil}
 			dr := &fakeDomainResolver{domains: nil}
-			svc := newWithDeps(ex, dr)
+			svc := newWithDeps(chdash.NewClientWithExecutor(ex), dr)
 
 			_, err := svc.GetTestTraffic(adminCtx(), &dashboardv1.TestTrafficRequest{Marker: tc.marker})
 
@@ -331,7 +332,7 @@ func TestGetSeverityDistribution_RowMapping(t *testing.T) {
 	}
 	ex := &fakeExecutor{cachedRows: cannedRows}
 	dr := &fakeDomainResolver{domains: nil}
-	svc := newWithDeps(ex, dr)
+	svc := newWithDeps(chdash.NewClientWithExecutor(ex), dr)
 
 	resp, err := svc.GetSeverityDistribution(adminCtx(), &dashboardv1.DashboardRequest{Hours: 1})
 	require.NoError(t, err)
@@ -352,7 +353,7 @@ func TestGetGeoipUnresolved_RowMapping(t *testing.T) {
 	}
 	ex := &fakeExecutor{cachedRows: cannedRows}
 	dr := &fakeDomainResolver{domains: []string{"example.com"}}
-	svc := newWithDeps(ex, dr)
+	svc := newWithDeps(chdash.NewClientWithExecutor(ex), dr)
 
 	resp, err := svc.GetGeoipUnresolved(ctxWithIdentity(ptr(int64(1))), &dashboardv1.DashboardRequest{Hours: 24})
 	require.NoError(t, err)
@@ -371,7 +372,7 @@ func TestGetMetrics_SQLContainsHostFilter(t *testing.T) {
 	dr := &fakeDomainResolver{domains: []string{"secure.example.com"}}
 	// 6 queries, each returns a scalar 0 row.
 	mex := &nCallExecutor{resp: [][]interface{}{{int64(0)}}, n: 6}
-	svc := newWithDeps(mex, dr)
+	svc := newWithDeps(chdash.NewClientWithExecutor(mex), dr)
 
 	ctx := ctxWithIdentity(ptr(int64(1)))
 	_, err := svc.GetMetrics(ctx, &dashboardv1.DashboardRequest{Hours: 24})
@@ -393,7 +394,7 @@ func TestGetMetrics_EmptyDomainsProduceSentinel(t *testing.T) {
 	// Client with zero connections → empty domains.
 	dr := &fakeDomainResolver{domains: []string{}}
 	mex := &nCallExecutor{resp: [][]interface{}{{int64(0)}}, n: 6}
-	svc := newWithDeps(mex, dr)
+	svc := newWithDeps(chdash.NewClientWithExecutor(mex), dr)
 
 	ctx := ctxWithIdentity(ptr(int64(99)))
 	_, err := svc.GetMetrics(ctx, &dashboardv1.DashboardRequest{Hours: 24})

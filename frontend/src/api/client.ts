@@ -410,6 +410,11 @@ async function fetchApi<T>(url: string, options?: RequestInit): Promise<T> {
   const response = await fetch(`${API_BASE}${url}`, {
     headers,
     credentials: "include",
+    // Always hit the network: these are authenticated, dynamic endpoints. The
+    // backend sends no Cache-Control, so without this the browser can serve a
+    // stale cached GET (e.g. an empty tests catalog fetched before the manifest
+    // existed) on later loads.
+    cache: "no-store",
     ...options,
   });
 

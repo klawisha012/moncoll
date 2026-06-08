@@ -79,10 +79,10 @@ if (Test-Path .env) {
 } else {
     $bash = Get-Command bash -ErrorAction SilentlyContinue
     if ($bash) {
-        bash ./scripts/generate-env.sh
+        bash ./scripts/setup/generate-env.sh
     } else {
-        Write-Warn "'bash' not found - cannot run scripts/generate-env.sh automatically."
-        Write-Warn "Install Git Bash / WSL, then run:  bash ./scripts/generate-env.sh"
+        Write-Warn "'bash' not found - cannot run scripts/setup/generate-env.sh automatically."
+        Write-Warn "Install Git Bash / WSL, then run:  bash ./scripts/setup/generate-env.sh"
         Die "Cannot continue without a .env file."
     }
 }
@@ -106,7 +106,7 @@ Write-Info "WAF is up. Next steps:"
 
   2. Create the first administrator (Git Bash / WSL):
        cd $Dir
-       ./scripts/create-admin.sh --email you@yourdomain.com
+       ./scripts/ops/create-admin.sh --email you@yourdomain.com
 
   3. Open the control panel and register your TOTP (2FA) app.
 

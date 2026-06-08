@@ -68,10 +68,10 @@ cd "${WAF_DIR}"
 step "Generating environment variables and keys"
 if [ -f .env ]; then
   warn ".env already exists — keeping it (delete it and re-run to regenerate)"
-elif [ -x ./scripts/generate-env.sh ]; then
-  ./scripts/generate-env.sh
+elif [ -x ./scripts/setup/generate-env.sh ]; then
+  ./scripts/setup/generate-env.sh
 else
-  bash ./scripts/generate-env.sh
+  bash ./scripts/setup/generate-env.sh
 fi
 
 # --- 4. Build & start ------------------------------------------------------
@@ -92,7 +92,7 @@ cat <<EOF
 
   2. Create the first administrator:
        cd ${WAF_DIR}
-       ./scripts/create-admin.sh --email you@yourdomain.com
+       ./scripts/ops/create-admin.sh --email you@yourdomain.com
 
   3. Open the control panel and register your TOTP (2FA) app.
 

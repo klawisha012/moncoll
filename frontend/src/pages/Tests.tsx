@@ -90,13 +90,14 @@ export default function Tests() {
   const activeConnectionText = () => {
     if (filters.connectionId !== null) {
       const conn = activeConnection();
-      return conn ? (conn.domain ? `${conn.name} (${conn.domain})` : conn.name) : "localhost (default)";
+      if (conn) return conn.domain ? `${conn.name} (${conn.domain})` : conn.name;
+      return settings.t("tests.target.none");
     }
     const enabled = filters.connections.filter((c) => c.enabled);
     if (enabled.length > 0) {
       return enabled.map((c) => c.domain ? `${c.name} (${c.domain})` : c.name).join(" + ");
     }
-    return "localhost (default)";
+    return settings.t("tests.target.none");
   };
 
   // ── Fetchers ────────────────────────────────────────────
@@ -105,7 +106,7 @@ export default function Tests() {
     api
       .getTestsCatalog()
       .then((res) => {
-        if (!cancelled) setCatalog(res.tests);
+        if (!cancelled) setCatalog(res.tests ?? []);
       })
       .catch((e) => {
         if (!cancelled) setCatalogError(e instanceof Error ? e.message : String(e));

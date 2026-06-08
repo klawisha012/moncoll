@@ -48,6 +48,14 @@ func New(resolver ConnectionResolver, manager CertManager) *Service {
 	return &Service{resolver: resolver, manager: manager}
 }
 
+func (s *Service) AuthLevels() map[string]auth.Level {
+	return map[string]auth.Level{
+		sslv1.SSLService_GetCertificateStatus_FullMethodName:  auth.LevelVerified,
+		sslv1.SSLService_RequestCertificate_FullMethodName:    auth.LevelVerified,
+		sslv1.SSLService_RegenerateCertificate_FullMethodName: auth.LevelVerified,
+	}
+}
+
 // ── current_tenant equivalent ─────────────────────────────────────────────────
 
 // requireTenantID extracts Identity.TenantID from ctx. If the identity is

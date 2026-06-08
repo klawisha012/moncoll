@@ -26,6 +26,8 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+
+	"github.com/zwarder/waf/gobackend/internal/store"
 )
 
 // ── Interfaces (keep Syncer testable without Docker) ──────────────────────────
@@ -277,35 +279,38 @@ func (s *Syncer) SaveBlockedIPsMapping(mapping map[string][]int64) error {
 
 // ── CrowdSec alert/decision parsing ──────────────────────────────────────────
 
-// alertShape is the JSON shape of one element from `cscli decisions list -o json`.
+// Alert is the JSON shape of one element from `cscli decisions list -o json`.
 // cscli returns a list of alert objects, each with a source and nested decisions.
-type alertShape struct {
-	Source    map[string]any   `json:"source"`
-	Decisions []decisionShape  `json:"decisions"`
-	Meta      []metaItem       `json:"meta"`
-	Scenario  string           `json:"scenario"`
-	ID        any              `json:"id"`
-	StopAt    string           `json:"stop_at"`
+type Alert struct {
+	ID        json.RawMessage `json:"id"`
+	Scenario  string          `json:"scenario"`
+	Message   string          `json:"message"`
+	Source    map[string]any  `json:"source"`
+	Decisions []Decision      `json:"decisions"`
+	Meta      []MetaItem      `json:"meta"`
+	StopAt    string          `json:"stop_at"`
+	StartAt   string          `json:"start_at"`
+	Capacity  json.RawMessage `json:"capacity"`
 }
 
-type decisionShape struct {
-	ID       any    `json:"id"`
-	Value    string `json:"value"`
-	Type     string `json:"type"`
-	Duration string `json:"duration"`
-	Origin   string `json:"origin"`
-	Scope    string `json:"scope"`
+type Decision struct {
+	ID       json.RawMessage `json:"id"`
+	Value    string          `json:"value"`
+	Type     string          `json:"type"`
+	Duration string          `json:"duration"`
+	Origin   string          `json:"origin"`
+	Scope    string          `json:"scope"`
 }
 
-type metaItem struct {
+type MetaItem struct {
 	Key   string `json:"key"`
 	Value string `json:"value"`
 }
 
-// extractTargetHostsFromAlerts parses CrowdSec alert meta for target_host / http_host
+// ExtractTargetHosts parses CrowdSec alert meta for target_host / http_host
 // entries, returning ip_value → set of hostnames.
 // Mirrors Python _extract_target_hosts_from_alerts.
-func extractTargetHostsFromAlerts(alerts []alertShape) map[string]map[string]struct{} {
+func ExtractTargetHosts(alerts []Alert) map[string]map[string]struct{} {
 	result := make(map[string]map[string]struct{})
 	for _, alert := range alerts {
 		ipValue := ""
@@ -335,13 +340,13 @@ func extractTargetHostsFromAlerts(alerts []alertShape) map[string]map[string]str
 	return result
 }
 
-// resolveIPConnections determines which connections an IP should be blocked on.
+// ResolveIPConnections determines which connections an IP should be blocked on.
 //
 // Priority (mirrors Python _resolve_ip_connections exactly):
 //  1. Manual mapping (IP → explicit connection_ids)
 //  2. Automatic: target_host from CrowdSec meta → domain → connection_id
 //  3. Fallback: all connections
-func resolveIPConnections(
+func ResolveIPConnections(
 	ipValue string,
 	manualMapping map[string][]int64,
 	targetHosts map[string]map[string]struct{},
@@ -400,7 +405,7 @@ func (s *Syncer) SyncBlockedIPsConf(ctx context.Context) error {
 		return fmt.Errorf("crowdsec: cscli decisions list: %w", err)
 	}
 
-	var alerts []alertShape
+	var alerts []Alert
 	if raw != nil {
 		if err := json.Unmarshal(raw, &alerts); err != nil {
 			// Non-list response (e.g. null or {}): treat as empty.
@@ -422,7 +427,7 @@ func (s *Syncer) SyncBlockedIPsConf(ctx context.Context) error {
 	// 2. Load supporting maps.
 	allConnIDs := s.loadConnectionIDs()
 	manualMapping := s.LoadBlockedIPsMapping()
-	targetHosts := extractTargetHostsFromAlerts(alerts)
+	targetHosts := ExtractTargetHosts(alerts)
 	domainToConn := s.buildDomainToConnMap()
 	connTenant := s.buildConnTenantMap()
 
@@ -433,7 +438,7 @@ func (s *Syncer) SyncBlockedIPsConf(ctx context.Context) error {
 		connIPs[cid] = make(map[string]struct{})
 	}
 	for ipVal := range bannedIPs {
-		for _, cid := range resolveIPConnections(ipVal, manualMapping, targetHosts, domainToConn, allConnIDs) {
+		for _, cid := range ResolveIPConnections(ipVal, manualMapping, targetHosts, domainToConn, allConnIDs) {
 			if _, exists := connIPs[cid]; !exists {
 				connIPs[cid] = make(map[string]struct{})
 			}
@@ -491,3 +496,28 @@ func (s *Syncer) SyncBlockedIPsConf(ctx context.Context) error {
 
 	return nil
 }
+
+// StoreConnSource adapts *store.Store to crowdsec.ConnectionSource.
+type StoreConnSource struct {
+	Store *store.Store
+}
+
+func (a StoreConnSource) ListConnections(ctx context.Context) ([]Connection, error) {
+	rows, err := a.Store.ListConnections(ctx)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]Connection, 0, len(rows))
+	for _, r := range rows {
+		out = append(out, Connection{
+			ID:       r.ID,
+			TenantID: r.TenantID,
+			Name:     r.Name,
+			Domain:   r.Domain,
+			Enabled:  r.Enabled,
+			Status:   r.Status,
+		})
+	}
+	return out, nil
+}
+

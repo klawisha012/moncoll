@@ -63,7 +63,7 @@ services:
     volumes:
       - angie_logs:/var/log/angie
       - type: bind
-        source: ./configs/angie/geoip2
+        source: ../../configs/angie/geoip2
         target: /etc/angie/geoip2
     configs:
       - source: angie_conf
@@ -85,7 +85,7 @@ services:
     networks:
       - waf_net
     env_file:
-      - ./envs/angie.env
+      - ../../envs/angie.env
     deploy:
       replicas: 1
       restart_policy:
@@ -126,7 +126,7 @@ services:
     networks:
       - waf_net
     env_file:
-      - ./envs/vector.env
+      - ../../envs/vector.env
     environment:
       - CLICKHOUSE_PASSWORD_FILE=/run/secrets/clickhouse_password
     deploy:
@@ -167,7 +167,7 @@ services:
     volumes:
       - clickhouse_data:/var/lib/clickhouse
       - type: bind
-        source: ./configs/clickhouse/init.sql
+        source: ../../configs/clickhouse/init.sql
         target: /docker-entrypoint-initdb.d/init.sql
         read_only: true
     secrets:
@@ -175,7 +175,7 @@ services:
     networks:
       - waf_net
     env_file:
-      - ./envs/clickhouse.env
+      - ../../envs/clickhouse.env
     environment:
       - CLICKHOUSE_PASSWORD_FILE=/run/secrets/clickhouse_password
     deploy:

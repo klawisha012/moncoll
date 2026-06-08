@@ -3,7 +3,7 @@ set -euo pipefail
 
 STACK_NAME="waf"
 REGISTRY="${REGISTRY:-localhost:5000}"
-COMPOSE_FILE="docker-compose.swarm.yml"
+COMPOSE_FILE="containers/docker/docker-compose.swarm.yaml"
 IMAGE_TAG="3.3.5"
 
 # Цвета для вывода
@@ -23,7 +23,7 @@ info "Swarm активен. Node ID: ${NODE_ID}"
 
 # --- 2. Создание env-файлов из .env ---
 if [ ! -f ".env" ]; then
-    error "Файл .env не найден. Запустите: bash scripts/generate-env.sh"
+    error "Файл .env не найден. Запустите: bash scripts/setup/generate-env.sh"
 fi
 mkdir -p envs
 grep '^ANGIE_'      .env > envs/angie.env
@@ -62,7 +62,7 @@ create_or_update_config() {
     # Удаляем старую версию если есть (нельзя обновить config in-place в Swarm)
     if docker config inspect "${name}" &>/dev/null; then
         warn "Config '${name}' уже существует. Для обновления удалите его вручную:"
-        warn "  docker config rm ${name} && ./deploy.sh"
+        warn "  docker config rm ${name} && ./scripts/ops/deploy.sh"
     else
         docker config create "${name}" "${file}"
         info "Config '${name}' создан из ${file}"

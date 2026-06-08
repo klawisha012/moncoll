@@ -18,6 +18,7 @@ import (
 	"github.com/zwarder/waf/gobackend/internal/angiecfg"
 	"github.com/zwarder/waf/gobackend/internal/auth"
 	"github.com/zwarder/waf/gobackend/internal/certs"
+	"github.com/zwarder/waf/gobackend/internal/conndns"
 	"github.com/zwarder/waf/gobackend/internal/edge"
 	"github.com/zwarder/waf/gobackend/internal/store"
 )
@@ -288,11 +289,11 @@ func noTenantCtx() context.Context {
 }
 
 func buildService(st *fakeStore, res *fakeResolver, cfg *fakeCfgWriter, certsM *fakeCertManager, rel *fakeReloader) *Service {
-	return New(st, res, fakeEdge{}, cfg, certsM, rel, slog.New(slog.NewTextHandler(os.Stderr, nil)))
+	return New(st, conndns.NewVerifier(res), fakeEdge{}, cfg, certsM, rel, slog.New(slog.NewTextHandler(os.Stderr, nil)))
 }
 
 func buildServiceWithEdge(st *fakeStore, res *fakeResolver, cfg *fakeCfgWriter, certsM *fakeCertManager, rel *fakeReloader, e fakeEdge) *Service {
-	return New(st, res, e, cfg, certsM, rel, slog.New(slog.NewTextHandler(os.Stderr, nil)))
+	return New(st, conndns.NewVerifier(res), e, cfg, certsM, rel, slog.New(slog.NewTextHandler(os.Stderr, nil)))
 }
 
 func sampleConn(tenantID int64) store.Connection {
@@ -764,7 +765,7 @@ func TestISO_CodeValidation(t *testing.T) {
 func newTestPoller(st Store, res *fakeResolver, cfg *fakeCfgWriter, certsM *fakeCertManager, rel *fakeReloader) *Poller {
 	return &Poller{
 		store:        st,
-		dns:          res,
+		dns:          conndns.NewVerifier(res),
 		edge:         fakeEdge{},
 		cfg:          cfg,
 		certs:        certsM,
@@ -778,7 +779,7 @@ func newTestPoller(st Store, res *fakeResolver, cfg *fakeCfgWriter, certsM *fake
 func newTestPollerWithEdge(st Store, res *fakeResolver, cfg *fakeCfgWriter, certsM *fakeCertManager, rel *fakeReloader, e fakeEdge) *Poller {
 	return &Poller{
 		store:        st,
-		dns:          res,
+		dns:          conndns.NewVerifier(res),
 		edge:         e,
 		cfg:          cfg,
 		certs:        certsM,

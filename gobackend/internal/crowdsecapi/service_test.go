@@ -4,8 +4,10 @@ import (
 	"context"
 	"encoding/json"
 	"testing"
+	"unicode/utf8"
 
 	crowdsecv1 "github.com/zwarder/waf/gobackend/gen/crowdsec/v1"
+	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/wrapperspb"
 )
 
@@ -208,6 +210,28 @@ func TestGetStatus_MapsVersionAndCounts(t *testing.T) {
 	// 1 alert in alertsListJSON
 	if resp.AlertsCount != 1 {
 		t.Errorf("AlertsCount: got %d, want 1", resp.AlertsCount)
+	}
+}
+
+// TestGetStatus_SanitizesInvalidUTF8 reproduces the HTTP 500 caused by cscli
+// stdout containing invalid UTF-8 bytes: the version string flows into a
+// protobuf string field, and gRPC rejects invalid UTF-8 with codes.Internal.
+// The response must carry valid UTF-8 and marshal cleanly.
+func TestGetStatus_SanitizesInvalidUTF8(t *testing.T) {
+	svc, runner, _ := newTestService()
+
+	// "version: v1.6.2" followed by a raw invalid UTF-8 byte (0xff).
+	runner.runReturns["version"] = [3]string{"0", "version: v1.6.2\xff", ""}
+
+	resp, err := svc.GetStatus(context.Background(), &crowdsecv1.GetStatusRequest{})
+	if err != nil {
+		t.Fatalf("GetStatus: %v", err)
+	}
+	if !utf8.ValidString(resp.Version) {
+		t.Errorf("Version is not valid UTF-8: %q", resp.Version)
+	}
+	if _, err := proto.Marshal(resp); err != nil {
+		t.Errorf("response failed to marshal (would be HTTP 500): %v", err)
 	}
 }
 

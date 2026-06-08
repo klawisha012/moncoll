@@ -1,16 +1,16 @@
 #!/bin/bash
 # Register the Angie bouncer with CrowdSec using the pre-generated API key
-# from .env (CROWDSEC_BOUNCER_KEY, written by scripts/generate-env.sh).
+# from .env (CROWDSEC_BOUNCER_KEY, written by scripts/setup/generate-env.sh).
 #
 # Idempotent: re-running deletes any prior bouncer of the same name and
 # re-registers with the current .env key, so a key rotation flow is
-# simply `bash scripts/generate-env.sh && bash scripts/init-crowdsec.sh
+# simply `bash scripts/setup/generate-env.sh && bash scripts/setup/init-crowdsec.sh
 # && docker compose restart angie`.
 
 set -euo pipefail
 
 if [ ! -f .env ]; then
-  echo "ERROR: .env not found — run scripts/generate-env.sh first." >&2
+  echo "ERROR: .env not found — run scripts/setup/generate-env.sh first." >&2
   exit 1
 fi
 
@@ -20,7 +20,7 @@ set -a
 set +a
 
 if [ -z "${CROWDSEC_BOUNCER_KEY:-}" ]; then
-  echo "ERROR: CROWDSEC_BOUNCER_KEY missing from .env — regenerate with scripts/generate-env.sh" >&2
+  echo "ERROR: CROWDSEC_BOUNCER_KEY missing from .env — regenerate with scripts/setup/generate-env.sh" >&2
   exit 1
 fi
 

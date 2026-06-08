@@ -25,6 +25,10 @@ RUN groupadd -g 1000 appuser && useradd -u 1000 -g 1000 -M -s /usr/sbin/nologin 
 # connections.json / blocked_ips_mapping.json here as uid 1000.
 RUN mkdir -p /var/lib/angie/data && chown 1000:1000 /var/lib/angie/data
 COPY --from=build /out/server /server
+# WAF test catalog: generated from tests/e2e/modsecurity via
+# scripts/dev/generate-tests-manifest.py. testsapi reads it at /app/manifest.json
+# (WAF_TESTS_MANIFEST_PATH default); without it the Tests page catalog is empty.
+COPY --from=build /src/manifest.json /app/manifest.json
 USER 1000
 EXPOSE 8080
 ENTRYPOINT ["/server"]

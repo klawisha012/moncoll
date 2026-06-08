@@ -1,11 +1,13 @@
 package auth
 
 import (
+	"encoding/json"
 	"os"
 	"strings"
 	"testing"
 	"time"
 
+	"aidanwoods.dev/go-paseto"
 	"github.com/stretchr/testify/require"
 )
 
@@ -54,7 +56,12 @@ func TestDecodeFixtureToken(t *testing.T) {
 		t.Skip("optional: generate testdata/py_token.txt from pyseto to cross-verify")
 	}
 	dec := NewDecoder(testKey())
-	claims, err := dec.Decode(strings.TrimSpace(string(raw)))
+	parser := paseto.NewParserWithoutExpiryCheck()
+	parsed, err := parser.ParseV4Local(dec.key, strings.TrimSpace(string(raw)), nil)
+	require.NoError(t, err)
+
+	var claims Claims
+	err = json.Unmarshal(parsed.ClaimsJSON(), &claims)
 	require.NoError(t, err)
 	require.Equal(t, "7", claims.Sub)
 	require.Equal(t, "admin", claims.PlatformRole)

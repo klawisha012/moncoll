@@ -4,15 +4,12 @@
 package angie
 
 import (
-	"bytes"
 	"context"
-	"errors"
 	"log/slog"
 	"os"
 	"strings"
 
-	"github.com/docker/docker/api/types/container"
-	"github.com/docker/docker/client"
+	"github.com/zwarder/waf/gobackend/internal/dockerexec"
 )
 
 func containerName() string {
@@ -25,45 +22,53 @@ func containerName() string {
 // Reload runs `angie -t` then `angie -s reload` inside the Angie container.
 // Best-effort: logs and returns on any failure.
 func Reload(ctx context.Context, log *slog.Logger) {
-	cli, err := client.NewClientWithOpts(client.FromEnv, client.WithAPIVersionNegotiation())
+	execClient, err := dockerexec.New()
 	if err != nil {
-		log.Warn("angie reload: docker client", "err", err)
+		log.Warn("angie reload: dockerexec client", "err", err)
 		return
 	}
-	defer cli.Close()
+	defer execClient.Close()
 	name := containerName()
-	if out, err := runExec(ctx, cli, name, []string{"angie", "-t"}); err != nil {
-		log.Warn("angie -t failed", "err", err, "out", out)
+	exitCode, out, _, err := execClient.Exec(ctx, name, []string{"angie", "-t"})
+	if err != nil || exitCode != 0 {
+		log.Warn("angie -t failed", "err", err, "exitCode", exitCode, "out", out)
 		return
 	}
-	if out, err := runExec(ctx, cli, name, []string{"angie", "-s", "reload"}); err != nil {
-		log.Warn("angie reload failed", "err", err, "out", out)
+	exitCode, out, _, err = execClient.Exec(ctx, name, []string{"angie", "-s", "reload"})
+	if err != nil || exitCode != 0 {
+		log.Warn("angie reload failed", "err", err, "exitCode", exitCode, "out", out)
 	}
 }
 
 // ReloadVerbose runs `angie -t` then `angie -s reload`, returning a success
 // flag + human message (mirrors backend/src/modsecurity/router.py reload_angie).
 func ReloadVerbose(ctx context.Context) (bool, string) {
-	cli, err := client.NewClientWithOpts(client.FromEnv, client.WithAPIVersionNegotiation())
+	execClient, err := dockerexec.New()
 	if err != nil {
 		return false, "Container '" + containerName() + "' not found"
 	}
-	defer cli.Close()
+	defer execClient.Close()
 	name := containerName()
 
-	// Verify the container is reachable by attempting the exec create; a missing
+	// Verify the container is reachable by attempting the exec; a missing
 	// container returns an error here, matching Python's "Container not found".
-	out, err := runExec(ctx, cli, name, []string{"angie", "-t"})
+	exitCode, out, _, err := execClient.Exec(ctx, name, []string{"angie", "-t"})
 	if err != nil {
 		// Distinguish "container not found" from a config-test failure.
 		if isNotFound(err) {
 			return false, "Container '" + name + "' not found"
 		}
+		return false, "Config test failed: " + err.Error()
+	}
+	if exitCode != 0 {
 		return false, "Config test failed: " + out
 	}
 
-	out, err = runExec(ctx, cli, name, []string{"angie", "-s", "reload"})
+	exitCode, out, _, err = execClient.Exec(ctx, name, []string{"angie", "-s", "reload"})
 	if err != nil {
+		return false, "Reload failed: " + err.Error()
+	}
+	if exitCode != 0 {
 		return false, "Reload failed: " + out
 	}
 	return true, "Angie reloaded successfully"
@@ -78,28 +83,15 @@ func isNotFound(err error) bool {
 	return strings.Contains(msg, "No such container") || strings.Contains(msg, "not found")
 }
 
-func runExec(ctx context.Context, cli *client.Client, name string, cmd []string) (string, error) {
-	id, err := cli.ContainerExecCreate(ctx, name, container.ExecOptions{
-		Cmd:          cmd,
-		AttachStdout: true,
-		AttachStderr: true,
-	})
-	if err != nil {
-		return "", err
-	}
-	att, err := cli.ContainerExecAttach(ctx, id.ID, container.ExecStartOptions{})
-	if err != nil {
-		return "", err
-	}
-	defer att.Close()
-	var buf bytes.Buffer
-	_, _ = buf.ReadFrom(att.Reader)
-	insp, err := cli.ContainerExecInspect(ctx, id.ID)
-	if err != nil {
-		return buf.String(), err
-	}
-	if insp.ExitCode != 0 {
-		return buf.String(), errors.New("non-zero exit from docker exec")
-	}
-	return buf.String(), nil
+// Reloader adapts Angie reload calls.
+type Reloader struct {
+	Log *slog.Logger
+}
+
+func (r Reloader) Reload(ctx context.Context) {
+	Reload(ctx, r.Log)
+}
+
+func (r Reloader) ReloadVerbose(ctx context.Context) (bool, string) {
+	return ReloadVerbose(ctx)
 }

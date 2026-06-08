@@ -1,30 +1,31 @@
 #!/usr/bin/env python3
-"""Generate ``backend/src/tests/manifest.json`` from the pytest e2e allowlist.
+"""Generate ``gobackend/manifest.json`` from the pytest e2e allowlist.
 
 The generator parses each whitelisted ``tests/e2e/modsecurity/test_*.py`` file
-by ast-importing it, then reads the named attribute (``xss_payloads``,
-``lfi_test_cases``, …). The shape (dict vs list) decides how each entry is
-unpacked into a ``TestCase``.
+with ``ast`` and reads the named payload assignment (``xss_payloads``,
+``lfi_test_cases``, …) by evaluating only that assignment's value expression.
+It deliberately does NOT import the modules: the test files import ``pytest`` /
+``requests`` at top level, which need not be installed to build the catalog.
+The shape (dict vs list) decides how each entry is unpacked into a ``TestCase``.
 
-Run from the repo root:
+Run from anywhere — it resolves paths relative to its own location:
 
-    python scripts/generate-tests-manifest.py
-
-Or from anywhere — it resolves paths relative to its own location.
+    python scripts/dev/generate-tests-manifest.py
 """
 
 from __future__ import annotations
 
+import ast
 import datetime as _dt
-import importlib.util
 import json
 import sys
 from pathlib import Path
 from typing import Any
 
-ROOT = Path(__file__).resolve().parent.parent
+# scripts/dev/generate-tests-manifest.py -> repo root is three parents up.
+ROOT = Path(__file__).resolve().parent.parent.parent
 TESTS_DIR = ROOT / "tests" / "e2e" / "modsecurity"
-OUTPUT = ROOT / "backend" / "src" / "tests" / "manifest.json"
+OUTPUT = ROOT / "gobackend" / "manifest.json"
 
 # Mirror of backend/src/tests/manifest.py::MANIFEST_SOURCES so the generator
 # can run standalone (no need to put the backend on sys.path).
@@ -65,14 +66,36 @@ DESCRIPTIONS: dict[str, str] = {
 }
 
 
-def _import_payload_module(path: Path) -> Any:
-    spec = importlib.util.spec_from_file_location(f"_payloads_{path.stem}", path)
-    if spec is None or spec.loader is None:
-        raise RuntimeError(f"can't load {path}")
-    mod = importlib.util.module_from_spec(spec)
-    # Suppress pytest fixture decorators noise — they're harmless to evaluate.
-    spec.loader.exec_module(mod)
-    return mod
+def _extract_payload(path: Path, attr: str) -> Any:
+    """Return the value of a top-level ``attr = …`` assignment without importing
+    the module. The value expression is evaluated in an empty namespace, so pure
+    literals plus simple string ops (e.g. ``"A" * 100``) work, while the file's
+    ``import pytest`` / ``import requests`` lines are never executed."""
+    tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+    for node in tree.body:
+        if not isinstance(node, ast.Assign):
+            continue
+        for target in node.targets:
+            if isinstance(target, ast.Name) and target.id == attr:
+                return eval(  # noqa: S307 — trusted, in-repo test fixtures only
+                    compile(ast.Expression(node.value), str(path), "eval"),
+                    {"__builtins__": _SAFE_BUILTINS},
+                    {},
+                )
+    return None
+
+
+# Minimal builtins needed to evaluate payload expressions (string ops plus the
+# occasional comprehension like ``{f"arg{i}": "v" for i in range(200)}``).
+_SAFE_BUILTINS: dict[str, Any] = {
+    "range": range,
+    "len": len,
+    "str": str,
+    "int": int,
+    "list": list,
+    "dict": dict,
+    "tuple": tuple,
+}
 
 
 def _coerce_dict_payload(family: str, rule_id: str, payload: Any) -> dict[str, Any]:
@@ -134,11 +157,10 @@ def main() -> int:
             missing.append(filename)
             continue
         try:
-            mod = _import_payload_module(path)
+            raw = _extract_payload(path, attr)
         except Exception as exc:
-            print(f"warning: failed to import {filename}: {exc}", file=sys.stderr)
+            print(f"warning: failed to parse {filename}: {exc}", file=sys.stderr)
             continue
-        raw = getattr(mod, attr, None)
         if raw is None:
             print(f"warning: {filename} missing attribute {attr!r}", file=sys.stderr)
             continue

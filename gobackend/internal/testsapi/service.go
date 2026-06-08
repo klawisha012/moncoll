@@ -273,6 +273,15 @@ func New(
 	}
 }
 
+func (s *Service) AuthLevels() map[string]auth.Level {
+	return map[string]auth.Level{
+		testsv1.TestsService_GetCatalog_FullMethodName:          auth.LevelVerified,
+		testsv1.TestsService_RunTest_FullMethodName:             auth.LevelVerified,
+		testsv1.TestsService_GetCrowdsecCatalog_FullMethodName:  auth.LevelVerified,
+		testsv1.TestsService_RunCrowdsecScenario_FullMethodName: auth.LevelVerified,
+	}
+}
+
 // ── 1. GetCatalog ─────────────────────────────────────────────────────────────
 
 func (s *Service) GetCatalog(_ context.Context, _ *testsv1.GetCatalogRequest) (*testsv1.CatalogResponse, error) {

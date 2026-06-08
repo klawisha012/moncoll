@@ -161,6 +161,23 @@ func New(
 	}
 }
 
+func (s *Service) AuthLevels() map[string]auth.Level {
+	return map[string]auth.Level{
+		authv1.AuthService_GetProviders_FullMethodName:   auth.LevelPublic,
+		authv1.AuthService_Signup_FullMethodName:         auth.LevelPublic,
+		authv1.AuthService_VerifyEmail_FullMethodName:    auth.LevelPublic,
+		authv1.AuthService_Login_FullMethodName:          auth.LevelPublic,
+		authv1.AuthService_Logout_FullMethodName:         auth.LevelPublic,
+		authv1.AuthService_Me_FullMethodName:             auth.LevelPublic,
+		authv1.AuthService_ForgotPassword_FullMethodName: auth.LevelPublic,
+		authv1.AuthService_ResetPassword_FullMethodName:  auth.LevelPublic,
+		authv1.AuthService_TotpSetup_FullMethodName:      auth.LevelPublic,
+		authv1.AuthService_TotpConfirm_FullMethodName:    auth.LevelPublic,
+		authv1.AuthService_OauthStart_FullMethodName:     auth.LevelPublic,
+		authv1.AuthService_OauthCallback_FullMethodName:  auth.LevelPublic,
+	}
+}
+
 // ── helpers ────────────────────────────────────────────────────────────────────
 
 func sha256Hex(s string) string {

@@ -146,26 +146,26 @@ func TestBlockedIPsMappingFileContainsIndent(t *testing.T) {
 	require.Contains(t, string(raw), "  \"1.1.1.1\"")
 }
 
-// ── extractTargetHostsFromAlerts tests ───────────────────────────────────────
+// ── ExtractTargetHosts tests ───────────────────────────────────────
 
-func TestExtractTargetHostsFromAlerts_Basic(t *testing.T) {
-	alerts := []alertShape{
+func TestExtractTargetHosts_Basic(t *testing.T) {
+	alerts := []Alert{
 		{
 			Source: map[string]any{"value": "1.2.3.4"},
-			Meta: []metaItem{
+			Meta: []MetaItem{
 				{Key: "target_host", Value: "example.com"},
 				{Key: "http_host", Value: "Example.com"}, // normalised to lower
 			},
 		},
 		{
 			Source: map[string]any{"value": "5.6.7.8"},
-			Meta: []metaItem{
+			Meta: []MetaItem{
 				{Key: "target_fqdn", Value: "other.com"},
 			},
 		},
 	}
 
-	result := extractTargetHostsFromAlerts(alerts)
+	result := ExtractTargetHosts(alerts)
 	require.Contains(t, result, "1.2.3.4")
 	require.Contains(t, result["1.2.3.4"], "example.com")
 	// Duplicate after lower-case normalisation — still just one entry.
@@ -175,31 +175,31 @@ func TestExtractTargetHostsFromAlerts_Basic(t *testing.T) {
 	require.Contains(t, result["5.6.7.8"], "other.com")
 }
 
-func TestExtractTargetHostsFromAlerts_NoSource(t *testing.T) {
-	alerts := []alertShape{
-		{Source: map[string]any{}, Meta: []metaItem{{Key: "target_host", Value: "x.com"}}},
+func TestExtractTargetHosts_NoSource(t *testing.T) {
+	alerts := []Alert{
+		{Source: map[string]any{}, Meta: []MetaItem{{Key: "target_host", Value: "x.com"}}},
 	}
-	result := extractTargetHostsFromAlerts(alerts)
+	result := ExtractTargetHosts(alerts)
 	require.Empty(t, result) // no ip_value → skip
 }
 
-func TestExtractTargetHostsFromAlerts_UnknownKey(t *testing.T) {
-	alerts := []alertShape{
+func TestExtractTargetHosts_UnknownKey(t *testing.T) {
+	alerts := []Alert{
 		{
 			Source: map[string]any{"value": "9.9.9.9"},
-			Meta:   []metaItem{{Key: "user_agent", Value: "curl"}},
+			Meta:   []MetaItem{{Key: "user_agent", Value: "curl"}},
 		},
 	}
-	result := extractTargetHostsFromAlerts(alerts)
+	result := ExtractTargetHosts(alerts)
 	// 9.9.9.9 has no target_host / http_host / etc — result is absent.
 	require.Empty(t, result)
 }
 
-// ── resolveIPConnections tests ────────────────────────────────────────────────
+// ── ResolveIPConnections tests ────────────────────────────────────────────────
 
 func TestResolveIPConnections_ManualMapping(t *testing.T) {
 	manual := map[string][]int64{"1.2.3.4": {5, 7}}
-	result := resolveIPConnections("1.2.3.4", manual, nil, nil, []int64{1, 2, 3})
+	result := ResolveIPConnections("1.2.3.4", manual, nil, nil, []int64{1, 2, 3})
 	require.Equal(t, []int64{5, 7}, result)
 }
 
@@ -214,7 +214,7 @@ func TestResolveIPConnections_AutomaticViaTargetHost(t *testing.T) {
 	}
 	allConns := []int64{10, 20, 30}
 
-	result := resolveIPConnections("1.2.3.4", manual, targetHosts, domainToConn, allConns)
+	result := ResolveIPConnections("1.2.3.4", manual, targetHosts, domainToConn, allConns)
 	sort.Slice(result, func(i, j int) bool { return result[i] < result[j] })
 	require.Equal(t, []int64{10, 20}, result)
 }
@@ -223,7 +223,7 @@ func TestResolveIPConnections_Fallback_AllConnections(t *testing.T) {
 	// No manual mapping, no target_host meta → fallback to all.
 	manual := map[string][]int64{}
 	allConns := []int64{1, 2, 3}
-	result := resolveIPConnections("9.9.9.9", manual, map[string]map[string]struct{}{}, map[string]int64{}, allConns)
+	result := ResolveIPConnections("9.9.9.9", manual, map[string]map[string]struct{}{}, map[string]int64{}, allConns)
 	require.Equal(t, allConns, result)
 }
 
@@ -236,7 +236,7 @@ func TestResolveIPConnections_TargetHostNotInDomainMap(t *testing.T) {
 	domainToConn := map[string]int64{"example.com": 10}
 	allConns := []int64{10, 20}
 
-	result := resolveIPConnections("1.2.3.4", manual, targetHosts, domainToConn, allConns)
+	result := ResolveIPConnections("1.2.3.4", manual, targetHosts, domainToConn, allConns)
 	require.Equal(t, allConns, result)
 }
 
@@ -245,20 +245,20 @@ func TestResolveIPConnections_TargetHostNotInDomainMap(t *testing.T) {
 // decisionsJSON builds a realistic cscli decisions list JSON payload.
 // The structure matches cscli's actual output: a list of alert objects,
 // each with a source, optional meta, and nested decisions.
-func decisionsJSON(alerts ...alertShape) json.RawMessage {
+func decisionsJSON(alerts ...Alert) json.RawMessage {
 	b, _ := json.Marshal(alerts)
 	return json.RawMessage(b)
 }
 
-func makeAlert(ipValue string, banValue string, hosts ...string) alertShape {
-	meta := make([]metaItem, 0, len(hosts))
+func makeAlert(ipValue string, banValue string, hosts ...string) Alert {
+	meta := make([]MetaItem, 0, len(hosts))
 	for _, h := range hosts {
-		meta = append(meta, metaItem{Key: "target_host", Value: h})
+		meta = append(meta, MetaItem{Key: "target_host", Value: h})
 	}
-	dec := decisionShape{Type: "ban", Value: banValue}
-	return alertShape{
+	dec := Decision{Type: "ban", Value: banValue}
+	return Alert{
 		Source:    map[string]any{"value": ipValue},
-		Decisions: []decisionShape{dec},
+		Decisions: []Decision{dec},
 		Meta:      meta,
 	}
 }

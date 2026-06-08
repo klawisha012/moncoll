@@ -36,6 +36,12 @@ func New(mint TokenMinter) *Service {
 	return &Service{mint: mint}
 }
 
+func (s *Service) AuthLevels() map[string]auth.Level {
+	return map[string]auth.Level{
+		realtimev1.RealtimeService_GetToken_FullMethodName: auth.LevelVerified,
+	}
+}
+
 // GetToken mints a Centrifugo connection JWT for the authenticated user.
 // Mirrors router.py issue_token (POST /api/realtime/token, require_verified).
 func (s *Service) GetToken(ctx context.Context, _ *emptypb.Empty) (*realtimev1.TokenResponse, error) {

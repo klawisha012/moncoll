@@ -67,10 +67,10 @@ pytest tests/unit/ -v
 Интеграционные тесты проверяют корректность работы API-эндпоинтов, переходов состояний и операций с базой данных. Для их работы требуется запущенный экземпляр **PostgreSQL**, на котором будут автоматически выполнены миграции базы данных и транзакционные проверки.
 
 ### Шаг 1: Запустите тестовую базу данных
-Тестовую базу данных можно легко запустить в Docker. Мы подготовили специальный конфигурационный файл (`docker-compose.test.yml`), который пробрасывает PostgreSQL на порт `localhost:5432`, не мешая вашей основной базе данных для разработки.
+Тестовую базу данных можно легко запустить в Docker. Мы подготовили специальный конфигурационный файл (`containers/docker/docker-compose.test.yaml`), который пробрасывает PostgreSQL на порт `localhost:5432`, не мешая вашей основной базе данных для разработки.
 
 ```bash
-docker compose -f docker-compose.yml -f docker-compose.test.yml up -d postgres
+docker compose -f docker-compose.yaml -f containers/docker/docker-compose.test.yaml up -d postgres
 ```
 
 ### Шаг 2: Запуск интеграционных тестов
@@ -132,7 +132,7 @@ E2E-тесты проверяют систему в сборе. Они выпо�
 
 ```bash
 # Генерация свежих файлов окружения, если вы этого еще не сделали
-./scripts/generate-env.sh
+./scripts/setup/generate-env.sh
 
 # Запуск всего стека
 docker compose up -d --build

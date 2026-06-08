@@ -28,6 +28,9 @@ node_modules/
 dist/
 *.tsbuildinfo
 
+# Go build artifacts (the server binary is built inside the Docker image)
+/gobackend/server
+
 # Logs
 *.log
 var/log/
@@ -114,3 +117,4 @@ graphify-out/
 .agents/
 docs/
 artifacts/
+AGENTS.md
