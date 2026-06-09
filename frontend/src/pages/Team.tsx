@@ -1,114 +1,387 @@
 import { createSignal, onMount, For, Show } from "solid-js";
 import { api, type TeamMember, type Invitation } from "../api/client";
 import { useSettings } from "../context/SettingsContext";
+import { useAuth } from "../context/AuthContext";
+
+type ToastKind = "success" | "error" | "info";
+type LinkPanel = { url: string; email: string; sent: boolean };
+type Confirm = { message: string; danger?: boolean; onConfirm: () => void };
+
+const roleBadgeClass = (role: string) =>
+  role === "owner" ? "badge badge-info" : role === "admin" ? "badge badge-primary" : "badge badge-secondary";
+
+const statusBadgeClass = (status: string) =>
+  status === "pending" ? "badge badge-warning" : status === "accepted" ? "badge badge-success" : "badge badge-secondary";
 
 export default function Team() {
   const settings = useSettings();
+  const auth = useAuth();
+  const t = settings.t;
+
   const [members, setMembers] = createSignal<TeamMember[]>([]);
   const [myRole, setMyRole] = createSignal("member");
   const [outgoing, setOutgoing] = createSignal<Invitation[]>([]);
   const [incoming, setIncoming] = createSignal<Invitation[]>([]);
   const [email, setEmail] = createSignal("");
   const [role, setRole] = createSignal("member");
-  const [toast, setToast] = createSignal<{ kind: "ok" | "err"; msg: string } | null>(null);
-  const t = settings.t;
-  const showToast = (kind: "ok" | "err", msg: string) => { setToast({ kind, msg }); setTimeout(() => setToast(null), 4000); };
+  const [busy, setBusy] = createSignal(false);
+  const [toast, setToast] = createSignal<{ kind: ToastKind; msg: string } | null>(null);
+  const [linkPanel, setLinkPanel] = createSignal<LinkPanel | null>(null);
+  const [confirm, setConfirm] = createSignal<Confirm | null>(null);
+
+  const showToast = (kind: ToastKind, msg: string) => {
+    setToast({ kind, msg });
+    setTimeout(() => setToast(null), 4000);
+  };
+  const errMsg = (e: unknown) => (e instanceof Error ? e.message : "error");
   const canManage = () => myRole() === "owner" || myRole() === "admin";
+  const isMe = (addr: string) => auth.user?.email?.toLowerCase() === addr.toLowerCase();
 
   const load = async () => {
     try {
       const m = await api.teams.members();
-      setMembers(m.members ?? []); setMyRole(m.my_role);
+      setMembers(m.members ?? []);
+      setMyRole(m.my_role);
       const inv = await api.teams.invitations();
-      setOutgoing(inv.outgoing); setIncoming(inv.incoming);
-    } catch (e) { showToast("err", e instanceof Error ? e.message : "error"); }
+      setOutgoing(inv.outgoing);
+      setIncoming(inv.incoming);
+    } catch (e) {
+      showToast("error", errMsg(e));
+    }
   };
   onMount(() => void load());
 
+  // Run a mutating action then reload, surfacing any error as a toast.
+  const act = async (fn: () => Promise<unknown>) => {
+    try {
+      await fn();
+      void load();
+    } catch (e) {
+      showToast("error", errMsg(e));
+    }
+  };
+
+  const ask = (c: Confirm) => setConfirm(c);
+  const runConfirm = () => {
+    const c = confirm();
+    setConfirm(null);
+    c?.onConfirm();
+  };
+
+  // After create/resend the backend returns the raw accept link + whether the
+  // email actually went out. Show it so an admin can share it manually even
+  // when SMTP delivery is broken.
+  const presentInvite = (inv: Invitation) => {
+    if (inv.accept_url) {
+      setLinkPanel({ url: inv.accept_url, email: inv.email, sent: !!inv.email_sent });
+    }
+  };
+
   const invite = async (e: Event) => {
     e.preventDefault();
-    try { await api.teams.invite(email().trim(), role()); setEmail(""); showToast("ok", t("team.invite")); void load(); }
-    catch (e) { showToast("err", e instanceof Error ? e.message : "error"); }
+    const addr = email().trim();
+    if (!addr || busy()) return;
+    setBusy(true);
+    try {
+      const inv = await api.teams.invite(addr, role());
+      setEmail("");
+      presentInvite(inv);
+      showToast("success", t("team.invited.ok", { email: inv.email }));
+      void load();
+    } catch (e) {
+      showToast("error", errMsg(e));
+    } finally {
+      setBusy(false);
+    }
   };
-  const act = async (fn: () => Promise<unknown>) => {
-    try { await fn(); void load(); } catch (e) { showToast("err", e instanceof Error ? e.message : "error"); }
+
+  const resend = async (inv: Invitation) => {
+    try {
+      const fresh = await api.teams.resendInvite(inv.id);
+      presentInvite(fresh);
+      showToast(fresh.email_sent ? "success" : "info", t("team.invited.ok", { email: fresh.email }));
+      void load();
+    } catch (e) {
+      showToast("error", errMsg(e));
+    }
+  };
+
+  const copyLink = async (url: string) => {
+    try {
+      await navigator.clipboard.writeText(url);
+      showToast("info", t("team.link.copied"));
+    } catch {
+      // clipboard may be denied in insecure contexts — leave the field selectable
+    }
+  };
+
+  const statusLabel = (s: string) => {
+    const key = `team.status.${s}`;
+    const label = t(key);
+    return label === key ? s : label;
+  };
+  const fmtDate = (iso: string) => {
+    const d = new Date(iso);
+    return isNaN(d.getTime()) ? iso : d.toLocaleDateString();
   };
 
   return (
     <div class="page-content">
-      <Show when={toast()}><div class={`toast toast--${toast()!.kind}`}>{toast()!.msg}</div></Show>
-      <h1 class="page-title">{t("team.title")}</h1>
-
-      <h2>{t("team.members")}</h2>
-      <table>
-        <thead><tr><th>{t("team.invite.email")}</th><th></th><th>{t("team.invite.role")}</th><th></th></tr></thead>
-        <tbody>
-          <For each={members()}>
-            {(m) => (
-              <tr>
-                <td>{m.email}</td>
-                <td>{m.display_name}</td>
-                <td>
-                  <Show when={myRole() === "owner" && m.role !== "owner"} fallback={t(`team.role.${m.role}`)}>
-                    <select value={m.role} onChange={(e) => act(() => api.teams.changeRole(m.user_id, e.currentTarget.value))}>
-                      <option value="admin">{t("team.role.admin")}</option>
-                      <option value="member">{t("team.role.member")}</option>
-                    </select>
-                  </Show>
-                </td>
-                <td>
-                  <Show when={canManage() && m.role !== "owner"}>
-                    <button type="button" onClick={() => act(() => api.teams.removeMember(m.user_id))}>{t("team.action.remove")}</button>
-                  </Show>
-                </td>
-              </tr>
-            )}
-          </For>
-        </tbody>
-      </table>
-      <button type="button" onClick={() => act(() => api.teams.leave())}>{t("team.action.leave")}</button>
-
-      <Show when={canManage()}>
-        <h2>{t("team.invitations")}</h2>
-        <form onSubmit={invite}>
-          <input type="email" required placeholder={t("team.invite.email")} value={email()} onInput={(e) => setEmail(e.currentTarget.value)} />
-          <select value={role()} onChange={(e) => setRole(e.currentTarget.value)}>
-            <option value="member">{t("team.role.member")}</option>
-            <option value="admin">{t("team.role.admin")}</option>
-          </select>
-          <button type="submit">{t("team.invite")}</button>
-        </form>
-        <table>
-          <tbody>
-            <For each={outgoing()}>
-              {(inv) => (
-                <tr>
-                  <td>{inv.email}</td>
-                  <td>{t(`team.role.${inv.role}`)}</td>
-                  <td>{inv.status}</td>
-                  <td>
-                    <Show when={inv.status === "pending"}>
-                      <button type="button" onClick={() => act(() => api.teams.resendInvite(inv.id))}>{t("team.action.resend")}</button>
-                      <button type="button" onClick={() => act(() => api.teams.revokeInvite(inv.id))}>{t("team.action.revoke")}</button>
-                    </Show>
-                  </td>
-                </tr>
-              )}
-            </For>
-          </tbody>
-        </table>
+      <Show when={toast()}>
+        <div class={`toast toast-${toast()!.kind}`}>{toast()!.msg}</div>
       </Show>
 
-      <Show when={incoming().length > 0}>
-        <h2>{t("team.myInvitations")}</h2>
-        <For each={incoming()}>
-          {(inv) => (
-            <div>
-              <span>{inv.team_name} ({t(`team.role.${inv.role}`)})</span>
-              <button type="button" onClick={() => act(() => api.teams.declineInvite(inv.id))}>{t("team.action.decline")}</button>
+      <h1 class="page-title">{t("team.title")}</h1>
+
+      {/* ── Members ───────────────────────────────────────────── */}
+      <div class="card" style="margin-bottom: 24px;">
+        <div class="card-header">
+          <h2>{t("team.members")}</h2>
+          <span class="badge badge-secondary">{members().length}</span>
+        </div>
+        <p style="color: var(--text-secondary); font-size: 13px; margin: -6px 0 16px;">{t("team.members.subtitle")}</p>
+
+        <Show
+          when={members().length > 0}
+          fallback={<p style="color: var(--text-muted);">{t("team.empty.members")}</p>}
+        >
+          <div class="table-wrapper">
+            <table>
+              <thead>
+                <tr>
+                  <th>{t("team.invite.email")}</th>
+                  <th>{t("team.col.name")}</th>
+                  <th>{t("team.invite.role")}</th>
+                  <th style="text-align: right;">{t("team.col.actions")}</th>
+                </tr>
+              </thead>
+              <tbody>
+                <For each={members()}>
+                  {(m) => (
+                    <tr>
+                      <td>
+                        {m.email}
+                        <Show when={isMe(m.email)}>
+                          <span class="badge badge-phase" style="margin-left: 8px;">{t("team.you")}</span>
+                        </Show>
+                      </td>
+                      <td style="color: var(--text-secondary);">{m.display_name || "—"}</td>
+                      <td>
+                        <Show
+                          when={myRole() === "owner" && m.role !== "owner"}
+                          fallback={<span class={roleBadgeClass(m.role)}>{t(`team.role.${m.role}`)}</span>}
+                        >
+                          <select
+                            class="input"
+                            style="width: auto; padding: 6px 10px;"
+                            value={m.role}
+                            onChange={(e) => act(() => api.teams.changeRole(m.user_id, e.currentTarget.value))}
+                          >
+                            <option value="admin">{t("team.role.admin")}</option>
+                            <option value="member">{t("team.role.member")}</option>
+                          </select>
+                        </Show>
+                      </td>
+                      <td style="text-align: right;">
+                        <Show when={canManage() && m.role !== "owner" && !isMe(m.email)}>
+                          <button
+                            type="button"
+                            class="btn btn-sm btn-outline"
+                            onClick={() =>
+                              ask({
+                                message: t("team.confirm.remove", { email: m.email }),
+                                danger: true,
+                                onConfirm: () => act(() => api.teams.removeMember(m.user_id)),
+                              })
+                            }
+                          >
+                            {t("team.action.remove")}
+                          </button>
+                        </Show>
+                      </td>
+                    </tr>
+                  )}
+                </For>
+              </tbody>
+            </table>
+          </div>
+        </Show>
+
+        <Show when={myRole() !== "owner"}>
+          <div style="margin-top: 18px;">
+            <button
+              type="button"
+              class="btn btn-sm btn-ghost"
+              onClick={() =>
+                ask({
+                  message: t("team.confirm.leave"),
+                  danger: true,
+                  onConfirm: () => act(() => api.teams.leave()),
+                })
+              }
+            >
+              {t("team.action.leave")}
+            </button>
+          </div>
+        </Show>
+      </div>
+
+      {/* ── Invitations (admins/owners) ───────────────────────── */}
+      <Show when={canManage()}>
+        <div class="card" style="margin-bottom: 24px;">
+          <div class="card-header">
+            <h2>{t("team.invitations")}</h2>
+          </div>
+          <p style="color: var(--text-secondary); font-size: 13px; margin: -6px 0 16px;">{t("team.invite.subtitle")}</p>
+
+          <form onSubmit={invite} style="display: flex; gap: 12px; flex-wrap: wrap; align-items: stretch;">
+            <input
+              class="input"
+              style="flex: 1 1 240px;"
+              type="email"
+              required
+              placeholder={t("team.invite.placeholder")}
+              value={email()}
+              onInput={(e) => setEmail(e.currentTarget.value)}
+            />
+            <select class="input" style="width: auto;" value={role()} onChange={(e) => setRole(e.currentTarget.value)}>
+              <option value="member">{t("team.role.member")}</option>
+              <option value="admin">{t("team.role.admin")}</option>
+            </select>
+            <button type="submit" class="btn btn-primary" disabled={busy()}>
+              {t("team.invite")}
+            </button>
+          </form>
+
+          {/* Invite link + delivery status */}
+          <Show when={linkPanel()}>
+            <div
+              style={`margin-top: 18px; border: 3px solid var(--line); background: var(--cream); padding: 16px 18px; box-shadow: var(--shadow-offset-sm);`}
+            >
+              <div style="display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 10px;">
+                <strong style="font-family: var(--font-cond); text-transform: uppercase; letter-spacing: 0.16em; font-size: 12px;">
+                  {t("team.link.title")}
+                </strong>
+                <button type="button" class="btn-icon" aria-label="dismiss" onClick={() => setLinkPanel(null)}>×</button>
+              </div>
+              <p
+                class={`badge ${linkPanel()!.sent ? "badge-success" : "badge-warning"}`}
+                style="display: inline-flex; white-space: normal; line-height: 1.4; margin-bottom: 12px;"
+              >
+                {linkPanel()!.sent
+                  ? t("team.email.sent", { email: linkPanel()!.email })
+                  : t("team.email.failed")}
+              </p>
+              <div style="display: flex; gap: 10px; flex-wrap: wrap;">
+                <input
+                  class="input"
+                  style="flex: 1 1 280px; font-family: var(--font-mono); font-size: 13px;"
+                  readonly
+                  value={linkPanel()!.url}
+                  onClick={(e) => e.currentTarget.select()}
+                />
+                <button type="button" class="btn btn-sm btn-outline" onClick={() => copyLink(linkPanel()!.url)}>
+                  {t("team.link.copy")}
+                </button>
+              </div>
+              <p style="color: var(--text-muted); font-size: 12px; margin: 10px 0 0;">{t("team.link.hint")}</p>
             </div>
-          )}
-        </For>
+          </Show>
+
+          {/* Outgoing invitations */}
+          <div style="margin-top: 22px;">
+            <Show
+              when={outgoing().length > 0}
+              fallback={<p style="color: var(--text-muted);">{t("team.empty.invitations")}</p>}
+            >
+              <div class="table-wrapper">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>{t("team.invite.email")}</th>
+                      <th>{t("team.invite.role")}</th>
+                      <th>{t("team.col.status")}</th>
+                      <th>{t("team.col.expires")}</th>
+                      <th style="text-align: right;">{t("team.col.actions")}</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <For each={outgoing()}>
+                      {(inv) => (
+                        <tr>
+                          <td>{inv.email}</td>
+                          <td><span class={roleBadgeClass(inv.role)}>{t(`team.role.${inv.role}`)}</span></td>
+                          <td><span class={statusBadgeClass(inv.status)}>{statusLabel(inv.status)}</span></td>
+                          <td style="color: var(--text-secondary); font-size: 12.5px;">{fmtDate(inv.expires_at)}</td>
+                          <td style="text-align: right; white-space: nowrap;">
+                            <Show when={inv.status === "pending"}>
+                              <button type="button" class="btn btn-sm btn-outline" style="margin-right: 8px;" onClick={() => resend(inv)}>
+                                {t("team.action.resend")}
+                              </button>
+                              <button
+                                type="button"
+                                class="btn btn-sm btn-ghost"
+                                onClick={() =>
+                                  ask({
+                                    message: t("team.confirm.revoke", { email: inv.email }),
+                                    danger: true,
+                                    onConfirm: () => act(() => api.teams.revokeInvite(inv.id)),
+                                  })
+                                }
+                              >
+                                {t("team.action.revoke")}
+                              </button>
+                            </Show>
+                          </td>
+                        </tr>
+                      )}
+                    </For>
+                  </tbody>
+                </table>
+              </div>
+            </Show>
+          </div>
+        </div>
+      </Show>
+
+      {/* ── My incoming invitations ───────────────────────────── */}
+      <Show when={incoming().length > 0}>
+        <div class="card">
+          <div class="card-header">
+            <h2>{t("team.myInvitations")}</h2>
+          </div>
+          <For each={incoming()}>
+            {(inv) => (
+              <div style="display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 0; border-bottom: 1.5px solid var(--line);">
+                <span>
+                  <strong>{inv.team_name}</strong>
+                  <span class={roleBadgeClass(inv.role)} style="margin-left: 10px;">{t(`team.role.${inv.role}`)}</span>
+                </span>
+                <button type="button" class="btn btn-sm btn-ghost" onClick={() => act(() => api.teams.declineInvite(inv.id))}>
+                  {t("team.action.decline")}
+                </button>
+              </div>
+            )}
+          </For>
+        </div>
+      </Show>
+
+      {/* ── Confirmation modal ────────────────────────────────── */}
+      <Show when={confirm()}>
+        <div class="modal-overlay" onClick={(e) => { if (e.target === e.currentTarget) setConfirm(null); }}>
+          <div class="modal" style="max-width: 460px;">
+            <div class="modal-header">
+              <h2>{t("team.confirm.title")}</h2>
+            </div>
+            <p style="line-height: 1.5;">{confirm()!.message}</p>
+            <div class="modal-actions">
+              <button type="button" class="btn btn-outline" onClick={() => setConfirm(null)}>{t("general.cancel")}</button>
+              <button type="button" class={`btn ${confirm()!.danger ? "btn-danger" : "btn-primary"}`} onClick={runConfirm}>
+                {t("team.confirm.ok")}
+              </button>
+            </div>
+          </div>
+        </div>
       </Show>
     </div>
   );

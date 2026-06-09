@@ -1,8 +1,10 @@
 package teamsapi
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"io"
 	"log/slog"
 	"testing"
@@ -48,6 +50,40 @@ func TestCreateInvitationSendsAndStores(t *testing.T) {
 	assert.Equal(t, []string{"new@y.test"}, mail.sent)
 }
 
+func TestCreateInvitationReturnsAcceptURLAndDeliveryStatus(t *testing.T) {
+	// accept_url is always returned so an admin can share the link manually;
+	// email_sent is true only when SMTP is configured and the send succeeded.
+	t.Run("configured and sent", func(t *testing.T) {
+		f := adminStore()
+		svc, mail := svcWithMailer(f)
+		mail.configured = true
+		inv, err := svc.CreateInvitation(ctxWithUser(1, 1), &teamsv1.CreateInvitationRequest{Email: "a@y.test", Role: "member"})
+		require.NoError(t, err)
+		assert.Contains(t, inv.AcceptUrl, "https://waf.test/invite/accept?token=")
+		assert.True(t, inv.EmailSent)
+	})
+	t.Run("not configured", func(t *testing.T) {
+		f := adminStore()
+		svc, mail := svcWithMailer(f)
+		mail.configured = false
+		inv, err := svc.CreateInvitation(ctxWithUser(1, 1), &teamsv1.CreateInvitationRequest{Email: "b@y.test", Role: "member"})
+		require.NoError(t, err)
+		assert.Contains(t, inv.AcceptUrl, "https://waf.test/invite/accept?token=")
+		assert.False(t, inv.EmailSent)
+	})
+	t.Run("send fails but invite still created", func(t *testing.T) {
+		f := adminStore()
+		svc, mail := svcWithMailer(f)
+		mail.configured = true
+		mail.sendErr = errors.New("smtp dial timeout")
+		inv, err := svc.CreateInvitation(ctxWithUser(1, 1), &teamsv1.CreateInvitationRequest{Email: "c@y.test", Role: "member"})
+		require.NoError(t, err)
+		assert.Equal(t, "pending", inv.Status)
+		assert.NotEmpty(t, inv.AcceptUrl)
+		assert.False(t, inv.EmailSent)
+	})
+}
+
 func TestCreateInvitationResendsWhenPending(t *testing.T) {
 	f := adminStore()
 	svc, mail := svcWithMailer(f)
@@ -57,6 +93,31 @@ func TestCreateInvitationResendsWhenPending(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, f.invites, 1)
 	assert.Len(t, mail.sent, 2)
+}
+
+func TestPreviewInvitation(t *testing.T) {
+	f := adminStore()
+	raw := "previewtok"
+	sum := sha256.Sum256([]byte(raw))
+	f.invites = map[int64]*store.Invitation{9: {
+		ID: 9, TenantID: 1, Email: "preview@y.test", Role: "admin", Status: "pending",
+		TokenHash: hex.EncodeToString(sum[:]),
+	}}
+	svc, _ := svcWithMailer(f)
+
+	// Public call (no identity in ctx) returns team/role/email for a valid token.
+	out, err := svc.PreviewInvitation(context.Background(), &teamsv1.PreviewInvitationRequest{Token: raw})
+	require.NoError(t, err)
+	assert.True(t, out.Valid)
+	assert.Equal(t, "Team One", out.TeamName)
+	assert.Equal(t, "admin", out.Role)
+	assert.Equal(t, "preview@y.test", out.Email)
+
+	// Unknown token → valid=false, no error, no detail leaked.
+	bad, err := svc.PreviewInvitation(context.Background(), &teamsv1.PreviewInvitationRequest{Token: "nope"})
+	require.NoError(t, err)
+	assert.False(t, bad.Valid)
+	assert.Empty(t, bad.TeamName)
 }
 
 func TestAcceptInvitationMatchesEmail(t *testing.T) {

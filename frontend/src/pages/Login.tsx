@@ -63,6 +63,13 @@ export default function Login() {
       // success
       const role = result.user.platform_role;
       localStorage.setItem("waf-sidebar-collapsed", "1");
+      // Honour ?next=<internal path> (e.g. returning to an invite-accept link).
+      // Only same-origin relative paths are allowed — never "//host" or absolute URLs.
+      const next = typeof searchParams.next === "string" ? searchParams.next : "";
+      if (next.startsWith("/") && !next.startsWith("//")) {
+        navigate(next, { replace: true });
+        return;
+      }
       navigate(role === "admin" ? "/monitoring" : "/home", { replace: true });
     } catch (err) {
       // Any failed login attempt (wrong password, invalid totp, captcha

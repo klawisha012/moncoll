@@ -125,10 +125,15 @@ func (s *Service) CreateInvitation(ctx context.Context, req *teamsv1.CreateInvit
 		}
 		inv = created
 	}
-	if err := s.mail.SendInvitationEmail(ctx, email, teamName, s.inviteURL(raw)); err != nil {
-		s.log.Warn("CreateInvitation send email", "err", err)
+	url := s.inviteURL(raw)
+	sendErr := s.mail.SendInvitationEmail(ctx, email, teamName, url)
+	if sendErr != nil {
+		s.log.Warn("CreateInvitation send email", "err", sendErr)
 	}
-	return invToProto(inv, teamName), nil
+	out := invToProto(inv, teamName)
+	out.AcceptUrl = url
+	out.EmailSent = sendErr == nil && s.mail.Configured()
+	return out, nil
 }
 
 func (s *Service) ListInvitations(ctx context.Context, _ *teamsv1.ListInvitationsRequest) (*teamsv1.ListInvitationsResponse, error) {
@@ -163,6 +168,29 @@ func (s *Service) ListInvitations(ctx context.Context, _ *teamsv1.ListInvitation
 		}
 	}
 	return resp, nil
+}
+
+// PreviewInvitation resolves a raw token to its team/role/email without a
+// session, so the accept page can show what the user is joining. It never
+// reveals whether the lookup failed for "not found" vs "expired" — both yield
+// valid=false — to avoid leaking which tokens ever existed.
+func (s *Service) PreviewInvitation(ctx context.Context, req *teamsv1.PreviewInvitationRequest) (*teamsv1.InvitationPreview, error) {
+	token := strings.TrimSpace(req.GetToken())
+	if token == "" {
+		return &teamsv1.InvitationPreview{Valid: false}, nil
+	}
+	sum := sha256.Sum256([]byte(token))
+	inv, err := s.store.GetInvitationByTokenHash(ctx, hex.EncodeToString(sum[:]))
+	if err != nil {
+		return &teamsv1.InvitationPreview{Valid: false}, nil
+	}
+	teamName, _ := s.store.GetTenantDisplayName(ctx, inv.TenantID)
+	return &teamsv1.InvitationPreview{
+		Valid:    true,
+		TeamName: teamName,
+		Role:     inv.Role,
+		Email:    inv.Email,
+	}, nil
 }
 
 func (s *Service) AcceptInvitation(ctx context.Context, req *teamsv1.AcceptInvitationRequest) (*emptypb.Empty, error) {
@@ -236,10 +264,15 @@ func (s *Service) ResendInvitation(ctx context.Context, req *teamsv1.InvitationI
 	}
 	inv.TokenHash, inv.ExpiresAt = hash, expiresAt
 	teamName, _ := s.store.GetTenantDisplayName(ctx, inv.TenantID)
-	if err := s.mail.SendInvitationEmail(ctx, inv.Email, teamName, s.inviteURL(raw)); err != nil {
-		s.log.Warn("ResendInvitation send email", "err", err)
+	url := s.inviteURL(raw)
+	sendErr := s.mail.SendInvitationEmail(ctx, inv.Email, teamName, url)
+	if sendErr != nil {
+		s.log.Warn("ResendInvitation send email", "err", sendErr)
 	}
-	return invToProto(inv, teamName), nil
+	out := invToProto(inv, teamName)
+	out.AcceptUrl = url
+	out.EmailSent = sendErr == nil && s.mail.Configured()
+	return out, nil
 }
 
 func (s *Service) adminOwnsInvitation(ctx context.Context, invID int64) (*auth.Identity, *store.Invitation, error) {

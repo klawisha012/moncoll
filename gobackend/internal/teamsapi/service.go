@@ -44,6 +44,10 @@ type Store interface {
 // Mailer is the email surface teamsapi needs.
 type Mailer interface {
 	SendInvitationEmail(ctx context.Context, to, teamName, inviteURL string) error
+	// Configured reports whether real SMTP delivery is wired up. When false,
+	// SendInvitationEmail is a no-op and the invitation must be shared via its
+	// accept_url instead.
+	Configured() bool
 }
 
 // Service implements teamsv1.TeamsServiceServer.
@@ -66,6 +70,7 @@ func (s *Service) AuthLevels() map[string]auth.Level {
 		teamsv1.TeamsService_SwitchTeam_FullMethodName:        auth.LevelVerified,
 		teamsv1.TeamsService_ListInvitations_FullMethodName:   auth.LevelVerified,
 		teamsv1.TeamsService_CreateInvitation_FullMethodName:  auth.LevelVerified,
+		teamsv1.TeamsService_PreviewInvitation_FullMethodName: auth.LevelPublic,
 		teamsv1.TeamsService_AcceptInvitation_FullMethodName:  auth.LevelVerified,
 		teamsv1.TeamsService_DeclineInvitation_FullMethodName: auth.LevelVerified,
 		teamsv1.TeamsService_RevokeInvitation_FullMethodName:  auth.LevelVerified,

@@ -2,9 +2,57 @@ package email
 
 import (
 	"context"
+	"io"
+	"mime"
+	"mime/multipart"
+	"net/mail"
 	"strings"
 	"testing"
 )
+
+// TestMIMEMessageParses guards deliverability: a structurally-invalid message,
+// or one missing Date/Message-ID, gets dropped or spam-filed regardless of the
+// SMTP result. Parse a built invite message the way a receiving MTA would.
+func TestMIMEMessageParses(t *testing.T) {
+	raw := buildMIMEMessage("WAF <noreply@example.com>", "user@gmail.com", "Subj",
+		"<p>hi <a href=\"https://x/accept?token=a&b=c\">link</a></p>",
+		"hi\nhttps://x/accept?token=a&b=c\n")
+	msg, err := mail.ReadMessage(strings.NewReader(string(raw)))
+	if err != nil {
+		t.Fatalf("message does not parse: %v", err)
+	}
+	if msg.Header.Get("Date") == "" {
+		t.Error("missing Date header")
+	}
+	if msg.Header.Get("Message-ID") == "" {
+		t.Error("missing Message-ID header")
+	}
+	mediaType, params, err := mime.ParseMediaType(msg.Header.Get("Content-Type"))
+	if err != nil || mediaType != "multipart/alternative" {
+		t.Fatalf("content-type = %q (%v)", mediaType, err)
+	}
+	mr := multipart.NewReader(msg.Body, params["boundary"])
+	var types []string
+	for {
+		p, err := mr.NextPart()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			t.Fatalf("part read: %v", err)
+		}
+		body, _ := io.ReadAll(p)
+		mt, _, _ := mime.ParseMediaType(p.Header.Get("Content-Type"))
+		types = append(types, mt)
+		// The plain part must keep the URL intact (no &amp; escaping).
+		if mt == "text/plain" && !strings.Contains(string(body), "token=a&b=c") {
+			t.Errorf("plain part escaped the URL: %q", string(body))
+		}
+	}
+	if len(types) != 2 || types[0] != "text/plain" || types[1] != "text/html" {
+		t.Errorf("parts = %v, want [text/plain text/html]", types)
+	}
+}
 
 func TestVerifyEmailTemplate(t *testing.T) {
 	s := newSenderFromConfig(smtpConfig{}) // unconfigured — no-op
@@ -74,7 +122,7 @@ func TestNewSenderUnconfigured_ReturnsNoop(t *testing.T) {
 }
 
 func TestBuildMIMEMessage(t *testing.T) {
-	msg := buildMIMEMessage("WAF <noreply@example.com>", "user@example.com", "Test Subject", "<p>Hello</p>")
+	msg := buildMIMEMessage("WAF <noreply@example.com>", "user@example.com", "Test Subject", "<p>Hello</p>", "Hello in plain text")
 	s := string(msg)
 	if !strings.Contains(s, "Subject: Test Subject") {
 		t.Error("missing Subject header")
@@ -85,8 +133,15 @@ func TestBuildMIMEMessage(t *testing.T) {
 	if !strings.Contains(s, "<p>Hello</p>") {
 		t.Error("missing HTML body")
 	}
-	if !strings.Contains(s, "This message requires an HTML-capable client.") {
-		t.Error("missing plain-text fallback (mirrors email.py set_content)")
+	if !strings.Contains(s, "Hello in plain text") {
+		t.Error("missing real plain-text alternative")
+	}
+	// Date + Message-ID are required for deliverability (Gmail drops mail without them).
+	if !strings.Contains(s, "\r\nDate: ") {
+		t.Error("missing Date header")
+	}
+	if !strings.Contains(s, "\r\nMessage-ID: <") || !strings.Contains(s, "@example.com>") {
+		t.Error("missing or malformed Message-ID header (should be anchored to sender domain)")
 	}
 }
 

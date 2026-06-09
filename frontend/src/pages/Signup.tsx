@@ -14,7 +14,10 @@ export default function Signup() {
   const auth = useAuth();
   const settings = useSettings();
 
-  const [email, setEmail] = createSignal("");
+  // Prefill the email when arriving from an invitation (/signup?email=…). The
+  // backend auto-accepts pending invites by email on verification, so signing up
+  // with the invited address is what actually joins the team.
+  const [email, setEmail] = createSignal(typeof searchParams.email === "string" ? searchParams.email : "");
   const [password, setPassword] = createSignal("");
   const [tenantName, setTenantName] = createSignal("");
   const [displayName, setDisplayName] = createSignal("");

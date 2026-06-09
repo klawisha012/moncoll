@@ -25,6 +25,13 @@ service TeamsService {
   rpc CreateInvitation(CreateInvitationRequest) returns (Invitation) {
     option (google.api.http) = {post: "/api/teams/invitations" body: "*"};
   }
+  // PreviewInvitation is public (no session): given a raw token it returns the
+  // team name, role and invited email so the accept page can show what the user
+  // is joining before they sign in. The token is the bearer secret, so revealing
+  // these details to its holder is acceptable.
+  rpc PreviewInvitation(PreviewInvitationRequest) returns (InvitationPreview) {
+    option (google.api.http) = {get: "/api/teams/invitations/preview"};
+  }
   rpc AcceptInvitation(AcceptInvitationRequest) returns (google.protobuf.Empty) {
     option (google.api.http) = {post: "/api/teams/invitations/accept" body: "*"};
   }
@@ -78,6 +85,15 @@ message Invitation {
   string status = 5;
   string team_name = 6;
   string expires_at = 7;
+  // accept_url is the full invite link with the raw token. It is only
+  // populated in CreateInvitation/ResendInvitation responses (the single
+  // moment the raw token exists) so an admin can share the link manually
+  // when email delivery is unavailable. Never set in ListInvitations.
+  string accept_url = 8;
+  // email_sent reports whether the invitation email was actually delivered
+  // to the SMTP server. Only meaningful in CreateInvitation/ResendInvitation
+  // responses; false when SMTP is unconfigured or sending failed.
+  bool email_sent = 9;
 }
 message CreateInvitationRequest {
   string email = 1;
@@ -90,6 +106,15 @@ message ListInvitationsResponse {
 }
 message AcceptInvitationRequest {
   string token = 1;
+}
+message PreviewInvitationRequest {
+  string token = 1;
+}
+message InvitationPreview {
+  bool valid = 1; // false when the token is unknown, expired, or already used
+  string team_name = 2;
+  string role = 3;
+  string email = 4;
 }
 message InvitationIdRequest {
   int64 id = 1;

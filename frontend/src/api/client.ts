@@ -517,8 +517,9 @@ async function fetchApi<T>(url: string, options?: RequestInit): Promise<T> {
 
 export interface Team { tenant_id: number; slug: string; display_name: string; role: string; active: boolean; }
 export interface TeamMember { user_id: number; email: string; display_name: string; role: string; }
-export interface Invitation { id: number; tenant_id: number; email: string; role: string; status: string; team_name: string; expires_at: string; }
+export interface Invitation { id: number; tenant_id: number; email: string; role: string; status: string; team_name: string; expires_at: string; accept_url?: string; email_sent?: boolean; }
 export interface InvitationsResponse { outgoing: Invitation[]; incoming: Invitation[]; }
+export interface InvitationPreview { valid?: boolean; team_name?: string; role?: string; email?: string; }
 export interface MembersResponse { members: TeamMember[]; my_role: string; }
 
 // ── Auth types ─────────────────────────────────────────────
@@ -1066,6 +1067,8 @@ export const api = {
       fetchApi<InvitationsResponse>("/api/teams/invitations").then((r) => ({ outgoing: r.outgoing ?? [], incoming: r.incoming ?? [] })),
     invite: (email: string, role: string) =>
       fetchApi<Invitation>("/api/teams/invitations", { method: "POST", body: JSON.stringify({ email, role }) }),
+    previewInvite: (token: string) =>
+      fetchApi<InvitationPreview>(`/api/teams/invitations/preview?token=${encodeURIComponent(token)}`),
     acceptInvite: (token: string) =>
       fetchApi<void>("/api/teams/invitations/accept", { method: "POST", body: JSON.stringify({ token }) }),
     declineInvite: (id: number) =>
