@@ -394,6 +394,78 @@ function buildDashboardQuery(
   return qs ? `?${qs}` : "";
 }
 
+// ── Numeric coercion for dashboard metrics ──────────────────────────
+//
+// The gRPC gateway serialises 64-bit integer fields (int64/uint64 — every
+// request/byte/hit COUNT) as JSON *strings*, per the proto3 JSON spec, while
+// float fields stay as numbers. Our TS interfaces declare these as `number`,
+// but at runtime the counts arrive as strings. That is invisible for division
+// (`"853" / 1000` coerces) but catastrophic for addition: `"853" + "7876"`
+// concatenates into "8537876" instead of summing to 8729 — which is exactly
+// why dashboard totals and the severity total showed absurd numbers.
+//
+// Fix at the boundary: coerce the known-numeric keys from string to number once,
+// for every /api/dashboard/* response, so all consumers see real numbers.
+//
+// ALLOWLIST (not denylist) on purpose: string-valued fields that happen to hold
+// digits — e.g. TestTrafficEvent.rule_id "942100" — must NOT be converted.
+const NUMERIC_METRIC_KEYS = new Set<string>([
+  // Metrics
+  "total_requests", "total_requests_change", "blocked_threats",
+  "high_severity_count", "system_health", "avg_latency_ms", "active_rules",
+  // Traffic / status / volume / rps
+  "clean", "malicious", "c2xx", "c3xx", "c4xx", "c5xx", "bytes", "rps",
+  // Geo / origins
+  "longitude", "latitude", "hits", "blocks_percent",
+  // Anomaly
+  "score", "anomaly_score",
+]);
+
+// coerceNumericFields recursively converts allowlisted numeric string fields to
+// numbers. Returns the same value reference for non-containers. Exported for
+// unit verification.
+export function coerceNumericFields<T>(value: T): T {
+  if (Array.isArray(value)) {
+    for (let i = 0; i < value.length; i++) {
+      value[i] = coerceNumericFields(value[i]);
+    }
+    return value;
+  }
+  if (value !== null && typeof value === "object") {
+    const obj = value as Record<string, unknown>;
+    for (const key of Object.keys(obj)) {
+      const v = obj[key];
+      if (
+        NUMERIC_METRIC_KEYS.has(key) &&
+        typeof v === "string" &&
+        v.trim() !== "" &&
+        Number.isFinite(Number(v))
+      ) {
+        obj[key] = Number(v);
+      } else if (v !== null && typeof v === "object") {
+        obj[key] = coerceNumericFields(v);
+      }
+    }
+    return value;
+  }
+  return value;
+}
+
+// normalizeConnection coerces the int64 identity fields (id, user_id) from the
+// JSON *strings* the gRPC gateway emits (proto3 JSON serialises int64 as string)
+// back to the `number` our Connection type declares. /api/connections is not
+// under /api/dashboard/*, so it skips coerceNumericFields above. The sidebar
+// <select> still matched (the DOM stringifies option values), but the Tests page
+// resolved its target via `c.id === connectionId` — a strict compare of string
+// "8" against number 8 that always failed, so the target showed "no connections".
+function normalizeConnection(c: Connection): Connection {
+  return {
+    ...c,
+    id: Number(c.id),
+    user_id: c.user_id == null ? null : Number(c.user_id),
+  };
+}
+
 async function fetchApi<T>(url: string, options?: RequestInit): Promise<T> {
   const headers: Record<string, string> = {
     ...(options?.headers
@@ -432,7 +504,13 @@ async function fetchApi<T>(url: string, options?: RequestInit): Promise<T> {
     return {} as T;
   }
 
-  return response.json();
+  const data = await response.json();
+  // Dashboard metric counts arrive as JSON strings (int64); coerce to numbers
+  // so arithmetic (sums, totals) works instead of concatenating.
+  if (url.startsWith("/api/dashboard/")) {
+    return coerceNumericFields(data) as T;
+  }
+  return data;
 }
 
 // ── Teams types ────────────────────────────────────────────
@@ -675,7 +753,14 @@ export const api = {
     ),
 
   // Tests tab — admin-only catalog + runner
-  getTestsCatalog: () => fetchApi<TestsCatalog>("/api/tests/catalog"),
+  // The gateway unwraps this RPC via `response_body: "tests"` (see
+  // tests.proto), so the wire shape is a *bare* TestCase[] — not the
+  // { tests: [...] } our TestsCatalog type / callers expect. Re-wrap at the
+  // boundary (tolerant of either shape) so the catalog isn't silently empty.
+  getTestsCatalog: () =>
+    fetchApi<TestCase[] | TestsCatalog>("/api/tests/catalog").then((r) =>
+      Array.isArray(r) ? { tests: r } : r
+    ),
   runTest: (req: TestRunRequest) =>
     fetchApi<TestRunResult>("/api/tests/run", {
       method: "POST",
@@ -683,7 +768,12 @@ export const api = {
     }),
   getTestTrafficByMarker: (marker: string) =>
     fetchApi<TestTrafficResponse>(`/api/dashboard/test-traffic/${encodeURIComponent(marker)}`),
-  getCrowdsecTestCatalog: () => fetchApi<CrowdsecCatalog>("/api/tests/crowdsec/catalog"),
+  // Same `response_body: "scenarios"` unwrap as the ModSec catalog above: the
+  // wire shape is a bare CrowdsecScenario[]. Re-wrap so res.scenarios is defined.
+  getCrowdsecTestCatalog: () =>
+    fetchApi<CrowdsecScenario[] | CrowdsecCatalog>("/api/tests/crowdsec/catalog").then((r) =>
+      Array.isArray(r) ? { scenarios: r } : r
+    ),
   runCrowdsecScenario: (scenario_id: string, connection_id: number | null, ip?: string) =>
     fetchApi<CrowdsecRunResult>("/api/tests/crowdsec/run", {
       method: "POST",
@@ -694,13 +784,15 @@ export const api = {
   // Per-deploy edge config — the wizard fetches this on mount so step 3
   // shows the correct A-record value on resume (not just on initial create).
   getEdgeInfo: () => fetchApi<{ edge_ipv4: string; edge_hostname: string }>("/api/edge-info"),
-  getConnections: () => fetchApi<Connection[]>("/api/connections"),
-  getConnection: (id: number) => fetchApi<Connection>(`/api/connections/${id}`),
+  getConnections: () =>
+    fetchApi<Connection[]>("/api/connections").then((cs) => cs.map(normalizeConnection)),
+  getConnection: (id: number) =>
+    fetchApi<Connection>(`/api/connections/${id}`).then(normalizeConnection),
   createConnection: (conn: ConnectionCreate) =>
     fetchApi<ConnectionCreateResponse>("/api/connections", {
       method: "POST",
       body: JSON.stringify(conn),
-    }),
+    }).then((r) => ({ ...r, connection: normalizeConnection(r.connection) })),
   // PATCH (not PUT) — only mutable fields land on the wire (name, enabled,
   // origin_tls_mode, http_versions, compression_algo). Domain is immutable.
   updateConnection: (id: number, conn: ConnectionUpdate) =>
