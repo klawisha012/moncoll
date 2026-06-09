@@ -6,6 +6,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 
 	authv1 "github.com/zwarder/waf/gobackend/gen/auth/v1"
 	"github.com/zwarder/waf/gobackend/internal/auth"
@@ -91,4 +93,85 @@ func TestSwitchAccountToAlreadyActiveIsNoop(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, resp)
 	assert.Equal(t, int64(101), resp.Id)
+}
+
+func TestListAccountsActiveFirstThenStash(t *testing.T) {
+	h := newHarness(t, Config{})
+
+	// Seed both users so GetUserByIDFull resolves.
+	h.st.usersByID[101] = &store.User{ID: 101, Email: "admin@example.com", DisplayName: "Admin", PlatformRole: "admin"}
+	h.st.usersByID[102] = &store.User{ID: 102, Email: "client@example.com", DisplayName: "Client", PlatformRole: "client"}
+
+	iss := auth.NewIssuer(testKey())
+	activeTok, err := iss.CreateSessionToken(101, "admin", nil, nil)
+	require.NoError(t, err)
+	stashedTok, err := iss.CreateSessionToken(102, "client", nil, nil)
+	require.NoError(t, err)
+
+	stashVal := encodeStash([]string{stashedTok})
+	ctx := ctxWithCookie(sessionCookie + "=" + activeTok + "; " + stashCookie + "=" + stashVal)
+
+	resp, err := h.svc.ListAccounts(ctx, &authv1.ListAccountsRequest{})
+	require.NoError(t, err)
+	require.Len(t, resp.Accounts, 2)
+	assert.Equal(t, int64(101), resp.Accounts[0].UserId)
+	assert.True(t, resp.Accounts[0].Active)
+	assert.Equal(t, int64(102), resp.Accounts[1].UserId)
+	assert.False(t, resp.Accounts[1].Active)
+}
+
+func TestSwitchAccountSwapsActiveAndStash(t *testing.T) {
+	h := newHarness(t, Config{})
+
+	// Seed both users so GetUserByIDFull resolves.
+	h.st.usersByID[101] = &store.User{ID: 101, Email: "admin@example.com", DisplayName: "Admin", PlatformRole: "admin"}
+	h.st.usersByID[102] = &store.User{ID: 102, Email: "client@example.com", DisplayName: "Client", PlatformRole: "client"}
+
+	iss := auth.NewIssuer(testKey())
+	activeTok, err := iss.CreateSessionToken(101, "admin", nil, nil)
+	require.NoError(t, err)
+	stashedTok, err := iss.CreateSessionToken(102, "client", nil, nil)
+	require.NoError(t, err)
+
+	stashVal := encodeStash([]string{stashedTok})
+	ctx := ctxWithCookie(sessionCookie + "=" + activeTok + "; " + stashCookie + "=" + stashVal)
+
+	md, err := runWithMD(ctx, func(c context.Context) error {
+		_, e := h.svc.SwitchAccount(c, &authv1.SwitchAccountRequest{UserId: 102})
+		return e
+	})
+	require.NoError(t, err)
+
+	// The emitted waf_session must belong to uid 102.
+	newSession := extractCookieVal(md, sessionCookie)
+	require.NotEmpty(t, newSession)
+	uid, ok := h.svc.tokenUID(newSession)
+	assert.True(t, ok)
+	assert.Equal(t, int64(102), uid)
+
+	// The emitted waf_accounts stash must contain exactly the original 101 token.
+	newStashRaw := extractCookieVal(md, stashCookie)
+	require.NotEmpty(t, newStashRaw)
+	newStash := decodeStash(newStashRaw)
+	require.Len(t, newStash, 1)
+	stashedUID, ok := h.svc.tokenUID(newStash[0])
+	assert.True(t, ok)
+	assert.Equal(t, int64(101), stashedUID)
+}
+
+func TestSwitchAccountUnknownUID(t *testing.T) {
+	h := newHarness(t, Config{})
+
+	// Seed uid 101 only — uid 999 is unknown/not stashed.
+	h.st.usersByID[101] = &store.User{ID: 101, Email: "admin@example.com", DisplayName: "Admin", PlatformRole: "admin"}
+
+	iss := auth.NewIssuer(testKey())
+	activeTok, err := iss.CreateSessionToken(101, "admin", nil, nil)
+	require.NoError(t, err)
+
+	ctx := ctxWithCookie(sessionCookie + "=" + activeTok)
+
+	_, err = h.svc.SwitchAccount(ctx, &authv1.SwitchAccountRequest{UserId: 999})
+	require.Error(t, err)
+	assert.Equal(t, codes.NotFound, status.Code(err))
 }
