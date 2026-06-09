@@ -210,7 +210,11 @@ func (s *Service) Login(ctx context.Context, req *authv1.LoginRequest) (*authv1.
 	if err := s.store.UpdateUser(ctx, u.ID, store.UserUpdate{LastLoginAt: &now}); err != nil {
 		s.log.Warn("login: touch last_login_at failed", "err", err)
 	}
-	if err := s.issueSessionCookie(ctx, u); err != nil {
+	tok, err := s.mintSessionToken(u)
+	if err != nil {
+		return nil, err
+	}
+	if err := s.setActiveWithStash(ctx, tok, u.ID, req.GetKeepCurrent()); err != nil {
 		return nil, err
 	}
 	return &authv1.LoginResponse{User: userPublic(u)}, nil

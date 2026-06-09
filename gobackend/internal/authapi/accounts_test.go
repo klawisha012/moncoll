@@ -1,6 +1,7 @@
 package authapi
 
 import (
+	"context"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -34,6 +35,43 @@ func TestPruneStashDropsInvalidDedupesExcludes(t *testing.T) {
 	uid, ok := svc.tokenUID(out[0])
 	assert.True(t, ok)
 	assert.Equal(t, int64(2), uid)
+}
+
+func TestLoginKeepCurrentStashesPrevious(t *testing.T) {
+	h := newHarness(t, Config{})
+
+	// Seed a verified client user that a normal Login would succeed for.
+	seedVerifiedClient(t, h, "b@x.test", "hunter2")
+
+	// Mint a token for a DIFFERENT uid (101) — this represents an existing active
+	// session already in the browser cookie.
+	activeTok, err := auth.NewIssuer(testKey()).CreateSessionToken(101, "client", nil, nil)
+	require.NoError(t, err)
+
+	// Attach the existing active session as the incoming cookie.
+	ctx := ctxWithCookie(sessionCookie + "=" + activeTok)
+
+	// Run Login with keep_current=true.
+	md, err := runWithMD(ctx, func(c context.Context) error {
+		_, e := h.svc.Login(c, &authv1.LoginRequest{
+			Email:        "b@x.test",
+			Password:     "hunter2",
+			CaptchaToken: "t",
+			KeepCurrent:  true,
+		})
+		return e
+	})
+	require.NoError(t, err)
+
+	// The new waf_session cookie must be non-empty (the freshly-logged-in token).
+	newSess := extractCookieVal(md, sessionCookie)
+	require.NotEmpty(t, newSess, "waf_session cookie must be set after keep_current login")
+
+	// The waf_accounts cookie must encode exactly the previous active token.
+	stashRaw := extractCookieVal(md, stashCookie)
+	require.NotEmpty(t, stashRaw, "waf_accounts stash cookie must be set")
+	stashed := decodeStash(stashRaw)
+	require.Equal(t, []string{activeTok}, stashed, "stash must contain exactly the previous active token")
 }
 
 func TestSwitchAccountToAlreadyActiveIsNoop(t *testing.T) {
