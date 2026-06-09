@@ -148,7 +148,7 @@ func (s *Service) SwitchAccount(ctx context.Context, req *authv1.SwitchAccountRe
 	active := auth.CookieFromMetadata(ctx, sessionCookie)
 	if uid, ok := s.tokenUID(active); ok && uid == req.GetUserId() {
 		u, err := s.store.GetUserByIDFull(ctx, uid)
-		if err != nil {
+		if err != nil || u == nil {
 			return nil, status.Error(codes.Internal, "user lookup failed")
 		}
 		return userPublic(u), nil // already active — no-op

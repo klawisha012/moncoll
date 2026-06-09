@@ -1040,7 +1040,8 @@ export const api = {
       fetchApi<void>(`/api/auth/users/${id}`, { method: "DELETE" }),
 
     listAccounts: () =>
-      fetchApi<{ accounts?: Account[] }>("/api/auth/accounts").then((r) => r.accounts ?? []),
+      fetchApi<{ accounts?: Account[] }>("/api/auth/accounts").then((r) =>
+        (r.accounts ?? []).map((a) => ({ ...a, user_id: Number(a.user_id) }))),
 
     switchAccount: (userId: number) =>
       fetchApi<User>("/api/auth/accounts/switch", { method: "POST", body: JSON.stringify({ user_id: userId }) }),
