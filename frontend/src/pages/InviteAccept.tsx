@@ -1,6 +1,6 @@
 import { createSignal, createEffect, Show } from "solid-js";
 import { useSearchParams, useNavigate, A } from "@solidjs/router";
-import { api, type InvitationPreview } from "../api/client";
+import { api, type InvitationPreview, type Account } from "../api/client";
 import { useSettings } from "../context/SettingsContext";
 import { useAuth } from "../context/AuthContext";
 
@@ -17,6 +17,7 @@ export default function InviteAccept() {
   const [status, setStatus] = createSignal<Status>("loading");
   const [preview, setPreview] = createSignal<InvitationPreview | null>(null);
   const [errKey, setErrKey] = createSignal("invite.accept.err");
+  const [accounts, setAccounts] = createSignal<Account[]>([]);
 
   // Resolve the token to its team/role/email before asking the user to do
   // anything — the page can then show exactly what they're joining.
@@ -30,6 +31,7 @@ export default function InviteAccept() {
         if (!p.valid) { setErrKey("invite.accept.err"); setStatus("error"); return; }
         setPreview(p);
         setStatus("ready");
+        api.auth.listAccounts().then(setAccounts).catch(() => {});
       })
       .catch(() => { setErrKey("invite.accept.err"); setStatus("error"); });
   });
@@ -40,6 +42,8 @@ export default function InviteAccept() {
   const invitedEmail = () => preview()?.email ?? "";
   const emailMatches = () =>
     !!auth.user && auth.user.email.toLowerCase() === invitedEmail().toLowerCase();
+  const matchingAccount = () =>
+    accounts().find((a) => a.email.toLowerCase() === invitedEmail().toLowerCase()) ?? null;
 
   const accept = () => {
     setStatus("accepting");
@@ -53,9 +57,17 @@ export default function InviteAccept() {
       });
   };
 
-  const switchAccount = async () => {
-    try { await auth.logout(); } catch { /* ignore */ }
-    navigate(`/login?next=${encodeURIComponent(`/invite/accept?token=${token()}`)}`);
+  const switchAndAccept = async (uid: number) => {
+    setStatus("accepting");
+    try {
+      await auth.switchAccount(uid);
+      await api.teams.acceptInvite(token());
+      setStatus("accepted");
+    } catch (e) {
+      const msg = e instanceof Error ? e.message.toLowerCase() : "";
+      setErrKey(msg.includes("different email") ? "invite.accept.errEmail" : "invite.accept.err");
+      setStatus("error");
+    }
   };
 
   return (
@@ -137,14 +149,32 @@ export default function InviteAccept() {
               </div>
             </Show>
 
-            {/* logged in, wrong account */}
-            <Show when={auth.user && !emailMatches()}>
+            {/* logged in, wrong account — stashed account matches: switch & accept in one click */}
+            <Show when={auth.user && !emailMatches() && matchingAccount() !== null}>
               <div class="iv-error">
                 {t("invite.mismatch.desc", { email: invitedEmail(), current: auth.user!.email })}
               </div>
-              <button type="button" class="iv-btn iv-btn-primary" onClick={switchAccount}>
-                {t("invite.switchAccount")}
+              <button
+                type="button"
+                class="iv-btn iv-btn-primary"
+                onClick={() => switchAndAccept(matchingAccount()!.user_id)}
+                disabled={status() === "accepting"}
+              >
+                {t("invite.switchAndAccept", { email: invitedEmail() })}
               </button>
+            </Show>
+
+            {/* logged in, wrong account — no stashed matching account: add-account flow */}
+            <Show when={auth.user && !emailMatches() && matchingAccount() === null}>
+              <div class="iv-error">
+                {t("invite.mismatch.desc", { email: invitedEmail(), current: auth.user!.email })}
+              </div>
+              <A
+                href={`/login?add=1&email=${encodeURIComponent(invitedEmail())}&next=${encodeURIComponent(`/invite/accept?token=${token()}`)}`}
+                class="iv-btn iv-btn-primary"
+              >
+                {t("account.add")}
+              </A>
             </Show>
 
             {/* logged in, right account → accept */}
