@@ -57,6 +57,16 @@ service AuthService {
     option (google.api.http) = {get: "/api/auth/me"};
   }
 
+  // ListAccounts returns every account signed in on this browser (active first).
+  // Public: validates its own cookies, like Me.
+  rpc ListAccounts(ListAccountsRequest) returns (ListAccountsResponse) {
+    option (google.api.http) = {get: "/api/auth/accounts"};
+  }
+  // SwitchAccount makes a stashed account the active one.
+  rpc SwitchAccount(SwitchAccountRequest) returns (UserPublic) {
+    option (google.api.http) = {post: "/api/auth/accounts/switch" body: "*"};
+  }
+
   // POST /api/auth/password/forgot → 202 {message, dev_reset_url?}
   rpc ForgotPassword(ForgotPasswordRequest) returns (ForgotPasswordResponse) {
     option (google.api.http) = {
@@ -166,15 +176,31 @@ message LoginRequest {
   string password = 2;
   string captcha_token = 3;
   string totp_code = 4;  // optional
+  bool keep_current = 5; // when true, preserve the current session as a second account
 }
 
 // ── logout ───────────────────────────────────────────────────────────────────
 
-message LogoutRequest {}
+message LogoutRequest {
+  bool all = 1; // true = sign out of every account; false = sign out active, promote next
+}
 
 // ── me ─────────────────────────────────────────────────────────────────────────
 
 message MeRequest {}
+
+// ── accounts ──────────────────────────────────────────────────────────────────
+
+message ListAccountsRequest {}
+message Account {
+  int64  user_id = 1;
+  string email = 2;
+  string display_name = 3;
+  string platform_role = 4; // "admin" | "client"
+  bool   active = 5;
+}
+message ListAccountsResponse { repeated Account accounts = 1; }
+message SwitchAccountRequest { int64 user_id = 1; }
 
 // ── password/forgot ──────────────────────────────────────────────────────────
 

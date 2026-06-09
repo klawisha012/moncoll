@@ -26,6 +26,8 @@ const (
 	AuthService_Login_FullMethodName          = "/auth.v1.AuthService/Login"
 	AuthService_Logout_FullMethodName         = "/auth.v1.AuthService/Logout"
 	AuthService_Me_FullMethodName             = "/auth.v1.AuthService/Me"
+	AuthService_ListAccounts_FullMethodName   = "/auth.v1.AuthService/ListAccounts"
+	AuthService_SwitchAccount_FullMethodName  = "/auth.v1.AuthService/SwitchAccount"
 	AuthService_ForgotPassword_FullMethodName = "/auth.v1.AuthService/ForgotPassword"
 	AuthService_ResetPassword_FullMethodName  = "/auth.v1.AuthService/ResetPassword"
 	AuthService_TotpSetup_FullMethodName      = "/auth.v1.AuthService/TotpSetup"
@@ -60,6 +62,11 @@ type AuthServiceClient interface {
 	Logout(ctx context.Context, in *LogoutRequest, opts ...grpc.CallOption) (*emptypb.Empty, error)
 	// GET /api/auth/me → UserPublic (reads session cookie).
 	Me(ctx context.Context, in *MeRequest, opts ...grpc.CallOption) (*UserPublic, error)
+	// ListAccounts returns every account signed in on this browser (active first).
+	// Public: validates its own cookies, like Me.
+	ListAccounts(ctx context.Context, in *ListAccountsRequest, opts ...grpc.CallOption) (*ListAccountsResponse, error)
+	// SwitchAccount makes a stashed account the active one.
+	SwitchAccount(ctx context.Context, in *SwitchAccountRequest, opts ...grpc.CallOption) (*UserPublic, error)
 	// POST /api/auth/password/forgot → 202 {message, dev_reset_url?}
 	ForgotPassword(ctx context.Context, in *ForgotPasswordRequest, opts ...grpc.CallOption) (*ForgotPasswordResponse, error)
 	// POST /api/auth/password/reset → 204
@@ -137,6 +144,26 @@ func (c *authServiceClient) Me(ctx context.Context, in *MeRequest, opts ...grpc.
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(UserPublic)
 	err := c.cc.Invoke(ctx, AuthService_Me_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *authServiceClient) ListAccounts(ctx context.Context, in *ListAccountsRequest, opts ...grpc.CallOption) (*ListAccountsResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ListAccountsResponse)
+	err := c.cc.Invoke(ctx, AuthService_ListAccounts_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *authServiceClient) SwitchAccount(ctx context.Context, in *SwitchAccountRequest, opts ...grpc.CallOption) (*UserPublic, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(UserPublic)
+	err := c.cc.Invoke(ctx, AuthService_SwitchAccount_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -229,6 +256,11 @@ type AuthServiceServer interface {
 	Logout(context.Context, *LogoutRequest) (*emptypb.Empty, error)
 	// GET /api/auth/me → UserPublic (reads session cookie).
 	Me(context.Context, *MeRequest) (*UserPublic, error)
+	// ListAccounts returns every account signed in on this browser (active first).
+	// Public: validates its own cookies, like Me.
+	ListAccounts(context.Context, *ListAccountsRequest) (*ListAccountsResponse, error)
+	// SwitchAccount makes a stashed account the active one.
+	SwitchAccount(context.Context, *SwitchAccountRequest) (*UserPublic, error)
 	// POST /api/auth/password/forgot → 202 {message, dev_reset_url?}
 	ForgotPassword(context.Context, *ForgotPasswordRequest) (*ForgotPasswordResponse, error)
 	// POST /api/auth/password/reset → 204
@@ -269,6 +301,12 @@ func (UnimplementedAuthServiceServer) Logout(context.Context, *LogoutRequest) (*
 }
 func (UnimplementedAuthServiceServer) Me(context.Context, *MeRequest) (*UserPublic, error) {
 	return nil, status.Error(codes.Unimplemented, "method Me not implemented")
+}
+func (UnimplementedAuthServiceServer) ListAccounts(context.Context, *ListAccountsRequest) (*ListAccountsResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method ListAccounts not implemented")
+}
+func (UnimplementedAuthServiceServer) SwitchAccount(context.Context, *SwitchAccountRequest) (*UserPublic, error) {
+	return nil, status.Error(codes.Unimplemented, "method SwitchAccount not implemented")
 }
 func (UnimplementedAuthServiceServer) ForgotPassword(context.Context, *ForgotPasswordRequest) (*ForgotPasswordResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method ForgotPassword not implemented")
@@ -417,6 +455,42 @@ func _AuthService_Me_Handler(srv interface{}, ctx context.Context, dec func(inte
 	return interceptor(ctx, in, info, handler)
 }
 
+func _AuthService_ListAccounts_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ListAccountsRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AuthServiceServer).ListAccounts(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: AuthService_ListAccounts_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AuthServiceServer).ListAccounts(ctx, req.(*ListAccountsRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _AuthService_SwitchAccount_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(SwitchAccountRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AuthServiceServer).SwitchAccount(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: AuthService_SwitchAccount_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AuthServiceServer).SwitchAccount(ctx, req.(*SwitchAccountRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 func _AuthService_ForgotPassword_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(ForgotPasswordRequest)
 	if err := dec(in); err != nil {
@@ -555,6 +629,14 @@ var AuthService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "Me",
 			Handler:    _AuthService_Me_Handler,
+		},
+		{
+			MethodName: "ListAccounts",
+			Handler:    _AuthService_ListAccounts_Handler,
+		},
+		{
+			MethodName: "SwitchAccount",
+			Handler:    _AuthService_SwitchAccount_Handler,
 		},
 		{
 			MethodName: "ForgotPassword",
