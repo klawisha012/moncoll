@@ -1823,3 +1823,19 @@ input[type="number"] { -moz-appearance: textfield; }
   }
 }
 
+/* ── Account switcher ─────────────────────────────────────── */
+.acct-switcher { position: relative; margin-bottom: 12px; }
+.acct-chip { display: flex; align-items: center; justify-content: space-between; gap: 8px; width: 100%; padding: 8px 12px; border: 2px solid var(--line); background: var(--cream); color: var(--ink); font-family: var(--font-cond); font-size: 12px; font-weight: 700; letter-spacing: 0.04em; cursor: pointer; }
+.acct-chip:hover { background: var(--cream-2); }
+.acct-email { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.acct-caret { flex: none; }
+.acct-menu { position: absolute; left: 0; right: 0; top: calc(100% + 4px); z-index: 50; border: 3px solid var(--line); background: var(--cream); box-shadow: var(--shadow-offset-sm); display: flex; flex-direction: column; }
+.acct-item { display: flex; align-items: center; gap: 8px; padding: 10px 12px; border: 0; border-bottom: 1.5px solid var(--line); background: var(--cream); color: var(--ink); cursor: pointer; text-align: left; font-family: var(--font-body); font-size: 13px; }
+.acct-item:hover { background: var(--cream-3); }
+.acct-item.is-active { background: var(--cream-2); }
+.acct-item-email { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.acct-check { color: var(--ok); font-weight: 700; }
+.acct-add, .acct-logout-all { padding: 9px 12px; border: 0; background: var(--cream); color: var(--ink); font-family: var(--font-cond); font-size: 11px; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase; cursor: pointer; text-align: left; text-decoration: none; }
+.acct-add { border-bottom: 1.5px solid var(--line); }
+.acct-add:hover, .acct-logout-all:hover { background: var(--ink); color: var(--cream); }
+

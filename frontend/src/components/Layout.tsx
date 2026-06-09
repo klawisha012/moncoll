@@ -21,6 +21,7 @@ import { useAuth } from "../context/AuthContext";
 import SettingsPopover from "./SettingsPopover";
 import GlobalFilters from "./GlobalFilters";
 import TeamSwitcher from "./TeamSwitcher";
+import AccountSwitcher from "./AccountSwitcher";
 import logoDark from "../assets/images/dark theme logo.png";
 import logoLight from "../assets/images/ligth theme logo.png";
 
@@ -140,6 +141,7 @@ export default function Layout(props: { children?: JSX.Element }) {
 
         <Show when={!collapsed()}>
           <GlobalFilters />
+          <AccountSwitcher />
           <TeamSwitcher />
         </Show>
 
