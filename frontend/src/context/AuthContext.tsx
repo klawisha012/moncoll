@@ -29,7 +29,7 @@ export interface AuthContextValue {
   ) => Promise<SignupResponse>;
   oauthStart: (
     provider: "google" | "github",
-    intent: "signup" | "login",
+    intent: "signup" | "login" | "add",
     tenantName?: string,
   ) => void;
   logout: (all?: boolean) => Promise<void>;
@@ -95,7 +95,7 @@ export function AuthProvider(props: { children: JSX.Element }) {
 
   const oauthStart = (
     provider: "google" | "github",
-    intent: "signup" | "login",
+    intent: "signup" | "login" | "add",
     tenantName?: string,
   ) => {
     const params = new URLSearchParams({ intent });

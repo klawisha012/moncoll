@@ -90,7 +90,7 @@ export default function Login() {
       setError(() => settings.t("auth.oauth.notConfigured").replace("{provider}", provider));
       return;
     }
-    window.location.href = `/api/auth/oauth/${provider}/start?intent=login`;
+    auth.oauthStart(provider, addMode() ? "add" : "login");
   };
 
   const captchaReady = () => !providers() || !providers()?.captcha_site_key || !!captchaToken();
