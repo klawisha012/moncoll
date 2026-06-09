@@ -24,6 +24,7 @@ const (
 	TeamsService_SwitchTeam_FullMethodName        = "/teams.v1.TeamsService/SwitchTeam"
 	TeamsService_ListInvitations_FullMethodName   = "/teams.v1.TeamsService/ListInvitations"
 	TeamsService_CreateInvitation_FullMethodName  = "/teams.v1.TeamsService/CreateInvitation"
+	TeamsService_PreviewInvitation_FullMethodName = "/teams.v1.TeamsService/PreviewInvitation"
 	TeamsService_AcceptInvitation_FullMethodName  = "/teams.v1.TeamsService/AcceptInvitation"
 	TeamsService_DeclineInvitation_FullMethodName = "/teams.v1.TeamsService/DeclineInvitation"
 	TeamsService_RevokeInvitation_FullMethodName  = "/teams.v1.TeamsService/RevokeInvitation"
@@ -44,6 +45,11 @@ type TeamsServiceClient interface {
 	SwitchTeam(ctx context.Context, in *SwitchTeamRequest, opts ...grpc.CallOption) (*emptypb.Empty, error)
 	ListInvitations(ctx context.Context, in *ListInvitationsRequest, opts ...grpc.CallOption) (*ListInvitationsResponse, error)
 	CreateInvitation(ctx context.Context, in *CreateInvitationRequest, opts ...grpc.CallOption) (*Invitation, error)
+	// PreviewInvitation is public (no session): given a raw token it returns the
+	// team name, role and invited email so the accept page can show what the user
+	// is joining before they sign in. The token is the bearer secret, so revealing
+	// these details to its holder is acceptable.
+	PreviewInvitation(ctx context.Context, in *PreviewInvitationRequest, opts ...grpc.CallOption) (*InvitationPreview, error)
 	AcceptInvitation(ctx context.Context, in *AcceptInvitationRequest, opts ...grpc.CallOption) (*emptypb.Empty, error)
 	DeclineInvitation(ctx context.Context, in *InvitationIdRequest, opts ...grpc.CallOption) (*emptypb.Empty, error)
 	RevokeInvitation(ctx context.Context, in *InvitationIdRequest, opts ...grpc.CallOption) (*emptypb.Empty, error)
@@ -96,6 +102,16 @@ func (c *teamsServiceClient) CreateInvitation(ctx context.Context, in *CreateInv
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(Invitation)
 	err := c.cc.Invoke(ctx, TeamsService_CreateInvitation_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *teamsServiceClient) PreviewInvitation(ctx context.Context, in *PreviewInvitationRequest, opts ...grpc.CallOption) (*InvitationPreview, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(InvitationPreview)
+	err := c.cc.Invoke(ctx, TeamsService_PreviewInvitation_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -192,6 +208,11 @@ type TeamsServiceServer interface {
 	SwitchTeam(context.Context, *SwitchTeamRequest) (*emptypb.Empty, error)
 	ListInvitations(context.Context, *ListInvitationsRequest) (*ListInvitationsResponse, error)
 	CreateInvitation(context.Context, *CreateInvitationRequest) (*Invitation, error)
+	// PreviewInvitation is public (no session): given a raw token it returns the
+	// team name, role and invited email so the accept page can show what the user
+	// is joining before they sign in. The token is the bearer secret, so revealing
+	// these details to its holder is acceptable.
+	PreviewInvitation(context.Context, *PreviewInvitationRequest) (*InvitationPreview, error)
 	AcceptInvitation(context.Context, *AcceptInvitationRequest) (*emptypb.Empty, error)
 	DeclineInvitation(context.Context, *InvitationIdRequest) (*emptypb.Empty, error)
 	RevokeInvitation(context.Context, *InvitationIdRequest) (*emptypb.Empty, error)
@@ -221,6 +242,9 @@ func (UnimplementedTeamsServiceServer) ListInvitations(context.Context, *ListInv
 }
 func (UnimplementedTeamsServiceServer) CreateInvitation(context.Context, *CreateInvitationRequest) (*Invitation, error) {
 	return nil, status.Error(codes.Unimplemented, "method CreateInvitation not implemented")
+}
+func (UnimplementedTeamsServiceServer) PreviewInvitation(context.Context, *PreviewInvitationRequest) (*InvitationPreview, error) {
+	return nil, status.Error(codes.Unimplemented, "method PreviewInvitation not implemented")
 }
 func (UnimplementedTeamsServiceServer) AcceptInvitation(context.Context, *AcceptInvitationRequest) (*emptypb.Empty, error) {
 	return nil, status.Error(codes.Unimplemented, "method AcceptInvitation not implemented")
@@ -335,6 +359,24 @@ func _TeamsService_CreateInvitation_Handler(srv interface{}, ctx context.Context
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
 		return srv.(TeamsServiceServer).CreateInvitation(ctx, req.(*CreateInvitationRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _TeamsService_PreviewInvitation_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(PreviewInvitationRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(TeamsServiceServer).PreviewInvitation(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: TeamsService_PreviewInvitation_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(TeamsServiceServer).PreviewInvitation(ctx, req.(*PreviewInvitationRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -505,6 +547,10 @@ var TeamsService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "CreateInvitation",
 			Handler:    _TeamsService_CreateInvitation_Handler,
+		},
+		{
+			MethodName: "PreviewInvitation",
+			Handler:    _TeamsService_PreviewInvitation_Handler,
 		},
 		{
 			MethodName: "AcceptInvitation",

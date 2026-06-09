@@ -170,12 +170,21 @@ func (f *fakeStore) CountOwners(_ context.Context, _ int64) (int, error) {
 	return f.ownerCount, nil
 }
 
-type fakeMailer struct{ sent []string }
+type fakeMailer struct {
+	sent       []string
+	configured bool
+	sendErr    error
+}
 
 func (m *fakeMailer) SendInvitationEmail(_ context.Context, to, _, _ string) error {
+	if m.sendErr != nil {
+		return m.sendErr
+	}
 	m.sent = append(m.sent, to)
 	return nil
 }
+
+func (m *fakeMailer) Configured() bool { return m.configured }
 
 func ctxWithUser(userID int64, tenantID int64) context.Context {
 	tid := tenantID
