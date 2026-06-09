@@ -11,6 +11,7 @@ import (
 
 	authv1 "github.com/zwarder/waf/gobackend/gen/auth/v1"
 	"github.com/zwarder/waf/gobackend/internal/auth"
+	"github.com/zwarder/waf/gobackend/internal/oauth"
 	"github.com/zwarder/waf/gobackend/internal/store"
 )
 
@@ -209,6 +210,63 @@ func TestLogoutOnePromotesStash(t *testing.T) {
 	newStashRaw := extractCookieVal(md, stashCookie)
 	stash := decodeStash(newStashRaw)
 	assert.Len(t, stash, 0, "stash must be empty after the only stashed account is promoted")
+}
+
+func TestOauthCallbackAddStashesCurrent(t *testing.T) {
+	h := newHarness(t, Config{})
+	h.oauth.ok = true
+
+	// Seed the OAuth user (uid 99) that the callback will resolve to.
+	oauthUser := &store.User{ID: 99, Email: "oauth@example.com", PlatformRole: "client", DisplayName: "OAuthUser"}
+	h.st.usersByID[99] = oauthUser
+	h.st.usersByEmail["oauth@example.com"] = oauthUser
+	h.st.oauthAccts["google|sub-add-99"] = &store.OAuthAccount{
+		ID: 50, UserID: 99, Provider: "google", ProviderAccountID: "sub-add-99",
+	}
+	h.oauth.prov = &fakeOAuthProvider{info: &oauth.UserInfo{
+		ProviderAccountID: "sub-add-99", Email: "oauth@example.com", EmailVerified: true, DisplayName: "OAuthUser",
+	}}
+
+	// Sign an OAuth state with intent="add".
+	state, err := h.svc.issuer.SignShortLived(
+		map[string]any{"intent": "add", "provider": "google"},
+		shortLivedTTL, "oauth_state",
+	)
+	require.NoError(t, err)
+
+	// Mint an active session for a DIFFERENT uid (101) — this is the session
+	// that must be stashed after the add-account callback completes.
+	prevTok, err := auth.NewIssuer(testKey()).CreateSessionToken(101, "client", nil, nil)
+	require.NoError(t, err)
+
+	// Build the incoming context with both the OAuth state cookie and the
+	// current active session cookie.
+	cookieHdr := oauthStateCookie + "=" + state + "; " + sessionCookie + "=" + prevTok
+	ctx := ctxWithCookie(cookieHdr)
+
+	md, err := runWithMD(ctx, func(c context.Context) error {
+		_, e := h.svc.OauthCallback(c, &authv1.OauthCallbackRequest{
+			Provider: "google", Code: "code", State: state,
+		})
+		return e
+	})
+	require.NoError(t, err)
+
+	// The emitted waf_session must decode to the OAuth user's uid (99).
+	newSession := extractCookieVal(md, sessionCookie)
+	require.NotEmpty(t, newSession, "waf_session cookie must be set after add-account callback")
+	uid, ok := h.svc.tokenUID(newSession)
+	require.True(t, ok)
+	assert.Equal(t, int64(99), uid)
+
+	// The emitted waf_accounts stash must contain the original active token (uid 101).
+	stashRaw := extractCookieVal(md, stashCookie)
+	require.NotEmpty(t, stashRaw, "waf_accounts stash cookie must be set when intent=add")
+	stashed := decodeStash(stashRaw)
+	require.Len(t, stashed, 1, "stash must contain exactly the previous active token")
+	stashedUID, ok := h.svc.tokenUID(stashed[0])
+	require.True(t, ok)
+	assert.Equal(t, int64(101), stashedUID)
 }
 
 func TestLogoutAllClearsBoth(t *testing.T) {
