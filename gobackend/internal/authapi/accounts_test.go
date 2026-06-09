@@ -175,3 +175,67 @@ func TestSwitchAccountUnknownUID(t *testing.T) {
 	require.Error(t, err)
 	assert.Equal(t, codes.NotFound, status.Code(err))
 }
+
+func TestLogoutOnePromotesStash(t *testing.T) {
+	h := newHarness(t, Config{})
+
+	// Seed both users so tokenUID resolves.
+	h.st.usersByID[101] = &store.User{ID: 101, Email: "admin@example.com", DisplayName: "Admin", PlatformRole: "admin"}
+	h.st.usersByID[102] = &store.User{ID: 102, Email: "client@example.com", DisplayName: "Client", PlatformRole: "client"}
+
+	iss := auth.NewIssuer(testKey())
+	activeTok, err := iss.CreateSessionToken(101, "admin", nil, nil)
+	require.NoError(t, err)
+	stashedTok, err := iss.CreateSessionToken(102, "client", nil, nil)
+	require.NoError(t, err)
+
+	cookieHdr := sessionCookie + "=" + activeTok + "; " + stashCookie + "=" + encodeStash([]string{stashedTok})
+	ctx := ctxWithCookie(cookieHdr)
+
+	md, err := runWithMD(ctx, func(c context.Context) error {
+		_, e := h.svc.Logout(c, &authv1.LogoutRequest{All: false})
+		return e
+	})
+	require.NoError(t, err)
+
+	// The emitted waf_session must decode to uid 102 (the promoted stashed account).
+	newSession := extractCookieVal(md, sessionCookie)
+	require.NotEmpty(t, newSession, "waf_session cookie must be emitted after single logout")
+	uid, ok := h.svc.tokenUID(newSession)
+	assert.True(t, ok)
+	assert.Equal(t, int64(102), uid)
+
+	// The emitted waf_accounts stash must be empty (cleared — one item was promoted).
+	newStashRaw := extractCookieVal(md, stashCookie)
+	stash := decodeStash(newStashRaw)
+	assert.Len(t, stash, 0, "stash must be empty after the only stashed account is promoted")
+}
+
+func TestLogoutAllClearsBoth(t *testing.T) {
+	h := newHarness(t, Config{})
+
+	// Seed both users.
+	h.st.usersByID[101] = &store.User{ID: 101, Email: "admin@example.com", DisplayName: "Admin", PlatformRole: "admin"}
+	h.st.usersByID[102] = &store.User{ID: 102, Email: "client@example.com", DisplayName: "Client", PlatformRole: "client"}
+
+	iss := auth.NewIssuer(testKey())
+	activeTok, err := iss.CreateSessionToken(101, "admin", nil, nil)
+	require.NoError(t, err)
+	stashedTok, err := iss.CreateSessionToken(102, "client", nil, nil)
+	require.NoError(t, err)
+
+	cookieHdr := sessionCookie + "=" + activeTok + "; " + stashCookie + "=" + encodeStash([]string{stashedTok})
+	ctx := ctxWithCookie(cookieHdr)
+
+	md, err := runWithMD(ctx, func(c context.Context) error {
+		_, e := h.svc.Logout(c, &authv1.LogoutRequest{All: true})
+		return e
+	})
+	require.NoError(t, err)
+
+	// clearCookie produces e.g. "waf_session=; Path=/; Max-Age=0; ..."
+	// so the substring "waf_session=;" is present in a cleared waf_session cookie.
+	assert.True(t, hasCookie(md, sessionCookie+"=;"), "waf_session must be cleared (empty value)")
+	assert.True(t, hasCookie(md, "Max-Age=0"), "cleared cookie must carry Max-Age=0")
+	assert.True(t, hasCookie(md, stashCookie+"=;"), "waf_accounts must be cleared (empty value)")
+}
