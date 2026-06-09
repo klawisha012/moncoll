@@ -810,6 +810,12 @@ const en: TranslationDict = {
   "invite.signup": "Create account",
   "invite.mismatch.desc": "This invitation was sent to {email}, but you're signed in as {current}. Switch to the invited account to accept.",
   "invite.switchAccount": "Switch account",
+  "invite.switchAndAccept": "Switch to {email} & accept",
+
+  // Account switcher
+  "account.add": "Add account",
+  "account.logoutAll": "Sign out of all",
+  "account.addBanner": "Adding another account — your current one stays signed in.",
 };
 
 const ru: TranslationDict = {
@@ -1623,6 +1629,12 @@ const ru: TranslationDict = {
   "invite.signup": "Создать аккаунт",
   "invite.mismatch.desc": "Приглашение отправлено на {email}, а вы вошли как {current}. Переключитесь на приглашённый аккаунт, чтобы принять.",
   "invite.switchAccount": "Сменить аккаунт",
+  "invite.switchAndAccept": "Переключиться на {email} и принять",
+
+  // Account switcher
+  "account.add": "Добавить аккаунт",
+  "account.logoutAll": "Выйти из всех",
+  "account.addBanner": "Добавление ещё одного аккаунта — текущий останется в системе.",
 };
 
 export const translations: Record<Lang, TranslationDict> = { en, ru };
