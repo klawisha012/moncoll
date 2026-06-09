@@ -87,7 +87,9 @@ func (s *Service) emitStash(ctx context.Context, tokens []string) {
 
 // setActiveWithStash makes newToken (for newUID) active. keepCurrent=false is a
 // fresh login: clears the stash. keepCurrent=true preserves the outgoing active
-// session and the existing stash, erroring if that would exceed maxAccounts.
+// session and the existing stash, erroring if that would exceed maxAccounts;
+// expired/invalid stash entries are pruned before the cap is evaluated, so the
+// effective cap is "active + (maxAccounts-1) valid stashed".
 func (s *Service) setActiveWithStash(ctx context.Context, newToken string, newUID int64, keepCurrent bool) error {
 	if !keepCurrent {
 		emitSetCookie(ctx, buildCookie(sessionCookie, newToken, sessionMaxAge, s.cfg.CookieSecure))
@@ -144,6 +146,13 @@ func (s *Service) ListAccounts(ctx context.Context, _ *authv1.ListAccountsReques
 // back into the stash.
 func (s *Service) SwitchAccount(ctx context.Context, req *authv1.SwitchAccountRequest) (*authv1.UserPublic, error) {
 	active := auth.CookieFromMetadata(ctx, sessionCookie)
+	if uid, ok := s.tokenUID(active); ok && uid == req.GetUserId() {
+		u, err := s.store.GetUserByIDFull(ctx, uid)
+		if err != nil {
+			return nil, status.Error(codes.Internal, "user lookup failed")
+		}
+		return userPublic(u), nil // already active — no-op
+	}
 	stash := decodeStash(auth.CookieFromMetadata(ctx, stashCookie))
 	var target string
 	rest := []string{}

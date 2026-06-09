@@ -4,7 +4,11 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
+	authv1 "github.com/zwarder/waf/gobackend/gen/auth/v1"
 	"github.com/zwarder/waf/gobackend/internal/auth"
+	"github.com/zwarder/waf/gobackend/internal/store"
 )
 
 func TestStashCodecRoundTrip(t *testing.T) {
@@ -30,4 +34,23 @@ func TestPruneStashDropsInvalidDedupesExcludes(t *testing.T) {
 	uid, ok := svc.tokenUID(out[0])
 	assert.True(t, ok)
 	assert.Equal(t, int64(2), uid)
+}
+
+func TestSwitchAccountToAlreadyActiveIsNoop(t *testing.T) {
+	h := newHarness(t, Config{})
+
+	// Seed uid 101 into the fake store so GetUserByIDFull resolves.
+	u := &store.User{ID: 101, Email: "alice@example.com", DisplayName: "Alice", PlatformRole: "client"}
+	h.st.usersByID[101] = u
+
+	// Mint a session token for uid 101 and set it as the active cookie.
+	tok, err := auth.NewIssuer(testKey()).CreateSessionToken(101, "client", nil, nil)
+	require.NoError(t, err)
+	ctx := ctxWithCookie(sessionCookie + "=" + tok)
+
+	// SwitchAccount to uid 101 (the already-active account) — should be a no-op.
+	resp, err := h.svc.SwitchAccount(ctx, &authv1.SwitchAccountRequest{UserId: 101})
+	require.NoError(t, err)
+	require.NotNil(t, resp)
+	assert.Equal(t, int64(101), resp.Id)
 }
