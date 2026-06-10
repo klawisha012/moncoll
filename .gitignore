@@ -118,3 +118,5 @@ graphify-out/
 docs/
 artifacts/
 AGENTS.md
+# Standalone academic report (unrelated to WAF project)
+/report-case-tools/

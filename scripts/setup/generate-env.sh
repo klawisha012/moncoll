@@ -32,6 +32,11 @@ CENTRIFUGO_API_KEY=$(openssl rand -base64 32 | tr -dc 'a-zA-Z0-9' | head -c 48)
 # to access /var/run/docker.sock without running as root. Falls back to
 # 999 (most Linux distros) when getent isn't available (eg. macOS hosts).
 DOCKER_GID="$(getent group docker 2>/dev/null | cut -d: -f3 || echo 999)"
+# Never emit 0: the compose file already lists "0" as a root-socket fallback,
+# and a duplicate group_add entry fails compose validation. Fall back to 999.
+if [ -z "$DOCKER_GID" ] || [ "$DOCKER_GID" = "0" ]; then
+  DOCKER_GID=999
+fi
 
 cat > .env << EOF
 # Angie
