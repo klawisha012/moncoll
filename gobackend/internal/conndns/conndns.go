@@ -73,14 +73,85 @@ type Resolver interface {
 
 // ─── Default (production) implementation ─────────────────────────────────────
 
-// NetResolver is the production Resolver backed by net.DefaultResolver.
-type NetResolver struct{}
+// NetResolver is the production Resolver. By default it is backed by
+// net.DefaultResolver (the container's local resolver); when constructed via
+// NewNetResolverFromEnv with WAF_DNS_SERVERS set, it routes lookups to the
+// configured public resolvers instead. The zero value remains valid and uses
+// net.DefaultResolver, preserving existing callers and tests.
+type NetResolver struct {
+	// r is the underlying resolver. A nil r means net.DefaultResolver.
+	r *net.Resolver
+}
 
-// LookupTXT implements Resolver using the system resolver.
+// resolver returns the configured resolver, or net.DefaultResolver when unset.
+func (n NetResolver) resolver() *net.Resolver {
+	if n.r != nil {
+		return n.r
+	}
+	return net.DefaultResolver
+}
+
+// NewNetResolverFromEnv builds a NetResolver from the environment.
+//
+// When WAF_DNS_SERVERS is set to a comma-separated list of resolvers (bare IPs
+// or host:port, e.g. "1.1.1.1,8.8.8.8:53"), TXT/host lookups are sent to those
+// public resolvers via Go's pure-Go resolver. This bypasses the container's
+// local resolver, which can negatively cache _waf-verify.<domain> — that name
+// is queried the instant a connection is created, before the operator publishes
+// the record, so the local resolver caches the NXDOMAIN/NODATA and keeps
+// returning "not found" long after public resolvers (the ones a "DNS checker"
+// uses) already see the TXT. An empty/unset env keeps net.DefaultResolver.
+func NewNetResolverFromEnv() NetResolver {
+	servers := parseDNSServers(os.Getenv("WAF_DNS_SERVERS"))
+	if len(servers) == 0 {
+		return NetResolver{}
+	}
+	return NetResolver{r: publicResolver(servers)}
+}
+
+// parseDNSServers splits a comma-separated resolver list, trimming blanks and
+// defaulting bare IPs to port 53.
+func parseDNSServers(raw string) []string {
+	var out []string
+	for _, part := range strings.Split(raw, ",") {
+		s := strings.TrimSpace(part)
+		if s == "" {
+			continue
+		}
+		if !strings.Contains(s, ":") {
+			s += ":53"
+		}
+		out = append(out, s)
+	}
+	return out
+}
+
+// publicResolver returns a pure-Go resolver that dials the given servers in
+// order (first reachable wins), honouring the network the stdlib asks for so
+// UDP→TCP truncation fallback keeps working.
+func publicResolver(servers []string) *net.Resolver {
+	return &net.Resolver{
+		PreferGo: true,
+		Dial: func(ctx context.Context, network, _ string) (net.Conn, error) {
+			var d net.Dialer
+			var lastErr error
+			for _, s := range servers {
+				conn, err := d.DialContext(ctx, network, s)
+				if err == nil {
+					return conn, nil
+				}
+				lastErr = err
+			}
+			return nil, lastErr
+		},
+	}
+}
+
+// LookupTXT implements Resolver using the configured resolver.
 // NXDOMAIN / no-records errors are silenced and return nil, nil — consistent
 // with dns.py resolve_txt which returns [] on any failure path.
-func (NetResolver) LookupTXT(ctx context.Context, name string) ([]string, error) {
-	records, err := net.DefaultResolver.LookupTXT(ctx, name)
+func (n NetResolver) LookupTXT(ctx context.Context, name string) ([]string, error) {
+	records, err := n.resolver().LookupTXT(ctx, name)
 	if err != nil {
 		// dns.py returns [] on any failure (NXDOMAIN, timeout, …); match that.
 		return nil, nil //nolint:nilerr
@@ -88,13 +159,13 @@ func (NetResolver) LookupTXT(ctx context.Context, name string) ([]string, error)
 	return records, nil
 }
 
-// LookupHost implements Resolver using the system resolver.
+// LookupHost implements Resolver using the configured resolver.
 //
 // The system resolver can return the same address more than once (e.g. when a
 // host is reachable via multiple resolution paths), so duplicates are removed
 // while preserving first-seen order.
-func (NetResolver) LookupHost(ctx context.Context, host string) ([]string, error) {
-	addrs, err := net.DefaultResolver.LookupHost(ctx, host)
+func (n NetResolver) LookupHost(ctx context.Context, host string) ([]string, error) {
+	addrs, err := n.resolver().LookupHost(ctx, host)
 	if err != nil {
 		return nil, err
 	}
