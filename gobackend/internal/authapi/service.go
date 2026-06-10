@@ -235,7 +235,7 @@ func (s *Service) issueSessionCookie(ctx context.Context, u *store.User) error {
 	if err != nil {
 		return err
 	}
-	emitSetCookie(ctx, buildCookie(sessionCookie, tok, sessionMaxAge, s.cfg.CookieSecure))
+	emitSetCookie(ctx, buildCookie(sessionCookie, tok, sessionMaxAge(), s.cfg.CookieSecure))
 	return nil
 }
 

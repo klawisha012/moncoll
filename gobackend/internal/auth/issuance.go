@@ -13,6 +13,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
+	"os"
 	"strconv"
 	"time"
 
@@ -20,8 +22,47 @@ import (
 	"golang.org/x/crypto/bcrypt"
 )
 
-// SESSION_TTL_SECONDS mirrors security.py's SESSION_TTL_SECONDS = 8 * 60 * 60.
-const sessionTTL = 8 * time.Hour
+// defaultSessionTTL is the session lifetime when WAF_SESSION_TTL_HOURS is
+// unset or invalid. 7 days keeps signed-in accounts (including the stashed
+// multi-account sessions) usable across days without re-login.
+const defaultSessionTTL = 7 * 24 * time.Hour
+
+// maxSessionTTLHours caps WAF_SESSION_TTL_HOURS at one year. Far beyond that
+// (~292 years) the hours→Duration conversion overflows int64 into a negative
+// TTL: every minted token is born expired and the cookie Max-Age goes
+// negative — a total auth outage that is hard to diagnose.
+const maxSessionTTLHours = 24 * 365
+
+// sessionTTL is resolved once at startup from WAF_SESSION_TTL_HOURS.
+var sessionTTL = sessionTTLFromEnv()
+
+func sessionTTLFromEnv() time.Duration {
+	return parseSessionTTL(os.Getenv("WAF_SESSION_TTL_HOURS"))
+}
+
+// parseSessionTTL converts a WAF_SESSION_TTL_HOURS value into a Duration.
+// A set-but-invalid value falls back to the default loudly: silently
+// extending a security knob (operator sets "1h" expecting one hour, gets
+// seven days) must leave a trace in the logs.
+func parseSessionTTL(v string) time.Duration {
+	if v == "" {
+		return defaultSessionTTL
+	}
+	h, err := strconv.Atoi(v)
+	if err != nil || h <= 0 || h > maxSessionTTLHours {
+		slog.Warn("invalid WAF_SESSION_TTL_HOURS, using default",
+			"value", v, "default", defaultSessionTTL.String(), "max_hours", maxSessionTTLHours)
+		return defaultSessionTTL
+	}
+	return time.Duration(h) * time.Hour
+}
+
+// SessionTTL returns the configured session lifetime. Cookie Max-Age values
+// must use this so the browser keeps the cookie exactly as long as the PASETO
+// token inside it stays valid.
+func SessionTTL() time.Duration {
+	return sessionTTL
+}
 
 // bcryptCost matches passlib's default bcrypt rounds (12).
 const bcryptCost = 12

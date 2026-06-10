@@ -16,6 +16,40 @@ func testIssuer() *Issuer   { return NewIssuer(testKey()) }
 func testDecoder() *Decoder { return NewDecoder(testKey()) }
 
 // ---------------------------------------------------------------------------
+// Session TTL configuration
+// ---------------------------------------------------------------------------
+
+// TestDefaultSessionTTL pins the default with a literal so any future change
+// to the security posture must consciously update this test.
+func TestDefaultSessionTTL(t *testing.T) {
+	assert.Equal(t, 168*time.Hour, defaultSessionTTL)
+}
+
+func TestParseSessionTTL(t *testing.T) {
+	cases := []struct {
+		name string
+		in   string
+		want time.Duration
+	}{
+		{"unset uses default", "", defaultSessionTTL},
+		{"valid hours", "24", 24 * time.Hour},
+		{"one hour", "1", time.Hour},
+		{"max allowed", "8760", 8760 * time.Hour},
+		{"zero falls back", "0", defaultSessionTTL},
+		{"negative falls back", "-5", defaultSessionTTL},
+		{"non-numeric falls back", "abc", defaultSessionTTL},
+		{"duration syntax falls back", "8h", defaultSessionTTL},
+		{"above cap falls back", "8761", defaultSessionTTL},
+		{"overflow-scale value falls back", "10000000", defaultSessionTTL},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			assert.Equal(t, tc.want, parseSessionTTL(tc.in))
+		})
+	}
+}
+
+// ---------------------------------------------------------------------------
 // CreateSessionToken
 // ---------------------------------------------------------------------------
 

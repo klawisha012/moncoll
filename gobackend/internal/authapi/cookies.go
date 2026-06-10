@@ -7,10 +7,12 @@ package authapi
 // WithForwardResponseOption (internal/server/gateway.go) translates these into
 // real Set-Cookie / Location:302 on the HTTP response.
 //
-// Cookie attributes are byte-faithful to the Python set_cookie calls in
-// routers/{password,totp,oauth}.py + dependencies.py:
-//   name=waf_session, HttpOnly, Secure=cookie_secure, SameSite=Lax, Path=/,
-//   Max-Age=28800 (8h). Logout / state clears use Max-Age=0.
+// Cookie attributes keep the legacy Python shape (set_cookie calls in
+// routers/{password,totp,oauth}.py + dependencies.py):
+//   name=waf_session, HttpOnly, Secure=cookie_secure, SameSite=Lax, Path=/.
+// Max-Age intentionally diverges from Python's fixed 28800s: it now follows
+// auth.SessionTTL (WAF_SESSION_TTL_HOURS, default 7d). Logout / state clears
+// use Max-Age=0.
 
 import (
 	"context"
@@ -19,6 +21,8 @@ import (
 
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/metadata"
+
+	"github.com/zwarder/waf/gobackend/internal/auth"
 )
 
 // Cookie names — mirror dependencies.py + routers.
@@ -29,8 +33,11 @@ const (
 	oauthStateCookie  = "waf_oauth_state"
 )
 
-// sessionMaxAge mirrors SESSION_TTL_SECONDS (8h) in security.py.
-const sessionMaxAge = 8 * 60 * 60
+// sessionMaxAge is the cookie Max-Age in seconds, derived from
+// auth.SessionTTL at call time (single source of truth — no init-order
+// dependent cached copy) so the cookie lives exactly as long as the PASETO
+// token inside it stays valid.
+func sessionMaxAge() int { return int(auth.SessionTTL().Seconds()) }
 
 // Metadata keys read by the gateway ForwardResponseOption.
 const (

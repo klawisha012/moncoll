@@ -82,7 +82,7 @@ func (s *Service) emitStash(ctx context.Context, tokens []string) {
 		emitSetCookie(ctx, clearCookie(stashCookie, s.cfg.CookieSecure))
 		return
 	}
-	emitSetCookie(ctx, buildCookie(stashCookie, encodeStash(tokens), sessionMaxAge, s.cfg.CookieSecure))
+	emitSetCookie(ctx, buildCookie(stashCookie, encodeStash(tokens), sessionMaxAge(), s.cfg.CookieSecure))
 }
 
 // setActiveWithStash makes newToken (for newUID) active. keepCurrent=false is a
@@ -92,7 +92,7 @@ func (s *Service) emitStash(ctx context.Context, tokens []string) {
 // effective cap is "active + (maxAccounts-1) valid stashed".
 func (s *Service) setActiveWithStash(ctx context.Context, newToken string, newUID int64, keepCurrent bool) error {
 	if !keepCurrent {
-		emitSetCookie(ctx, buildCookie(sessionCookie, newToken, sessionMaxAge, s.cfg.CookieSecure))
+		emitSetCookie(ctx, buildCookie(sessionCookie, newToken, sessionMaxAge(), s.cfg.CookieSecure))
 		emitSetCookie(ctx, clearCookie(stashCookie, s.cfg.CookieSecure))
 		return nil
 	}
@@ -105,7 +105,7 @@ func (s *Service) setActiveWithStash(ctx context.Context, newToken string, newUI
 	if len(pruned) > maxAccounts-1 {
 		return status.Error(codes.FailedPrecondition, "too many signed-in accounts")
 	}
-	emitSetCookie(ctx, buildCookie(sessionCookie, newToken, sessionMaxAge, s.cfg.CookieSecure))
+	emitSetCookie(ctx, buildCookie(sessionCookie, newToken, sessionMaxAge(), s.cfg.CookieSecure))
 	s.emitStash(ctx, pruned)
 	return nil
 }
@@ -170,7 +170,7 @@ func (s *Service) SwitchAccount(ctx context.Context, req *authv1.SwitchAccountRe
 	if _, ok := s.tokenUID(active); ok {
 		rest = append([]string{active}, rest...)
 	}
-	emitSetCookie(ctx, buildCookie(sessionCookie, target, sessionMaxAge, s.cfg.CookieSecure))
+	emitSetCookie(ctx, buildCookie(sessionCookie, target, sessionMaxAge(), s.cfg.CookieSecure))
 	s.emitStash(ctx, s.pruneStash(rest, req.GetUserId()))
 
 	u, err := s.store.GetUserByIDFull(ctx, req.GetUserId())

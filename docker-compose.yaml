@@ -247,6 +247,9 @@ services:
       # ── Auth service (mirrors the Python backend's auth env block) ──────────
       WAF_PUBLIC_BASE_URL: ${WAF_PUBLIC_BASE_URL:-}
       WAF_COOKIE_SECURE: ${WAF_COOKIE_SECURE:-false}
+      # Session lifetime in hours: PASETO token exp + cookie Max-Age.
+      # Empty = gobackend default (7 days — defaultSessionTTL in internal/auth/issuance.go).
+      WAF_SESSION_TTL_HOURS: ${WAF_SESSION_TTL_HOURS:-}
       WAF_TURNSTILE_SITE_KEY: ${WAF_TURNSTILE_SITE_KEY:-}
       WAF_TURNSTILE_SECRET_KEY: ${WAF_TURNSTILE_SECRET_KEY:-}
       WAF_SMTP_HOST: ${WAF_SMTP_HOST:-}
