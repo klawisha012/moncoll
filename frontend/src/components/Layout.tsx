@@ -1,5 +1,5 @@
 import { createSignal, createEffect, Show, For, type JSX } from "solid-js";
-import { A, useNavigate } from "@solidjs/router";
+import { A } from "@solidjs/router";
 import {
   LayoutDashboard,
   Link2,
@@ -8,7 +8,6 @@ import {
   Shield,
   Ban,
   Cog,
-  LogOut,
   Users as UsersIcon,
   TestTube,
   Home as HomeIcon,
@@ -81,7 +80,6 @@ const NAV_MAP: Record<"admin" | "client", NavSection[]> = {
 export default function Layout(props: { children?: JSX.Element }) {
   const settings = useSettings();
   const auth = useAuth();
-  const navigate = useNavigate();
   const [popoverOpen, setPopoverOpen] = createSignal(false);
   const [collapsed, setCollapsed] = createSignal<boolean>(loadCollapsed());
 
@@ -92,11 +90,6 @@ export default function Layout(props: { children?: JSX.Element }) {
       // ignore
     }
   });
-
-  const handleLogout = async () => {
-    await auth.logout();
-    navigate("/login", { replace: true });
-  };
 
   const sections = () => {
     const role = auth.user?.platform_role ?? "client";
@@ -141,7 +134,6 @@ export default function Layout(props: { children?: JSX.Element }) {
 
         <Show when={!collapsed()}>
           <GlobalFilters />
-          <AccountSwitcher />
           <TeamSwitcher />
         </Show>
 
@@ -170,99 +162,7 @@ export default function Layout(props: { children?: JSX.Element }) {
 
         <div class="sidebar-footer">
           <Show when={auth.user}>
-            {(usr) => (
-              <div
-                style={{
-                  padding: "14px 18px",
-                  display: "flex",
-                  "align-items": "center",
-                  gap: "12px",
-                  "font-size": "12px",
-                  "border-top": "3px solid var(--ink)",
-                }}
-              >
-                <div
-                  style={{
-                    width: "36px",
-                    height: "36px",
-                    "border-radius": "0px",
-                    background: "var(--red)",
-                    color: "var(--cream)",
-                    display: "flex",
-                    "align-items": "center",
-                    "justify-content": "center",
-                    "font-family": "var(--font-display)",
-                    "font-weight": 900,
-                    "font-size": "16px",
-                    border: "2px solid var(--ink)",
-                    "flex-shrink": 0,
-                    "letter-spacing": "-0.02em",
-                  }}
-                >
-                  {(usr().display_name || usr().email).slice(0, 1).toUpperCase()}
-                </div>
-                <div
-                  style={{
-                    display: "flex",
-                    "flex-direction": "column",
-                    flex: 1,
-                    overflow: "hidden",
-                    "line-height": 1.2,
-                  }}
-                >
-                  <span
-                    style={{
-                      color: "var(--ink)",
-                      "font-family": "var(--font-cond)",
-                      "font-weight": 700,
-                      "font-size": "13px",
-                      "letter-spacing": "0.08em",
-                      "text-transform": "uppercase",
-                      overflow: "hidden",
-                      "text-overflow": "ellipsis",
-                      "white-space": "nowrap",
-                    }}
-                  >
-                    {usr().display_name || usr().email}
-                  </span>
-                  <span
-                    style={{
-                      color: "var(--ink-soft)",
-                      "font-family": "var(--font-mono)",
-                      "font-size": "10.5px",
-                      "letter-spacing": "0.04em",
-                    }}
-                  >
-                    {usr().platform_role}
-                  </span>
-                </div>
-                <button
-                  onClick={handleLogout}
-                  title={settings.t("auth.logout")}
-                  style={{
-                    background: "var(--cream)",
-                    border: "2px solid var(--ink)",
-                    "border-radius": "0px",
-                    padding: "6px 8px",
-                    color: "var(--ink)",
-                    cursor: "pointer",
-                    display: "flex",
-                    "align-items": "center",
-                    "justify-content": "center",
-                  }}
-                  onMouseEnter={(e) => {
-                    e.currentTarget.style.background = "var(--red)";
-                    e.currentTarget.style.color = "var(--cream)";
-                  }}
-                  onMouseLeave={(e) => {
-                    e.currentTarget.style.background = "var(--cream)";
-                    e.currentTarget.style.color = "var(--ink)";
-                  }}
-                >
-                  <LogOut size={14} />
-                </button>
-              </div>
-            )}
+            <AccountSwitcher />
           </Show>
           <div
             style={{

@@ -134,11 +134,12 @@
 }
 
 [data-theme="dark"] ::-webkit-scrollbar-track {
-  background: var(--cream);
-  border-left: 3px solid var(--line);
+  background: var(--cream-2);
+  border-left: 2px solid var(--line);
 }
 [data-theme="dark"] ::-webkit-scrollbar-thumb {
-  background: var(--ink);
+  background: var(--ink-soft);
+  border: 3px solid var(--cream-2);
 }
 [data-theme="dark"] ::-webkit-scrollbar-thumb:hover {
   background: var(--red);
@@ -187,9 +188,12 @@ button { font-family: inherit; }
 /* ═══════════════════════════════════════════════════════════════════════════
    SCROLLBAR
    ═══════════════════════════════════════════════════════════════════════════ */
-::-webkit-scrollbar { width: 10px; height: 10px; }
-::-webkit-scrollbar-track { background: var(--cream); border-left: 3px solid var(--line); }
-::-webkit-scrollbar-thumb { background: var(--ink); border: 0; }
+/* Firefox */
+* { scrollbar-width: thin; scrollbar-color: var(--ink) var(--cream-3); }
+[data-theme="dark"] * { scrollbar-color: var(--ink-soft) var(--cream-2); }
+::-webkit-scrollbar { width: 12px; height: 12px; }
+::-webkit-scrollbar-track { background: var(--cream-3); border-left: 2px solid var(--ink); }
+::-webkit-scrollbar-thumb { background: var(--ink); border: 3px solid var(--cream-3); }
 ::-webkit-scrollbar-thumb:hover { background: var(--red); }
 
 /* ═══════════════════════════════════════════════════════════════════════════
@@ -1824,12 +1828,20 @@ input[type="number"] { -moz-appearance: textfield; }
 }
 
 /* ── Account switcher ─────────────────────────────────────── */
-.acct-switcher { position: relative; margin-bottom: 12px; }
-.acct-chip { display: flex; align-items: center; justify-content: space-between; gap: 8px; width: 100%; padding: 8px 12px; border: 2px solid var(--line); background: var(--cream); color: var(--ink); font-family: var(--font-cond); font-size: 12px; font-weight: 700; letter-spacing: 0.04em; cursor: pointer; }
-.acct-chip:hover { background: var(--cream-2); }
-.acct-email { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.acct-caret { flex: none; }
-.acct-menu { position: absolute; left: 0; right: 0; top: calc(100% + 4px); z-index: 50; border: 3px solid var(--line); background: var(--cream); box-shadow: var(--shadow-offset-sm); display: flex; flex-direction: column; }
+.acct-switcher { position: relative; }
+/* Account switcher lives in the sidebar footer: the user card is the trigger,
+   the menu opens upward above it. */
+.acct-card { display: flex; align-items: center; gap: 10px; padding: 14px 18px; border-top: 3px solid var(--ink); }
+.acct-card-main { flex: 1; min-width: 0; display: flex; align-items: center; gap: 12px; padding: 0; border: 0; background: transparent; color: var(--ink); cursor: pointer; text-align: left; }
+.acct-card-main:hover .acct-name { color: var(--red); }
+.acct-avatar { width: 36px; height: 36px; flex-shrink: 0; display: flex; align-items: center; justify-content: center; background: var(--red); color: var(--cream); border: 2px solid var(--ink); font-family: var(--font-display); font-weight: 900; font-size: 16px; letter-spacing: -0.02em; }
+.acct-id { display: flex; flex-direction: column; flex: 1; min-width: 0; overflow: hidden; line-height: 1.2; }
+.acct-name { font-family: var(--font-cond); font-weight: 700; font-size: 13px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; transition: color 120ms ease; }
+.acct-role { font-family: var(--font-mono); font-size: 10.5px; letter-spacing: 0.04em; color: var(--ink-soft); }
+.acct-caret { flex: none; font-size: 11px; color: var(--ink-soft); }
+.acct-logout-btn { flex-shrink: 0; display: flex; align-items: center; justify-content: center; padding: 6px 8px; border: 2px solid var(--ink); background: var(--cream); color: var(--ink); cursor: pointer; }
+.acct-logout-btn:hover { background: var(--red); color: var(--cream); }
+.acct-menu { position: absolute; left: 0; right: 0; bottom: calc(100% + 4px); top: auto; z-index: 50; border: 3px solid var(--ink); background: var(--cream); box-shadow: var(--shadow-offset-sm); display: flex; flex-direction: column; max-height: 60vh; overflow-y: auto; }
 .acct-item { display: flex; align-items: center; gap: 8px; padding: 10px 12px; border: 0; border-bottom: 1.5px solid var(--line); background: var(--cream); color: var(--ink); cursor: pointer; text-align: left; font-family: var(--font-body); font-size: 13px; }
 .acct-item:hover { background: var(--cream-3); }
 .acct-item.is-active { background: var(--cream-2); }
