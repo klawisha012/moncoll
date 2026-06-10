@@ -175,6 +175,8 @@ func (s *Service) AuthLevels() map[string]auth.Level {
 		authv1.AuthService_TotpConfirm_FullMethodName:    auth.LevelPublic,
 		authv1.AuthService_OauthStart_FullMethodName:     auth.LevelPublic,
 		authv1.AuthService_OauthCallback_FullMethodName:  auth.LevelPublic,
+		authv1.AuthService_ListAccounts_FullMethodName:   auth.LevelPublic,
+		authv1.AuthService_SwitchAccount_FullMethodName:  auth.LevelPublic,
 	}
 }
 
@@ -217,12 +219,21 @@ func userPublic(u *store.User) *authv1.UserPublic {
 	return up
 }
 
-// issueSessionCookie mints a session token for u and emits it as a Set-Cookie
-// via response metadata. Mirrors _set_session_cookie.
-func (s *Service) issueSessionCookie(ctx context.Context, u *store.User) error {
+// mintSessionToken creates a session token for u (no cookie emission).
+func (s *Service) mintSessionToken(u *store.User) (string, error) {
 	tok, err := s.issuer.CreateSessionToken(u.ID, u.PlatformRole, u.TenantID, u.TenantRole)
 	if err != nil {
-		return status.Error(codes.Internal, "session token issuance failed")
+		return "", status.Error(codes.Internal, "session token issuance failed")
+	}
+	return tok, nil
+}
+
+// issueSessionCookie mints a session token for u and emits it as the active
+// session cookie. Mirrors _set_session_cookie.
+func (s *Service) issueSessionCookie(ctx context.Context, u *store.User) error {
+	tok, err := s.mintSessionToken(u)
+	if err != nil {
+		return err
 	}
 	emitSetCookie(ctx, buildCookie(sessionCookie, tok, sessionMaxAge, s.cfg.CookieSecure))
 	return nil

@@ -224,6 +224,13 @@ services:
       ACME_EMAIL: ${ACME_EMAIL:-admin@localhost}
       # Connections poller tick interval (seconds; default 60).
       WAF_POLLER_TICK_SECONDS: ${WAF_POLLER_TICK_SECONDS:-60}
+      # Public DNS resolvers for ownership verification (comma-separated,
+      # bare IP or host:port). Routes _waf-verify TXT / A lookups straight to
+      # these instead of the container's local resolver, which can negatively
+      # cache the record (queried before the operator publishes it) and then
+      # keep returning "not found" long after public DNS checkers see it.
+      # Empty → fall back to the container's default resolver.
+      WAF_DNS_SERVERS: ${WAF_DNS_SERVERS:-1.1.1.1,8.8.8.8}
       # crowdsec container name for `cscli` docker-exec. Default is the
       # docker-compose v2 name (hyphens); override to the v1 name
       # (waf_crowdsec_1) on hosts running docker-compose v1.

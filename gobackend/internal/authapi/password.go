@@ -210,15 +210,37 @@ func (s *Service) Login(ctx context.Context, req *authv1.LoginRequest) (*authv1.
 	if err := s.store.UpdateUser(ctx, u.ID, store.UserUpdate{LastLoginAt: &now}); err != nil {
 		s.log.Warn("login: touch last_login_at failed", "err", err)
 	}
-	if err := s.issueSessionCookie(ctx, u); err != nil {
+	tok, err := s.mintSessionToken(u)
+	if err != nil {
+		return nil, err
+	}
+	if err := s.setActiveWithStash(ctx, tok, u.ID, req.GetKeepCurrent()); err != nil {
 		return nil, err
 	}
 	return &authv1.LoginResponse{User: userPublic(u)}, nil
 }
 
-// Logout mirrors POST /logout (204) — clears the session cookie.
-func (s *Service) Logout(ctx context.Context, _ *authv1.LogoutRequest) (*emptypb.Empty, error) {
+// Logout clears the active session. With all=true it also clears the stash; with
+// all=false it promotes the first valid stashed account to active.
+func (s *Service) Logout(ctx context.Context, req *authv1.LogoutRequest) (*emptypb.Empty, error) {
+	if req.GetAll() {
+		emitSetCookie(ctx, clearCookie(sessionCookie, s.cfg.CookieSecure))
+		emitSetCookie(ctx, clearCookie(stashCookie, s.cfg.CookieSecure))
+		return &emptypb.Empty{}, nil
+	}
+	stash := decodeStash(auth.CookieFromMetadata(ctx, stashCookie))
+	for i, t := range stash {
+		uid, ok := s.tokenUID(t)
+		if !ok {
+			continue
+		}
+		emitSetCookie(ctx, buildCookie(sessionCookie, t, sessionMaxAge, s.cfg.CookieSecure))
+		rest := append(append([]string{}, stash[:i]...), stash[i+1:]...)
+		s.emitStash(ctx, s.pruneStash(rest, uid))
+		return &emptypb.Empty{}, nil
+	}
 	emitSetCookie(ctx, clearCookie(sessionCookie, s.cfg.CookieSecure))
+	emitSetCookie(ctx, clearCookie(stashCookie, s.cfg.CookieSecure))
 	return &emptypb.Empty{}, nil
 }
 

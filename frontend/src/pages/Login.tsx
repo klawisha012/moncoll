@@ -26,6 +26,7 @@ export default function Login() {
   const [submitting, setSubmitting] = createSignal(false);
   const [error, setError] = createSignal<string | null>(null);
   const providers = useAuthProviders();
+  const addMode = () => searchParams.add === "1";
 
   // Surface OAuth callback errors (we redirect here with ?oauth_error=<code>).
   createEffect(() => {
@@ -42,7 +43,7 @@ export default function Login() {
     setError(null);
     setSubmitting(true);
     try {
-      const result = await auth.login(email(), password(), captchaToken(), totpRequired() ? totpCode() : undefined);
+      const result = await auth.login(email(), password(), captchaToken(), totpRequired() ? totpCode() : undefined, addMode());
       if ("enrol_required" in result) {
         navigate("/totp-setup", { replace: true });
         return;
@@ -89,7 +90,7 @@ export default function Login() {
       setError(() => settings.t("auth.oauth.notConfigured").replace("{provider}", provider));
       return;
     }
-    window.location.href = `/api/auth/oauth/${provider}/start?intent=login`;
+    auth.oauthStart(provider, addMode() ? "add" : "login");
   };
 
   const captchaReady = () => !providers() || !providers()?.captcha_site_key || !!captchaToken();
@@ -123,6 +124,10 @@ export default function Login() {
             <span class="cv-kicker">{settings.t("auth.login.kicker")}</span>
             <A href="/signup" class="cv-switch-link">{settings.t("auth.login.noAccount")}</A>
           </div>
+
+          <Show when={addMode()}>
+            <div class="cv-info">{settings.t("account.addBanner")}</div>
+          </Show>
 
           {/* OAuth buttons — always visible; disabled with hint when provider env not configured. */}
           <div class="cv-oauth-row">
@@ -498,6 +503,15 @@ const styles = `
   font-family: 'JetBrains Mono', monospace;
   font-size: 13px;
   color: var(--red);
+}
+
+.cv-info {
+  border: 3px solid var(--ink);
+  background: rgba(0, 0, 0, 0.04);
+  padding: 12px 16px;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 13px;
+  color: var(--ink);
 }
 
 .cv-submit {

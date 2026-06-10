@@ -524,6 +524,8 @@ export interface MembersResponse { members: TeamMember[]; my_role: string; }
 
 // ── Auth types ─────────────────────────────────────────────
 
+export interface Account { user_id: number; email: string; display_name: string; platform_role: "admin" | "client"; active: boolean; }
+
 export type UserRole = "admin" | "viewer";
 
 export interface UserPublic {
@@ -926,6 +928,7 @@ export const api = {
       password: string,
       captchaToken: string,
       totpCode?: string,
+      keepCurrent?: boolean,
     ): Promise<SaasLoginResponse> => {
       try {
         return await fetchApi<SaasLoginResponse>("/api/auth/login", {
@@ -935,6 +938,7 @@ export const api = {
             password,
             captcha_token: captchaToken,
             ...(totpCode !== undefined ? { totp_code: totpCode } : {}),
+            keep_current: !!keepCurrent,
           }),
         });
       } catch (err) {
@@ -998,8 +1002,8 @@ export const api = {
         body: JSON.stringify({ code }),
       }),
 
-    logout: () =>
-      fetchApi<void>("/api/auth/logout", { method: "POST" }),
+    logout: (all?: boolean) =>
+      fetchApi<void>("/api/auth/logout", { method: "POST", body: JSON.stringify({ all: !!all }) }),
 
     me: async (): Promise<User | null> => {
       try {
@@ -1034,6 +1038,13 @@ export const api = {
 
     deleteUser: (id: number) =>
       fetchApi<void>(`/api/auth/users/${id}`, { method: "DELETE" }),
+
+    listAccounts: () =>
+      fetchApi<{ accounts?: Account[] }>("/api/auth/accounts").then((r) =>
+        (r.accounts ?? []).map((a) => ({ ...a, user_id: Number(a.user_id) }))),
+
+    switchAccount: (userId: number) =>
+      fetchApi<User>("/api/auth/accounts/switch", { method: "POST", body: JSON.stringify({ user_id: userId }) }),
   },
 
   // ── Admin ───────────────────────────────────────────────

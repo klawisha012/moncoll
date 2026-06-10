@@ -108,12 +108,12 @@ func (s *Service) OauthStart(ctx context.Context, req *authv1.OauthStartRequest)
 	ru := s.providerRedirectURI(ctx, provider)
 	if !ok || ru == "" {
 		safeIntent := intent
-		if safeIntent != "signup" && safeIntent != "login" {
+		if safeIntent != "signup" && safeIntent != "login" && safeIntent != "add" {
 			safeIntent = "login"
 		}
 		return s.redirectWithError(ctx, safeIntent, "provider_unavailable")
 	}
-	if intent != "signup" && intent != "login" {
+	if intent != "signup" && intent != "login" && intent != "add" {
 		return s.redirectWithError(ctx, "login", "invalid_intent")
 	}
 
@@ -251,7 +251,11 @@ func (s *Service) OauthCallback(ctx context.Context, req *authv1.OauthCallbackRe
 	if err := s.store.UpdateUser(ctx, user.ID, store.UserUpdate{LastLoginAt: &now}); err != nil {
 		s.log.Warn("oauth callback: touch last_login_at failed", "err", err)
 	}
-	if err := s.issueSessionCookie(ctx, user); err != nil {
+	tok, err := s.mintSessionToken(user)
+	if err != nil {
+		return nil, err
+	}
+	if err := s.setActiveWithStash(ctx, tok, user.ID, intent == "add"); err != nil {
 		return nil, err
 	}
 	emitSetCookie(ctx, clearCookie(oauthStateCookie, s.cfg.CookieSecure))

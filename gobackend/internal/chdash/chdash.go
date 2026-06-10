@@ -23,6 +23,7 @@ import (
 	"log/slog"
 	"math"
 	"os"
+	"reflect"
 	"strings"
 	"time"
 
@@ -183,14 +184,23 @@ func (c *Client) Query(ctx context.Context, sql string) ([][]interface{}, error)
 	cols := rows.ColumnTypes()
 	var result [][]interface{}
 	for rows.Next() {
-		vals := make([]interface{}, len(cols))
+		// clickhouse-go refuses to scan typed columns into a bare *interface{}
+		// ("converting UInt64 to *interface {} is unsupported. try using
+		// *uint64"). Allocate a correctly-typed destination per column from the
+		// driver's reported ScanType, then unwrap into the generic row. The
+		// downstream coercion helpers (toInt64/toFloat64/toString/Scalar) accept
+		// these native driver types as well as their JSON-decoded forms.
 		ptrs := make([]interface{}, len(cols))
-		for i := range vals {
-			ptrs[i] = &vals[i]
+		for i, ct := range cols {
+			ptrs[i] = reflect.New(ct.ScanType()).Interface()
 		}
 		if err := rows.Scan(ptrs...); err != nil {
 			slog.Warn("chdash: scan error", "err", err)
 			continue
+		}
+		vals := make([]interface{}, len(cols))
+		for i := range ptrs {
+			vals[i] = reflect.ValueOf(ptrs[i]).Elem().Interface()
 		}
 		result = append(result, vals)
 	}
@@ -607,6 +617,29 @@ func toString(v interface{}) string {
 	return fmt.Sprintf("%v", v)
 }
 
+// toTime coerces a row cell into a time.Time. ClickHouse DateTime columns
+// arrive as a native time.Time on the cache-miss path, but the Redis cache
+// serialises results to JSON, so on a cache hit the same value comes back as an
+// RFC3339 string. Both forms must be accepted or every time-keyed widget
+// (traffic timeline, RPS, bytes, anomalies) silently drops its rows on cache
+// hits and renders empty.
+func toTime(v interface{}) (time.Time, bool) {
+	switch x := v.(type) {
+	case time.Time:
+		return x, true
+	case string:
+		if x == "" {
+			return time.Time{}, false
+		}
+		for _, layout := range []string{time.RFC3339Nano, time.RFC3339, "2006-01-02 15:04:05.999999999", "2006-01-02 15:04:05"} {
+			if t, err := time.Parse(layout, x); err == nil {
+				return t, true
+			}
+		}
+	}
+	return time.Time{}, false
+}
+
 func sortTimes(ts []time.Time) {
 	for i := 1; i < len(ts); i++ {
 		for j := i; j > 0 && ts[j].Before(ts[j-1]); j-- {
@@ -702,7 +735,7 @@ func (c *Client) GetTraffic(ctx context.Context, minutes int, timeFunc string, d
 		if len(r) < 2 {
 			continue
 		}
-		if t, ok := r[0].(time.Time); ok {
+		if t, ok := toTime(r[0]); ok {
 			nginxMap[t] = toInt64(r[1])
 			allTimes[t] = struct{}{}
 		}
@@ -711,7 +744,7 @@ func (c *Client) GetTraffic(ctx context.Context, minutes int, timeFunc string, d
 		if len(r) < 2 {
 			continue
 		}
-		if t, ok := r[0].(time.Time); ok {
+		if t, ok := toTime(r[0]); ok {
 			malMap[t] = toInt64(r[1])
 			allTimes[t] = struct{}{}
 		}
@@ -820,7 +853,7 @@ func (c *Client) GetThreatOrigins(ctx context.Context, minutes int, domains []st
 	}
 
 	rows, _ := c.QueryCached(ctx, fmt.Sprintf(
-		"SELECT any(n.geoip_country_code) AS country_code, count() AS cnt "+
+		"SELECT n.geoip_country_code AS country_code, count() AS cnt "+
 			"FROM logs.waf_audit_log AS w "+
 			"INNER JOIN ("+
 			"  SELECT toString(remote_addr) AS ip, any(geoip_country_code) AS geoip_country_code "+
@@ -832,7 +865,7 @@ func (c *Client) GetThreatOrigins(ctx context.Context, minutes int, domains []st
 			"  ) GROUP BY ip"+
 			") AS n ON toString(w.client_ip) = n.ip "+
 			"WHERE w.timestamp >= now() - INTERVAL %d MINUTE%s "+
-			"GROUP BY country_code "+
+			"GROUP BY n.geoip_country_code "+
 			"ORDER BY cnt DESC "+
 			"LIMIT 10",
 		minutes, minutes, wafFilter, minutes, wafFilter))
@@ -890,7 +923,7 @@ func (c *Client) GetEvents(ctx context.Context, minutes int, severityFilter stri
 			continue
 		}
 		var ts time.Time
-		if t, ok := r[0].(time.Time); ok {
+		if t, ok := toTime(r[0]); ok {
 			ts = t
 		}
 		events = append(events, SecurityEvent{
@@ -921,7 +954,7 @@ func (c *Client) GetWafEventsTimeline(ctx context.Context, minutes int, domains 
 			continue
 		}
 		var ts time.Time
-		if t, ok := r[0].(time.Time); ok {
+		if t, ok := toTime(r[0]); ok {
 			ts = t
 		}
 		points = append(points, TimelinePoint{
@@ -1016,7 +1049,7 @@ func (c *Client) GetAnomalyScore(ctx context.Context, minutes int, domains []str
 			continue
 		}
 		var ts time.Time
-		if t, ok := r[0].(time.Time); ok {
+		if t, ok := toTime(r[0]); ok {
 			ts = t
 		}
 		points = append(points, AnomalyPoint{
@@ -1116,7 +1149,7 @@ func (c *Client) GetStatusCodes(ctx context.Context, minutes int, domains []stri
 			continue
 		}
 		var ts time.Time
-		if t, ok := r[0].(time.Time); ok {
+		if t, ok := toTime(r[0]); ok {
 			ts = t
 		}
 		points = append(points, StatusCodePoint{
@@ -1169,7 +1202,7 @@ func (c *Client) GetTrafficVolume(ctx context.Context, minutes int, domains []st
 			continue
 		}
 		var ts time.Time
-		if t, ok := r[0].(time.Time); ok {
+		if t, ok := toTime(r[0]); ok {
 			ts = t
 		}
 		points = append(points, BytesPoint{
@@ -1211,7 +1244,7 @@ func (c *Client) GetRequestsPerSecond(ctx context.Context, minutes int, metric, 
 			continue
 		}
 		var ts time.Time
-		if t, ok := r[0].(time.Time); ok {
+		if t, ok := toTime(r[0]); ok {
 			ts = t
 		}
 		points = append(points, RpsPoint{
@@ -1289,7 +1322,7 @@ func (c *Client) GetTestTraffic(ctx context.Context, marker string, domains []st
 			continue
 		}
 		var ts time.Time
-		if t, ok := r[0].(time.Time); ok {
+		if t, ok := toTime(r[0]); ok {
 			ts = t
 		}
 		events = append(events, TestTrafficEvent{

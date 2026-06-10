@@ -431,7 +431,8 @@ function Wizard(props: {
       .catch(() => {/* leaves edge_ipv4/edge_hostname empty; step 3 shows the operator-missing message */});
   });
 
-  const [verifying, setVerifying] = createSignal(false);
+  const [verifying, setVerifying] = createSignal(false); // background auto-poll
+  const [manualVerifying, setManualVerifying] = createSignal(false); // user clicked "Verify now"
   const [formError, setFormError] = createSignal<string | null>(null);
 
   // Close on Esc — saved (not discarded), per decision D3A.
@@ -481,20 +482,53 @@ function Wizard(props: {
   };
 
   // ── Step 2 → Step 3: TXT verified ──
-  const checkVerified = async (): Promise<boolean> => {
+  // Core probe with no busy-flag side effects. Returns whether ownership is
+  // verified, and surfaces the error instead of swallowing it so the manual
+  // "Verify now" path can tell the user *why* nothing advanced.
+  const runProbe = async (): Promise<{ ok: boolean; error?: string }> => {
     const c = createdConn();
-    if (!c) return false;
-    setVerifying(true);
+    if (!c) return { ok: false };
     try {
       const fresh = await api.probeConnection(c.id);
       setCreatedConn(fresh);
       // The poller advances pending_verification → pending_dns the moment TXT
       // is seen. So any status past pending_verification means we're verified.
-      return fresh.status !== "pending_verification";
-    } catch {
-      return false;
+      return { ok: fresh.status !== "pending_verification" };
+    } catch (err) {
+      return { ok: false, error: err instanceof Error ? err.message : String(err) };
+    }
+  };
+
+  // Background auto-poll variant — drives the status line / progress bar.
+  const autoCheck = async (): Promise<boolean> => {
+    setVerifying(true);
+    try {
+      return (await runProbe()).ok;
     } finally {
       setVerifying(false);
+    }
+  };
+
+  // Manual "Verify now" variant — owns its own busy flag (so a background poll
+  // never disables the button) and always gives the user explicit feedback:
+  // advance on success, a toast on error, or a "not visible yet" toast when the
+  // probe ran but the TXT still isn't resolvable.
+  const manualVerify = async (): Promise<void> => {
+    if (manualVerifying()) return;
+    setManualVerifying(true);
+    try {
+      const res = await runProbe();
+      if (res.ok) {
+        setStep(3);
+        return;
+      }
+      if (res.error) {
+        props.showToast("error", settings.t("connections.toast.verifyError").replace("{msg}", res.error));
+      } else {
+        props.showToast("info", settings.t("connections.toast.txtNotYet"));
+      }
+    } finally {
+      setManualVerifying(false);
     }
   };
 
@@ -504,7 +538,7 @@ function Wizard(props: {
     let cancelled = false;
     const tick = async () => {
       if (cancelled) return;
-      const ok = await checkVerified();
+      const ok = await autoCheck();
       if (ok && !cancelled) setStep(3);
     };
     void tick();
@@ -552,8 +586,18 @@ function Wizard(props: {
     }
   };
 
+  // Close only when the *whole* click gesture happened on the backdrop. A text
+  // selection that starts inside the modal and is released over the backdrop
+  // (mouse dragged out with LMB held) fires a click whose target is the
+  // backdrop — without this guard that would wrongly close the modal.
+  let pressedOnBackdrop = false;
+  const backdropPointerDown = (e: MouseEvent) => {
+    pressedOnBackdrop = e.target === e.currentTarget;
+  };
   const backdropClick = (e: MouseEvent) => {
-    if (e.target === e.currentTarget) {
+    const onBackdrop = e.target === e.currentTarget && pressedOnBackdrop;
+    pressedOnBackdrop = false;
+    if (onBackdrop) {
       if (step() > 1 && createdConn()) props.onSavedResume();
       else props.onClose();
     }
@@ -561,6 +605,7 @@ function Wizard(props: {
 
   return (
     <div
+      onMouseDown={backdropPointerDown}
       onClick={backdropClick}
       style={{
         position: "fixed",
@@ -646,13 +691,11 @@ function Wizard(props: {
         <Show when={step() === 2 && instructions()}>
           <Step2
             instructions={instructions()!}
-            verifying={verifying()}
+            verifying={verifying() || manualVerifying()}
+            manualVerifying={manualVerifying()}
             statusDetail={createdConn()?.status_detail ?? null}
             onCopy={onCopy}
-            onVerifyNow={async () => {
-              const ok = await checkVerified();
-              if (ok) setStep(3);
-            }}
+            onVerifyNow={manualVerify}
             onCancel={() => props.onSavedResume()}
           />
         </Show>
@@ -816,7 +859,8 @@ function Step1(props: {
 
 function Step2(props: {
   instructions: VerifyInstructions;
-  verifying: boolean;
+  verifying: boolean; // any check in flight (auto-poll or manual) — drives status line
+  manualVerifying: boolean; // the user's own "Verify now" click — drives the button
   statusDetail: string | null;
   onCopy: (value: string) => void;
   onVerifyNow: () => void;
@@ -903,12 +947,12 @@ function Step2(props: {
           type="button"
           class="btn-primary"
           onClick={props.onVerifyNow}
-          disabled={props.verifying}
-          aria-busy={props.verifying}
+          disabled={props.manualVerifying}
+          aria-busy={props.manualVerifying}
           style={{ "min-width": "150px" }}
         >
           <Show
-            when={!props.verifying}
+            when={!props.manualVerifying}
             fallback={
               <span style={{ display: "inline-flex", "align-items": "center", gap: "6px" }}>
                 <Spinner size={14} />

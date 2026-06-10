@@ -18,6 +18,7 @@ export interface AuthContextValue {
     password: string,
     captchaToken: string,
     totpCode?: string,
+    keepCurrent?: boolean,
   ) => Promise<{ user: User } | { totp_required: true } | { enrol_required: true }>;
   signup: (
     email: string,
@@ -28,10 +29,11 @@ export interface AuthContextValue {
   ) => Promise<SignupResponse>;
   oauthStart: (
     provider: "google" | "github",
-    intent: "signup" | "login",
+    intent: "signup" | "login" | "add",
     tenantName?: string,
   ) => void;
-  logout: () => Promise<void>;
+  logout: (all?: boolean) => Promise<void>;
+  switchAccount: (userId: number) => Promise<void>;
   changePassword: (currentPassword: string, newPassword: string) => Promise<void>;
   refresh: () => Promise<void>;
 }
@@ -72,8 +74,9 @@ export function AuthProvider(props: { children: JSX.Element }) {
     password: string,
     captchaToken: string,
     totpCode?: string,
+    keepCurrent?: boolean,
   ) => {
-    const resp = await api.auth.login(email, password, captchaToken, totpCode);
+    const resp = await api.auth.login(email, password, captchaToken, totpCode, keepCurrent);
     if ("user" in resp) {
       setUser(resp.user);
     }
@@ -92,7 +95,7 @@ export function AuthProvider(props: { children: JSX.Element }) {
 
   const oauthStart = (
     provider: "google" | "github",
-    intent: "signup" | "login",
+    intent: "signup" | "login" | "add",
     tenantName?: string,
   ) => {
     const params = new URLSearchParams({ intent });
@@ -100,12 +103,17 @@ export function AuthProvider(props: { children: JSX.Element }) {
     window.location.href = `/api/auth/oauth/${provider}/start?${params.toString()}`;
   };
 
-  const logout = async () => {
+  const logout = async (all?: boolean) => {
     try {
-      await api.auth.logout();
+      await api.auth.logout(all);
     } finally {
       setUser(null);
     }
+  };
+
+  const switchAccount = async (userId: number) => {
+    const u = await api.auth.switchAccount(userId);
+    setUser(u);
   };
 
   const changePassword = async (currentPassword: string, newPassword: string) => {
@@ -125,6 +133,7 @@ export function AuthProvider(props: { children: JSX.Element }) {
     signup,
     oauthStart,
     logout,
+    switchAccount,
     changePassword,
     refresh,
   };

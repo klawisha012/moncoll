@@ -130,10 +130,15 @@ func (s *Server) Start(ctx context.Context) error {
 	certManager := certs.New()
 	sslSvc := sslapi.New(st, certManager)
 
-	edgeResolver := edge.NewResolverFromEnv(conndns.NetResolver{})
+	// One DNS resolver, shared by the edge resolver, the connections service,
+	// and the background poller. WAF_DNS_SERVERS routes TXT/A lookups to public
+	// resolvers so verification sees freshly published records (the container's
+	// local resolver can negatively cache _waf-verify.<domain>).
+	dnsResolver := conndns.NewNetResolverFromEnv()
+	edgeResolver := edge.NewResolverFromEnv(dnsResolver)
 	connSvc := connectionsapi.New(
 		st,
-		conndns.NewVerifier(conndns.NetResolver{}),
+		conndns.NewVerifier(dnsResolver),
 		edgeResolver,
 		connectionsapi.AngiecfgAdapter{},
 		connectionsapi.CertsManagerAdapter{M: certManager},
@@ -240,7 +245,7 @@ func (s *Server) Start(ctx context.Context) error {
 	// 8. Start background connections poller.
 	connPoller := connectionsapi.NewPoller(
 		st,
-		conndns.NewVerifier(conndns.NetResolver{}),
+		conndns.NewVerifier(dnsResolver),
 		edgeResolver,
 		connectionsapi.AngiecfgAdapter{},
 		connectionsapi.CertsManagerAdapter{M: certManager},
