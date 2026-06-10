@@ -2,6 +2,8 @@
 
 A high-performance, secure-by-default Web Application Firewall (WAF) edge service designed to act as a reverse proxy for tenant-owned origin servers. It integrates **Angie** (a modern Nginx fork) with **FastAPI**, **SolidJS**, **CrowdSec** (for tenant-isolated dynamic threat blocking), and **ClickHouse** (for real-time logging and analytics).
 
+> 🌐 **Languages:** **English** · [Русский](./i18n/README.ru.md)
+
 ---
 
 ## 🛠️ Quick Start
