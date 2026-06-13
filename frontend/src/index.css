@@ -1,5 +1,5 @@
 /* ═══════════════════════════════════════════════════════════════════════════
-   WAF Control Panel — Constructivist Design System
+   moncoll — Constructivist Design System
    Cream paper · Black ink · Signal red · Avant-garde typography
    ═══════════════════════════════════════════════════════════════════════════ */
 
@@ -439,23 +439,15 @@ button { font-family: inherit; }
 }
 
 .sidebar-brand .brand-icon {
-  width: 44px;
-  height: 44px;
-  border-radius: 50%;
-  background: var(--red);
-  border: 3px solid var(--line);
+  width: 46px;
+  height: 46px;
   flex-shrink: 0;
   display: flex;
   align-items: center;
   justify-content: center;
-  overflow: visible;
   position: relative;
 }
-.sidebar-brand .brand-icon::after {
-  content: ""; position: absolute; inset: -3px; border-radius: 50%;
-  border: 3px solid var(--line); transform: translate(4px, 4px); z-index: -1;
-}
-.sidebar-brand .brand-icon img { display: none; }
+.sidebar-brand .brand-icon svg { display: block; }
 
 .sidebar-brand .brand-text { display: flex; flex-direction: column; gap: 2px; }
 
