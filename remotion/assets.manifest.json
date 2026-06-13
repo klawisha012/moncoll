@@ -5,7 +5,7 @@
       "id": "geoip",
       "keyword": "GeoIP",
       "label": "Live attack map",
-      "asset": "assets/feature-geoip.svg",
+      "asset": "assets/feature-geoip.png",
       "type": "image",
       "prompt": "Dark holographic world map with glowing red attack arcs converging on a server node, constructivist red and cream palette, high contrast, cinematic, no text"
     },
@@ -13,7 +13,7 @@
       "id": "modsec",
       "keyword": "ModSecurity",
       "label": "OWASP CRS rules",
-      "asset": "assets/feature-modsec.svg",
+      "asset": "assets/feature-modsec.png",
       "type": "image",
       "prompt": "Abstract firewall wall of rules deflecting red injection arrows, brutalist poster style, cream and signal red, heavy black ink lines, no text"
     },
@@ -21,7 +21,7 @@
       "id": "crowdsec",
       "keyword": "CrowdSec",
       "label": "Crowd-sourced bans",
-      "asset": "assets/feature-crowdsec.svg",
+      "asset": "assets/feature-crowdsec.png",
       "type": "image",
       "prompt": "Network of nodes sharing threat intelligence, banned IP nodes glowing red and crossed out, constructivist data-graphic, cream background, no text"
     },
@@ -29,7 +29,7 @@
       "id": "realtime",
       "keyword": "Real-time",
       "label": "Live dashboards",
-      "asset": "assets/feature-realtime.svg",
+      "asset": "assets/feature-realtime.png",
       "type": "image",
       "prompt": "Streaming security dashboard with live charts and metric tiles, motion blur of incoming events, constructivist UI, red and cream, no text"
     }
