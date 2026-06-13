@@ -21,8 +21,7 @@ import SettingsPopover from "./SettingsPopover";
 import GlobalFilters from "./GlobalFilters";
 import TeamSwitcher from "./TeamSwitcher";
 import AccountSwitcher from "./AccountSwitcher";
-import logoDark from "../assets/images/dark theme logo.png";
-import logoLight from "../assets/images/ligth theme logo.png";
+import Logo from "./Logo";
 
 const SIDEBAR_STORAGE_KEY = "waf-sidebar-collapsed";
 
@@ -115,7 +114,7 @@ export default function Layout(props: { children?: JSX.Element }) {
       <aside class="sidebar">
         <div class="sidebar-brand">
           <div class="brand-icon">
-            <img src={settings.theme === "light" ? logoLight : logoDark} alt={settings.t("brand.logoAlt")} />
+            <Logo size={40} title={settings.t("brand.logoAlt")} />
           </div>
           <div class="brand-text">
             <span class="brand-name">{settings.t("brand.name")}</span>

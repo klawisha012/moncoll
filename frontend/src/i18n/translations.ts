@@ -4,7 +4,7 @@ type TranslationDict = Record<string, string>;
 
 const en: TranslationDict = {
   // Layout / Sidebar
-  "brand.name": "WAF Panel",
+  "brand.name": "moncoll",
   "brand.sub": "Control Center",
   "nav.overview": "Overview",
   "nav.home": "Home",
@@ -252,7 +252,7 @@ const en: TranslationDict = {
   "tests.noScenariosAvailable": "No scenarios available",
 
   // Layout
-  "brand.logoAlt": "WAF logo",
+  "brand.logoAlt": "moncoll logo",
 
   // Auth — login hero + password reveal
   "auth.login.eyebrow": "— Authentication",
@@ -820,7 +820,7 @@ const en: TranslationDict = {
 
 const ru: TranslationDict = {
   // Layout / Sidebar
-  "brand.name": "WAF Panel",
+  "brand.name": "moncoll",
   "brand.sub": "Центр управления",
   "nav.overview": "Обзор",
   "nav.home": "Главная",
@@ -1071,7 +1071,7 @@ const ru: TranslationDict = {
   "tests.noScenariosAvailable": "Сценарии недоступны",
 
   // Layout
-  "brand.logoAlt": "Логотип WAF",
+  "brand.logoAlt": "Логотип moncoll",
 
   // Auth — login hero + password reveal
   "auth.login.eyebrow": "— Авторизация",
