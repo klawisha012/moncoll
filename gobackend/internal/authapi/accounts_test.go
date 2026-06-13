@@ -29,9 +29,9 @@ func TestStashCodecRoundTrip(t *testing.T) {
 func TestPruneStashDropsInvalidDedupesExcludes(t *testing.T) {
 	iss := auth.NewIssuer(testKey())
 	svc := &Service{decoder: auth.NewDecoder(testKey())}
-	t1, _ := iss.CreateSessionToken(1, "client", nil, nil)
-	t2, _ := iss.CreateSessionToken(2, "client", nil, nil)
-	t2dup, _ := iss.CreateSessionToken(2, "client", nil, nil)
+	t1, _ := iss.CreateSessionToken(1, "client", nil, nil, 0)
+	t2, _ := iss.CreateSessionToken(2, "client", nil, nil, 0)
+	t2dup, _ := iss.CreateSessionToken(2, "client", nil, nil, 0)
 
 	out := svc.pruneStash([]string{t1, "garbage", t2, t2dup}, 1)
 	assert.Len(t, out, 1)
@@ -48,7 +48,7 @@ func TestLoginKeepCurrentStashesPrevious(t *testing.T) {
 
 	// Mint a token for a DIFFERENT uid (101) — this represents an existing active
 	// session already in the browser cookie.
-	activeTok, err := auth.NewIssuer(testKey()).CreateSessionToken(101, "client", nil, nil)
+	activeTok, err := auth.NewIssuer(testKey()).CreateSessionToken(101, "client", nil, nil, 0)
 	require.NoError(t, err)
 
 	// Attach the existing active session as the incoming cookie.
@@ -85,7 +85,7 @@ func TestSwitchAccountToAlreadyActiveIsNoop(t *testing.T) {
 	h.st.usersByID[101] = u
 
 	// Mint a session token for uid 101 and set it as the active cookie.
-	tok, err := auth.NewIssuer(testKey()).CreateSessionToken(101, "client", nil, nil)
+	tok, err := auth.NewIssuer(testKey()).CreateSessionToken(101, "client", nil, nil, 0)
 	require.NoError(t, err)
 	ctx := ctxWithCookie(sessionCookie + "=" + tok)
 
@@ -104,9 +104,9 @@ func TestListAccountsActiveFirstThenStash(t *testing.T) {
 	h.st.usersByID[102] = &store.User{ID: 102, Email: "client@example.com", DisplayName: "Client", PlatformRole: "client"}
 
 	iss := auth.NewIssuer(testKey())
-	activeTok, err := iss.CreateSessionToken(101, "admin", nil, nil)
+	activeTok, err := iss.CreateSessionToken(101, "admin", nil, nil, 0)
 	require.NoError(t, err)
-	stashedTok, err := iss.CreateSessionToken(102, "client", nil, nil)
+	stashedTok, err := iss.CreateSessionToken(102, "client", nil, nil, 0)
 	require.NoError(t, err)
 
 	stashVal := encodeStash([]string{stashedTok})
@@ -129,9 +129,9 @@ func TestSwitchAccountSwapsActiveAndStash(t *testing.T) {
 	h.st.usersByID[102] = &store.User{ID: 102, Email: "client@example.com", DisplayName: "Client", PlatformRole: "client"}
 
 	iss := auth.NewIssuer(testKey())
-	activeTok, err := iss.CreateSessionToken(101, "admin", nil, nil)
+	activeTok, err := iss.CreateSessionToken(101, "admin", nil, nil, 0)
 	require.NoError(t, err)
-	stashedTok, err := iss.CreateSessionToken(102, "client", nil, nil)
+	stashedTok, err := iss.CreateSessionToken(102, "client", nil, nil, 0)
 	require.NoError(t, err)
 
 	stashVal := encodeStash([]string{stashedTok})
@@ -167,7 +167,7 @@ func TestSwitchAccountUnknownUID(t *testing.T) {
 	h.st.usersByID[101] = &store.User{ID: 101, Email: "admin@example.com", DisplayName: "Admin", PlatformRole: "admin"}
 
 	iss := auth.NewIssuer(testKey())
-	activeTok, err := iss.CreateSessionToken(101, "admin", nil, nil)
+	activeTok, err := iss.CreateSessionToken(101, "admin", nil, nil, 0)
 	require.NoError(t, err)
 
 	ctx := ctxWithCookie(sessionCookie + "=" + activeTok)
@@ -185,9 +185,9 @@ func TestLogoutOnePromotesStash(t *testing.T) {
 	h.st.usersByID[102] = &store.User{ID: 102, Email: "client@example.com", DisplayName: "Client", PlatformRole: "client"}
 
 	iss := auth.NewIssuer(testKey())
-	activeTok, err := iss.CreateSessionToken(101, "admin", nil, nil)
+	activeTok, err := iss.CreateSessionToken(101, "admin", nil, nil, 0)
 	require.NoError(t, err)
-	stashedTok, err := iss.CreateSessionToken(102, "client", nil, nil)
+	stashedTok, err := iss.CreateSessionToken(102, "client", nil, nil, 0)
 	require.NoError(t, err)
 
 	cookieHdr := sessionCookie + "=" + activeTok + "; " + stashCookie + "=" + encodeStash([]string{stashedTok})
@@ -236,7 +236,7 @@ func TestOauthCallbackAddStashesCurrent(t *testing.T) {
 
 	// Mint an active session for a DIFFERENT uid (101) — this is the session
 	// that must be stashed after the add-account callback completes.
-	prevTok, err := auth.NewIssuer(testKey()).CreateSessionToken(101, "client", nil, nil)
+	prevTok, err := auth.NewIssuer(testKey()).CreateSessionToken(101, "client", nil, nil, 0)
 	require.NoError(t, err)
 
 	// Build the incoming context with both the OAuth state cookie and the
@@ -277,9 +277,9 @@ func TestLogoutAllClearsBoth(t *testing.T) {
 	h.st.usersByID[102] = &store.User{ID: 102, Email: "client@example.com", DisplayName: "Client", PlatformRole: "client"}
 
 	iss := auth.NewIssuer(testKey())
-	activeTok, err := iss.CreateSessionToken(101, "admin", nil, nil)
+	activeTok, err := iss.CreateSessionToken(101, "admin", nil, nil, 0)
 	require.NoError(t, err)
-	stashedTok, err := iss.CreateSessionToken(102, "client", nil, nil)
+	stashedTok, err := iss.CreateSessionToken(102, "client", nil, nil, 0)
 	require.NoError(t, err)
 
 	cookieHdr := sessionCookie + "=" + activeTok + "; " + stashCookie + "=" + encodeStash([]string{stashedTok})
@@ -296,4 +296,23 @@ func TestLogoutAllClearsBoth(t *testing.T) {
 	assert.True(t, hasCookie(md, sessionCookie+"=;"), "waf_session must be cleared (empty value)")
 	assert.True(t, hasCookie(md, "Max-Age=0"), "cleared cookie must carry Max-Age=0")
 	assert.True(t, hasCookie(md, stashCookie+"=;"), "waf_accounts must be cleared (empty value)")
+}
+
+// TestLogoutAllBumpsActiveUser: "log out everywhere" must advance the active
+// user's token_version so the cookie (and any other device / stash holding the
+// account) stops validating — not merely clear the local cookies (#3 AC2).
+func TestLogoutAllBumpsActiveUser(t *testing.T) {
+	h := newHarness(t, Config{})
+	h.st.usersByID[101] = &store.User{ID: 101, Email: "admin@example.com", DisplayName: "Admin", PlatformRole: "admin", TokenVersion: 2}
+
+	activeTok, err := auth.NewIssuer(testKey()).CreateSessionToken(101, "admin", nil, nil, 2)
+	require.NoError(t, err)
+	ctx := ctxWithCookie(sessionCookie + "=" + activeTok)
+
+	_, err = runWithMD(ctx, func(c context.Context) error {
+		_, e := h.svc.Logout(c, &authv1.LogoutRequest{All: true})
+		return e
+	})
+	require.NoError(t, err)
+	require.Equal(t, 3, h.st.usersByID[101].TokenVersion, "logout-all must bump token_version")
 }

@@ -221,7 +221,7 @@ func userPublic(u *store.User) *authv1.UserPublic {
 
 // mintSessionToken creates a session token for u (no cookie emission).
 func (s *Service) mintSessionToken(u *store.User) (string, error) {
-	tok, err := s.issuer.CreateSessionToken(u.ID, u.PlatformRole, u.TenantID, u.TenantRole)
+	tok, err := s.issuer.CreateSessionToken(u.ID, u.PlatformRole, u.TenantID, u.TenantRole, u.TokenVersion)
 	if err != nil {
 		return "", status.Error(codes.Internal, "session token issuance failed")
 	}

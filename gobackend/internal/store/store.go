@@ -29,11 +29,11 @@ func (s *Store) Ping(ctx context.Context) error { return s.pool.Ping(ctx) }
 func errorsIsNoRows(err error) bool { return errors.Is(err, pgx.ErrNoRows) }
 
 func (s *Store) GetUserByID(ctx context.Context, id int64) (*User, error) {
-	const q = `SELECT id, platform_role, email_verified_at, totp_enabled_at, tenant_id
+	const q = `SELECT id, platform_role, email_verified_at, totp_enabled_at, tenant_id, token_version
 	           FROM users WHERE id = $1`
 	var u User
 	err := s.pool.QueryRow(ctx, q, id).Scan(
-		&u.ID, &u.PlatformRole, &u.EmailVerifiedAt, &u.TotpEnabledAt, &u.TenantID)
+		&u.ID, &u.PlatformRole, &u.EmailVerifiedAt, &u.TotpEnabledAt, &u.TenantID, &u.TokenVersion)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, &NotFoundError{Entity: "user"}
 	}
