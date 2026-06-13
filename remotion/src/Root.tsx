@@ -1,18 +1,17 @@
-import "./index.css";
 import { Composition } from "remotion";
-import { MyComposition } from "./Composition";
+import { MoncollPromo, PROMO_SECONDS } from "./MoncollPromo";
+import manifest from "../assets.manifest.json";
 
-export const RemotionRoot: React.FC = () => {
+export const RemotionRoot = () => {
+  const fps = manifest.promo.fps;
   return (
-    <>
-      <Composition
-        id="MyComp"
-        component={MyComposition}
-        durationInFrames={60}
-        fps={30}
-        width={1280}
-        height={720}
-      />
-    </>
+    <Composition
+      id={manifest.promo.id}
+      component={MoncollPromo}
+      durationInFrames={Math.round(PROMO_SECONDS * fps)}
+      fps={fps}
+      width={manifest.promo.width}
+      height={manifest.promo.height}
+    />
   );
 };
