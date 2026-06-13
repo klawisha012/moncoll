@@ -234,7 +234,7 @@ func (s *Service) Logout(ctx context.Context, req *authv1.LogoutRequest) (*empty
 		if !ok {
 			continue
 		}
-		emitSetCookie(ctx, buildCookie(sessionCookie, t, sessionMaxAge, s.cfg.CookieSecure))
+		emitSetCookie(ctx, buildCookie(sessionCookie, t, sessionMaxAge(), s.cfg.CookieSecure))
 		rest := append(append([]string{}, stash[:i]...), stash[i+1:]...)
 		s.emitStash(ctx, s.pruneStash(rest, uid))
 		return &emptypb.Empty{}, nil
