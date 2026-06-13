@@ -1,0 +1,31 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1920" height="1080" viewBox="0 0 1920 1080">
+  <rect width="1920" height="1080" fill="#0c0c0c"/>
+  <g stroke="#d6362a" stroke-width="3" opacity="0.45">
+    <line x1="0" y1="0" x2="1920" y2="0"/>
+    <line x1="0" y1="45" x2="1920" y2="45"/>
+    <line x1="0" y1="90" x2="1920" y2="90"/>
+    <line x1="0" y1="135" x2="1920" y2="135"/>
+    <line x1="0" y1="180" x2="1920" y2="180"/>
+    <line x1="0" y1="225" x2="1920" y2="225"/>
+    <line x1="0" y1="270" x2="1920" y2="270"/>
+    <line x1="0" y1="315" x2="1920" y2="315"/>
+    <line x1="0" y1="360" x2="1920" y2="360"/>
+    <line x1="0" y1="405" x2="1920" y2="405"/>
+    <line x1="0" y1="450" x2="1920" y2="450"/>
+    <line x1="0" y1="495" x2="1920" y2="495"/>
+    <line x1="0" y1="540" x2="1920" y2="540"/>
+    <line x1="0" y1="585" x2="1920" y2="585"/>
+    <line x1="0" y1="630" x2="1920" y2="630"/>
+    <line x1="0" y1="675" x2="1920" y2="675"/>
+    <line x1="0" y1="720" x2="1920" y2="720"/>
+    <line x1="0" y1="765" x2="1920" y2="765"/>
+    <line x1="0" y1="810" x2="1920" y2="810"/>
+    <line x1="0" y1="855" x2="1920" y2="855"/>
+    <line x1="0" y1="900" x2="1920" y2="900"/>
+    <line x1="0" y1="945" x2="1920" y2="945"/>
+    <line x1="0" y1="990" x2="1920" y2="990"/>
+    <line x1="0" y1="1035" x2="1920" y2="1035"/>
+  </g>
+  <text x="96" y="560" font-family="Oswald, sans-serif" font-size="120" font-weight="700" fill="#f1ead8" letter-spacing="6">CROWDSEC</text>
+  <text x="96" y="660" font-family="Oswald, sans-serif" font-size="44" fill="#d6362a" letter-spacing="10">PLACEHOLDER ASSET</text>
+</svg>

@@ -1,0 +1,37 @@
+{
+  "promo": { "id": "MoncollPromo", "fps": 30, "width": 1920, "height": 1080 },
+  "scenes": [
+    {
+      "id": "geoip",
+      "keyword": "GeoIP",
+      "label": "Live attack map",
+      "asset": "assets/feature-geoip.svg",
+      "type": "image",
+      "prompt": "Dark holographic world map with glowing red attack arcs converging on a server node, constructivist red and cream palette, high contrast, cinematic, no text"
+    },
+    {
+      "id": "modsec",
+      "keyword": "ModSecurity",
+      "label": "OWASP CRS rules",
+      "asset": "assets/feature-modsec.svg",
+      "type": "image",
+      "prompt": "Abstract firewall wall of rules deflecting red injection arrows, brutalist poster style, cream and signal red, heavy black ink lines, no text"
+    },
+    {
+      "id": "crowdsec",
+      "keyword": "CrowdSec",
+      "label": "Crowd-sourced bans",
+      "asset": "assets/feature-crowdsec.svg",
+      "type": "image",
+      "prompt": "Network of nodes sharing threat intelligence, banned IP nodes glowing red and crossed out, constructivist data-graphic, cream background, no text"
+    },
+    {
+      "id": "realtime",
+      "keyword": "Real-time",
+      "label": "Live dashboards",
+      "asset": "assets/feature-realtime.svg",
+      "type": "image",
+      "prompt": "Streaming security dashboard with live charts and metric tiles, motion blur of incoming events, constructivist UI, red and cream, no text"
+    }
+  ]
+}
