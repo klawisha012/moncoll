@@ -22,7 +22,7 @@ const userFullColumns = `
 	id, email, display_name, password_hash, platform_role,
 	tenant_id, tenant_role, email_verified_at,
 	totp_secret, totp_enabled_at, recovery_codes_hash,
-	last_login_at, created_at, updated_at`
+	last_login_at, created_at, updated_at, token_version`
 
 // userFullScan scans a full user row into *User.
 func userFullScan(row pgx.Row, u *User) error {
@@ -41,6 +41,7 @@ func userFullScan(row pgx.Row, u *User) error {
 		&u.LastLoginAt,
 		&u.CreatedAt,
 		&u.UpdatedAt,
+		&u.TokenVersion,
 	)
 }
 
@@ -162,6 +163,13 @@ func (s *Store) UpdateUser(ctx context.Context, id int64, patch UserUpdate) erro
 	}
 	if patch.PlatformRole != nil {
 		add("platform_role", *patch.PlatformRole)
+	}
+	if patch.BumpTokenVersion {
+		// Self-referential increment — no placeholder. Bumping the watermark in
+		// the SAME statement as the password change makes revocation atomic with
+		// it: there is no window where the password is updated but old session
+		// tokens still validate. Also used standalone by logout-everywhere.
+		setClauses = append(setClauses, "token_version = token_version + 1")
 	}
 
 	if len(setClauses) == 0 {

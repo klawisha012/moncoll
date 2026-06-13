@@ -37,6 +37,11 @@ func adminUser() *store.User {
 	return &store.User{ID: 7, PlatformRole: "admin", EmailVerifiedAt: ts(now), TotpEnabledAt: ts(now)}
 }
 
+func verifiedUser(tokenVersion int) *store.User {
+	now := time.Now()
+	return &store.User{ID: 7, PlatformRole: "client", EmailVerifiedAt: ts(now), TokenVersion: tokenVersion}
+}
+
 func newPolicy(u *store.User, ten *store.Tenant) *Policy {
 	fs := &fakeStore{users: map[int64]*store.User{}, tenants: map[int64]*store.Tenant{}}
 	if u != nil {
@@ -102,4 +107,35 @@ func TestBadSubFails(t *testing.T) {
 	p := newPolicy(adminUser(), nil)
 	_, err := p.RequireAdmin(context.Background(), claims("notanint", "admin", nil))
 	require.ErrorIs(t, err, ErrUnauthenticated)
+}
+
+// TestRequireVerifiedMatchingTokenVersionOk: a token whose tv equals the
+// user's current token_version is accepted.
+func TestRequireVerifiedMatchingTokenVersionOk(t *testing.T) {
+	p := newPolicy(verifiedUser(3), nil)
+	c := claims("7", "client", nil)
+	c.TokenVersion = 3
+	id, err := p.RequireVerified(context.Background(), c)
+	require.NoError(t, err)
+	require.Equal(t, int64(7), id.UserID)
+}
+
+// TestRequireVerifiedStaleTokenVersionRejected: a token minted before a
+// revocation bump (tv < user.token_version) is rejected as unauthenticated —
+// this is the core of issue #3 (logout / password-change invalidation).
+func TestRequireVerifiedStaleTokenVersionRejected(t *testing.T) {
+	p := newPolicy(verifiedUser(2), nil)
+	c := claims("7", "client", nil)
+	c.TokenVersion = 1
+	_, err := p.RequireVerified(context.Background(), c)
+	require.ErrorIs(t, err, ErrUnauthenticated)
+}
+
+// TestRequireVerifiedLegacyZeroVersionOk: a legacy token (tv=0) against a
+// never-revoked user (token_version=0) stays valid — deploy safety.
+func TestRequireVerifiedLegacyZeroVersionOk(t *testing.T) {
+	p := newPolicy(verifiedUser(0), nil)
+	id, err := p.RequireVerified(context.Background(), claims("7", "client", nil))
+	require.NoError(t, err)
+	require.Equal(t, int64(7), id.UserID)
 }

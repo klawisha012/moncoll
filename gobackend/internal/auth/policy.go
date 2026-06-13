@@ -37,6 +37,14 @@ func (p *Policy) resolveVerified(ctx context.Context, c *Claims) (*Identity, err
 		}
 		return nil, err // real DB error -> 500 upstream
 	}
+	// Session revocation: a token is valid only while its embedded tv matches
+	// the user's current token_version. Logout-everywhere and password change
+	// bump the column, so any token minted earlier (lower tv) is rejected here.
+	// Legacy tokens carry no tv → 0, matching the column default for users that
+	// have never revoked, so existing sessions survive a deploy.
+	if c.TokenVersion != u.TokenVersion {
+		return nil, ErrUnauthenticated // "session expired" 401
+	}
 	if u.EmailVerifiedAt == nil {
 		return nil, ErrEmailNotVerified
 	}

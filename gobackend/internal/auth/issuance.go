@@ -95,12 +95,16 @@ func NewIssuer(rawKey []byte) *Issuer {
 // Unix seconds (NOT RFC3339) matching pyseto's encoding.
 //
 //	payload = {"sub": str(user_id), "pr": platform_role, "tn": tenant_id|null,
-//	           "tr": tenant_role|null, "iat": <float>, "exp": <float>}
+//	           "tr": tenant_role|null, "iat": <float>, "exp": <float>, "tv": <int>}
+//
+// tokenVersion is the caller's current users.token_version; it is embedded as
+// the "tv" claim so the auth gate can reject tokens minted before a revocation.
 func (i *Issuer) CreateSessionToken(
 	userID int64,
 	platformRole string,
 	tenantID *int64,
 	tenantRole *string,
+	tokenVersion int,
 ) (string, error) {
 	now := time.Now().UTC()
 	exp := now.Add(sessionTTL)
@@ -115,6 +119,7 @@ func (i *Issuer) CreateSessionToken(
 		"tr":  tenantRole, // nil → JSON null
 		"iat": now.Unix(), // float-compatible; see note below
 		"exp": exp.Unix(),
+		"tv":  tokenVersion,
 	}
 	// Python stores iat/exp as float (datetime.timestamp() returns float).
 	// We build the JSON manually to emit them as floats with a ".0" suffix so
@@ -129,6 +134,7 @@ func (i *Issuer) CreateSessionToken(
 		tenantRole,
 		now.Unix(),
 		exp.Unix(),
+		tokenVersion,
 	)
 	if err != nil {
 		return "", fmt.Errorf("marshal session claims: %w", err)
@@ -151,6 +157,7 @@ func marshalSessionClaims(
 	tn *int64,
 	tr *string,
 	iat, exp int64,
+	tv int,
 ) ([]byte, error) {
 	type payload struct {
 		Sub string  `json:"sub"`
@@ -159,6 +166,7 @@ func marshalSessionClaims(
 		Tr  *string `json:"tr"`
 		Iat float64 `json:"iat"`
 		Exp float64 `json:"exp"`
+		Tv  int     `json:"tv"`
 	}
 	return json.Marshal(payload{
 		Sub: sub,
@@ -167,6 +175,7 @@ func marshalSessionClaims(
 		Tr:  tr,
 		Iat: float64(iat),
 		Exp: float64(exp),
+		Tv:  tv,
 	})
 }
 

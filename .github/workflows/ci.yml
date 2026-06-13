@@ -8,6 +8,11 @@ on:
 
 permissions:
   contents: read
+  # dorny/paths-filter (the `paths` pre-flight job) calls the PR "list files"
+  # API on pull_request events; without pull-requests:read it 403s
+  # ("Resource not accessible by integration"), the filter outputs never get
+  # set, and EVERY downstream job skips — making ci-required a vacuous pass.
+  pull-requests: read
 
 # Silence the "Node.js 20 actions are deprecated" warnings until every
 # third-party action ships a Node-24 release. Safe to remove once all

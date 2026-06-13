@@ -24,11 +24,15 @@ import (
 // totp_enabled_at IS NULL — a stolen enrol cookie can't re-enroll once TOTP is
 // already active. Returns nil if neither path resolves a user.
 func (s *Service) resolveTotpUser(ctx context.Context) *store.User {
-	// 1. Session cookie.
+	// 1. Session cookie. Enforce the revocation watermark: a token whose tv is
+	// behind the user's current token_version (password change / logout-
+	// everywhere) must NOT resolve a user here, or a revoked-but-unexpired
+	// session could still enrol attacker-controlled 2FA. Mismatches fall
+	// through to the enrol-cookie path (and ultimately nil).
 	if tok := auth.CookieFromMetadata(ctx, sessionCookie); tok != "" {
 		if claims, err := s.decoder.Decode(tok); err == nil {
 			if uid, ok := parseUserID(claims.Sub); ok {
-				if u, err := s.store.GetUserByIDFull(ctx, uid); err == nil {
+				if u, err := s.store.GetUserByIDFull(ctx, uid); err == nil && claims.TokenVersion == u.TokenVersion {
 					return u
 				}
 			}

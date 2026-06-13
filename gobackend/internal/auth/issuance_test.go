@@ -60,7 +60,7 @@ func TestCreateSessionToken_RoundTrip(t *testing.T) {
 	tid := int64(42)
 	tr := "owner"
 
-	tok, err := iss.CreateSessionToken(7, "client", &tid, &tr)
+	tok, err := iss.CreateSessionToken(7, "client", &tid, &tr, 0)
 	require.NoError(t, err)
 	require.NotEmpty(t, tok)
 
@@ -85,7 +85,7 @@ func TestCreateSessionToken_AdminNulls(t *testing.T) {
 	iss := testIssuer()
 	dec := testDecoder()
 
-	tok, err := iss.CreateSessionToken(1, "admin", nil, nil)
+	tok, err := iss.CreateSessionToken(1, "admin", nil, nil, 0)
 	require.NoError(t, err)
 
 	claims, err := dec.Decode(tok)
@@ -94,6 +94,34 @@ func TestCreateSessionToken_AdminNulls(t *testing.T) {
 	assert.Equal(t, "admin", claims.PlatformRole)
 	assert.Nil(t, claims.TenantID)
 	assert.Nil(t, claims.TenantRole)
+}
+
+// TestCreateSessionToken_CarriesTokenVersion pins that the per-user
+// token_version is embedded as the "tv" claim and round-trips through Decode.
+// This is the watermark the auth gate compares to revoke stale sessions.
+func TestCreateSessionToken_CarriesTokenVersion(t *testing.T) {
+	iss := testIssuer()
+	dec := testDecoder()
+
+	tok, err := iss.CreateSessionToken(7, "client", nil, nil, 5)
+	require.NoError(t, err)
+
+	claims, err := dec.Decode(tok)
+	require.NoError(t, err)
+	assert.Equal(t, 5, claims.TokenVersion)
+}
+
+// TestDecode_LegacyTokenHasZeroTokenVersion pins the deploy-safety contract:
+// a token minted before token_version existed (no "tv" claim) decodes as
+// version 0, matching the column's DEFAULT 0 — so live sessions survive the
+// rollout instead of being mass-invalidated.
+func TestDecode_LegacyTokenHasZeroTokenVersion(t *testing.T) {
+	dec := testDecoder()
+	legacy := mintLocal(t, testKey(), `{"sub":"7","pr":"client","exp":`+
+		itoa(time.Now().Add(time.Hour).Unix())+`.0}`)
+	claims, err := dec.Decode(legacy)
+	require.NoError(t, err)
+	assert.Equal(t, 0, claims.TokenVersion)
 }
 
 func TestCreateSessionToken_ExpiredNotAccepted(t *testing.T) {

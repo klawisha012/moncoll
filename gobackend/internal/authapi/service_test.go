@@ -108,6 +108,9 @@ func (f *fakeStore) UpdateUser(_ context.Context, id int64, patch store.UserUpda
 	if patch.LastLoginAt != nil {
 		u.LastLoginAt = patch.LastLoginAt
 	}
+	if patch.BumpTokenVersion {
+		u.TokenVersion++
+	}
 	return nil
 }
 func (f *fakeStore) CreateEmailVerification(_ context.Context, userID int64, tokenHash, purpose string, expiresAt time.Time) error {
@@ -517,7 +520,7 @@ func TestMeValidCookie(t *testing.T) {
 	now := time.Now()
 	u := &store.User{ID: 7, Email: "a@b.com", DisplayName: "a", PlatformRole: "client", EmailVerifiedAt: &now}
 	h.st.usersByID[7] = u
-	tok, err := auth.NewIssuer(testKey()).CreateSessionToken(7, "client", nil, nil)
+	tok, err := auth.NewIssuer(testKey()).CreateSessionToken(7, "client", nil, nil, 0)
 	require.NoError(t, err)
 
 	resp, err := h.svc.Me(ctxWithCookie(sessionCookie+"="+tok), &authv1.MeRequest{})
@@ -529,6 +532,20 @@ func TestMeValidCookie(t *testing.T) {
 func TestMeNoCookieUnauthenticated(t *testing.T) {
 	h := newHarness(t, Config{})
 	_, err := h.svc.Me(context.Background(), &authv1.MeRequest{})
+	require.Equal(t, codes.Unauthenticated, status.Code(err))
+}
+
+// TestMeRejectsStaleTokenVersion: a cookie minted at version 0 must be rejected
+// once the user's watermark has advanced (e.g. after logout-everywhere).
+func TestMeRejectsStaleTokenVersion(t *testing.T) {
+	h := newHarness(t, Config{})
+	now := time.Now()
+	u := &store.User{ID: 7, Email: "a@b.com", DisplayName: "a", PlatformRole: "client", EmailVerifiedAt: &now, TokenVersion: 1}
+	h.st.usersByID[7] = u
+	tok, err := auth.NewIssuer(testKey()).CreateSessionToken(7, "client", nil, nil, 0)
+	require.NoError(t, err)
+
+	_, err = h.svc.Me(ctxWithCookie(sessionCookie+"="+tok), &authv1.MeRequest{})
 	require.Equal(t, codes.Unauthenticated, status.Code(err))
 }
 
@@ -565,6 +582,19 @@ func TestResetUpdatesPassword(t *testing.T) {
 	require.True(t, auth.VerifyPassword("brandnewpass", *h.st.usersByID[3].PasswordHash))
 }
 
+// TestResetPasswordBumpsTokenVersion: a password reset must invalidate every
+// previously issued session token by advancing the user's watermark (#3 AC1).
+func TestResetPasswordBumpsTokenVersion(t *testing.T) {
+	h := newHarness(t, Config{})
+	u := &store.User{ID: 3, Email: "a@b.com", PlatformRole: "client", TokenVersion: 4}
+	h.st.usersByID[3] = u
+	h.st.verifs[sha256Hex("rt")+"|reset_password"] = &store.EmailVerification{ID: 21, UserID: 3, Purpose: "reset_password"}
+
+	_, err := h.svc.ResetPassword(context.Background(), &authv1.ResetPasswordRequest{Token: "rt", NewPassword: "brandnewpass"})
+	require.NoError(t, err)
+	require.Equal(t, 5, h.st.usersByID[3].TokenVersion, "password reset must bump token_version")
+}
+
 func TestResetBadToken(t *testing.T) {
 	h := newHarness(t, Config{})
 	_, err := h.svc.ResetPassword(context.Background(), &authv1.ResetPasswordRequest{Token: "nope", NewPassword: "brandnewpass"})
@@ -578,7 +608,7 @@ func TestTotpSetupAndConfirmRoundTrip(t *testing.T) {
 	now := time.Now()
 	u := &store.User{ID: 30, Email: "a@b.com", DisplayName: "a", PlatformRole: "client", EmailVerifiedAt: &now}
 	h.st.usersByID[30] = u
-	sessTok, _ := auth.NewIssuer(testKey()).CreateSessionToken(30, "client", nil, nil)
+	sessTok, _ := auth.NewIssuer(testKey()).CreateSessionToken(30, "client", nil, nil, 0)
 	baseCtx := ctxWithCookie(sessionCookie + "=" + sessTok)
 
 	// setup → returns secret + recovery codes + sets pending cookie.
@@ -619,12 +649,29 @@ func TestTotpSetupAndConfirmRoundTrip(t *testing.T) {
 	require.NotNil(t, h.st.usersByID[30].TotpEnabledAt)
 }
 
+// TestTotpSetupRejectsRevokedSession: a session token whose tv is behind the
+// user's watermark (revoked via password change / logout-everywhere) must not
+// be usable to enrol TOTP. Otherwise a stolen-then-revoked session could plant
+// attacker-controlled 2FA on the account and survive the revocation entirely.
+func TestTotpSetupRejectsRevokedSession(t *testing.T) {
+	h := newHarness(t, Config{})
+	now := time.Now()
+	u := &store.User{ID: 40, Email: "a@b.com", DisplayName: "a", PlatformRole: "client", EmailVerifiedAt: &now, TokenVersion: 1}
+	h.st.usersByID[40] = u
+	// Token minted at version 0; the user has since advanced to 1.
+	staleTok, err := auth.NewIssuer(testKey()).CreateSessionToken(40, "client", nil, nil, 0)
+	require.NoError(t, err)
+
+	_, err = h.svc.TotpSetup(ctxWithCookie(sessionCookie+"="+staleTok), &authv1.TotpSetupRequest{})
+	require.Equal(t, codes.Unauthenticated, status.Code(err))
+}
+
 func TestTotpConfirmWrongCodeRejected(t *testing.T) {
 	h := newHarness(t, Config{})
 	now := time.Now()
 	u := &store.User{ID: 31, Email: "a@b.com", DisplayName: "a", PlatformRole: "client", EmailVerifiedAt: &now}
 	h.st.usersByID[31] = u
-	sessTok, _ := auth.NewIssuer(testKey()).CreateSessionToken(31, "client", nil, nil)
+	sessTok, _ := auth.NewIssuer(testKey()).CreateSessionToken(31, "client", nil, nil, 0)
 
 	var setupResp *authv1.TotpSetupResponse
 	md, _ := runWithMD(ctxWithCookie(sessionCookie+"="+sessTok), func(ctx context.Context) error {

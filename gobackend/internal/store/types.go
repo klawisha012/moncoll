@@ -19,6 +19,7 @@ type User struct {
 	EmailVerifiedAt *time.Time
 	TotpEnabledAt   *time.Time
 	TenantID        *int64
+	TokenVersion    int // session-revocation watermark; compared in resolveVerified
 
 	// Full-row fields (populated by GetUserByEmail / CreateUser / UpdateUser).
 	Email             string
@@ -45,6 +46,12 @@ type UserUpdate struct {
 	TenantID          *int64
 	TenantRole        *string
 	PlatformRole      *string
+
+	// BumpTokenVersion, when true, increments users.token_version in the same
+	// UPDATE (token_version = token_version + 1), invalidating every session
+	// token minted before this patch. Set on password change and
+	// logout-everywhere. Independent of the pointer fields above.
+	BumpTokenVersion bool
 }
 
 // EmailVerification mirrors the email_verifications table.

@@ -21,6 +21,12 @@ type Claims struct {
 	TenantRole   *string `json:"tr"`
 	Iat          float64 `json:"iat"`
 	Exp          float64 `json:"exp"`
+	// TokenVersion ("tv") is the per-user session watermark. A token is valid
+	// only while its tv equals the user's current token_version; bumping that
+	// column (password change / logout-everywhere) invalidates every prior
+	// token. Absent in legacy tokens → unmarshals to 0, which matches the
+	// column's DEFAULT 0 so live sessions survive the rollout.
+	TokenVersion int `json:"tv"`
 }
 
 // Decoder decrypts PASETO v4.local tokens minted by the Python backend.

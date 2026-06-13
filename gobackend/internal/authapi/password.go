@@ -224,6 +224,16 @@ func (s *Service) Login(ctx context.Context, req *authv1.LoginRequest) (*authv1.
 // all=false it promotes the first valid stashed account to active.
 func (s *Service) Logout(ctx context.Context, req *authv1.LogoutRequest) (*emptypb.Empty, error) {
 	if req.GetAll() {
+		// Log out everywhere (issue #3 AC2): bump the active user's
+		// token_version so every token minted for them — on this browser, other
+		// devices, and any stash that holds this account — stops validating.
+		// A missing/expired cookie means there is nothing to revoke; a deleted
+		// user (NotFound) is already unusable, so neither fails the logout.
+		if uid, ok := s.tokenUID(auth.CookieFromMetadata(ctx, sessionCookie)); ok {
+			if err := s.store.UpdateUser(ctx, uid, store.UserUpdate{BumpTokenVersion: true}); err != nil && !errIsNotFound(err) {
+				return nil, status.Error(codes.Internal, "logout-all failed")
+			}
+		}
 		emitSetCookie(ctx, clearCookie(sessionCookie, s.cfg.CookieSecure))
 		emitSetCookie(ctx, clearCookie(stashCookie, s.cfg.CookieSecure))
 		return &emptypb.Empty{}, nil
@@ -264,6 +274,12 @@ func (s *Service) Me(ctx context.Context, _ *authv1.MeRequest) (*authv1.UserPubl
 			return nil, status.Error(codes.Unauthenticated, "user no longer exists")
 		}
 		return nil, status.Error(codes.Internal, "user lookup failed")
+	}
+	// Reject a token whose version is behind the user's current watermark, so a
+	// revoked session can't even read /me (the interceptor enforces the same on
+	// every protected route; Me is LevelPublic and validates its own cookie).
+	if claims.TokenVersion != u.TokenVersion {
+		return nil, status.Error(codes.Unauthenticated, "session expired")
 	}
 	return userPublic(u), nil
 }
@@ -324,7 +340,9 @@ func (s *Service) ResetPassword(ctx context.Context, req *authv1.ResetPasswordRe
 	if err != nil {
 		return nil, status.Error(codes.Internal, "password hashing failed")
 	}
-	if err := s.store.UpdateUser(ctx, u.ID, store.UserUpdate{PasswordHash: &pwHash}); err != nil {
+	// Bump token_version in the SAME update so the password change atomically
+	// invalidates every session token issued before the reset (issue #3 AC1).
+	if err := s.store.UpdateUser(ctx, u.ID, store.UserUpdate{PasswordHash: &pwHash, BumpTokenVersion: true}); err != nil {
 		return nil, status.Error(codes.Internal, "password update failed")
 	}
 	return &emptypb.Empty{}, nil
