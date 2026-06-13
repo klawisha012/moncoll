@@ -24,7 +24,12 @@
   },
   "scripts": {
     "dev": "remotion studio",
+    "studio": "remotion studio",
     "build": "remotion bundle",
+    "render": "remotion render MoncollPromo out/moncoll-promo.mp4",
+    "still": "remotion still MoncollPromo out/poster.jpg --frame=60",
+    "copy": "node scripts/copy-to-frontend.mjs",
+    "build:video": "npm run render && npm run still && npm run copy",
     "upgrade": "remotion upgrade",
     "lint": "eslint src && tsc"
   },

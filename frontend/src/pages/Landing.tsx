@@ -89,6 +89,7 @@ export default function Landing() {
             <video
               class="lp-video"
               src="/landing/moncoll-promo.mp4"
+              poster="/landing/poster.jpg"
               autoplay
               muted
               loop
