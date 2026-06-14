@@ -197,6 +197,7 @@ message SecurityConfig {
   string modsec_state = 1;
   repeated string geoip_denied_countries = 2;
   bool crowdsec_active = 3;
+  bool ddos_protection = 4;
 }
 
 message GetConnectionSecurityRequest {
@@ -208,4 +209,5 @@ message UpdateConnectionSecurityRequest {
   string modsec_state = 2;
   repeated string geoip_denied_countries = 3;
   bool crowdsec_active = 4;
+  bool ddos_protection = 5;
 }
