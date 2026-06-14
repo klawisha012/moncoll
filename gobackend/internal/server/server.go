@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	"google.golang.org/grpc"
 
 	adminv1 "github.com/zwarder/waf/gobackend/gen/admin/v1"
@@ -66,6 +67,8 @@ type Server struct {
 	grpcSrv    *grpc.Server
 	restSrv    *http.Server
 	metricsSrv *http.Server
+	metrics    *observability.Metrics
+	tp         *sdktrace.TracerProvider
 }
 
 // New constructs a Server instance.
@@ -75,6 +78,16 @@ func New(cfg *config.Config, log *slog.Logger) *Server {
 
 // Start boots the database, runs migrations, registers services, and starts listeners.
 func (s *Server) Start(ctx context.Context) error {
+	// 0. Observability: RED metrics registry + OpenTelemetry tracer. The tracer
+	// is off (never-sample) unless an OTLP endpoint is configured, so this adds
+	// no mandatory external dependency.
+	s.metrics = observability.NewMetrics()
+	if tp, err := observability.InitTracer(ctx, "waf-gobackend"); err != nil {
+		s.log.Warn("otel tracer init failed; continuing without tracing", "err", err)
+	} else {
+		s.tp = tp
+	}
+
 	// 1. Run migrations unless explicitly skipped.
 	if os.Getenv("WAF_SKIP_MIGRATE") != "1" {
 		if err := migrate.Run(s.cfg.PostgresDSN, s.log); err != nil {
@@ -265,7 +278,10 @@ func (s *Server) Start(ctx context.Context) error {
 		return fmt.Errorf("gateway init failed: %w", err)
 	}
 
-	s.restSrv = &http.Server{Addr: s.cfg.GRPCAddr, Handler: mux, ReadHeaderTimeout: 5 * time.Second}
+	// Instrument the whole gateway at the highest seam: a trace span per
+	// request, wrapping RED metrics, wrapping the mux.
+	gatewayHandler := observability.TraceHandler(s.metrics.Middleware(mux))
+	s.restSrv = &http.Server{Addr: s.cfg.GRPCAddr, Handler: gatewayHandler, ReadHeaderTimeout: 5 * time.Second}
 	go func() {
 		s.log.Info("rest gateway serving", "addr", s.cfg.GRPCAddr)
 		if err := s.restSrv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
@@ -274,7 +290,7 @@ func (s *Server) Start(ctx context.Context) error {
 	}()
 
 	// 11. Start Metrics server.
-	s.metricsSrv = &http.Server{Addr: s.cfg.MetricsAddr, Handler: observability.MetricsHandler(), ReadHeaderTimeout: 5 * time.Second}
+	s.metricsSrv = &http.Server{Addr: s.cfg.MetricsAddr, Handler: s.metrics.Handler(), ReadHeaderTimeout: 5 * time.Second}
 	go func() { _ = s.metricsSrv.ListenAndServe() }()
 
 	// 12. Start CrowdSec blocked-IPs sync loop.
@@ -297,6 +313,9 @@ func (s *Server) Stop() {
 	}
 	if s.grpcSrv != nil {
 		s.grpcSrv.GracefulStop()
+	}
+	if s.tp != nil {
+		_ = s.tp.Shutdown(shutdownCtx)
 	}
 	if s.csRunner != nil {
 		s.csRunner.Close()
