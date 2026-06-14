@@ -124,7 +124,7 @@ func (f *fakeStore) DeleteConnection(_ context.Context, tenantID, connID int64) 
 	return nil
 }
 
-func (f *fakeStore) UpdateSecurity(_ context.Context, tenantID, connID int64, modsecState string, geoipDenied []string, crowdsecActive bool) (*store.Connection, error) {
+func (f *fakeStore) UpdateSecurity(_ context.Context, tenantID, connID int64, modsecState string, geoipDenied []string, crowdsecActive bool, ddosProtection bool) (*store.Connection, error) {
 	c, ok := f.conns[connID]
 	if !ok || c.TenantID != tenantID {
 		return nil, &store.NotFoundError{Entity: "connection"}
@@ -132,6 +132,7 @@ func (f *fakeStore) UpdateSecurity(_ context.Context, tenantID, connID int64, mo
 	c.ModsecState = modsecState
 	c.GeoipDeniedCountries = geoipDenied
 	c.CrowdsecActive = crowdsecActive
+	c.DdosProtection = ddosProtection
 	cp := *c
 	return &cp, nil
 }
@@ -553,6 +554,46 @@ func TestUpdateConnectionSecurity_Success(t *testing.T) {
 
 	// Reload triggered
 	assert.Equal(t, 1, rel.reloadCount)
+}
+
+// TestUpdateConnectionSecurity_PersistsDdosProtection verifies the ddos_protection
+// flag round-trips: it defaults off, flips on via UpdateConnectionSecurity (and is
+// reflected in the rendered ConnConfig), and reads back on via GetConnectionSecurity.
+func TestUpdateConnectionSecurity_PersistsDdosProtection(t *testing.T) {
+	st := newFakeStore()
+	conn := sampleConn(7)
+	conn.Enabled = true
+	st.addConn(&conn)
+
+	cfg := &fakeCfgWriter{}
+	rel := &fakeReloader{}
+	svc := buildService(st, newFakeResolver(), cfg, &fakeCertManager{}, rel)
+
+	ctx := tenantCtx(7)
+
+	// Defaults off before any update.
+	before, err := svc.GetConnectionSecurity(ctx, &connectionsv1.GetConnectionSecurityRequest{Id: conn.ID})
+	require.NoError(t, err)
+	assert.False(t, before.DdosProtection)
+
+	// Turn it on.
+	resp, err := svc.UpdateConnectionSecurity(ctx, &connectionsv1.UpdateConnectionSecurityRequest{
+		Id:             conn.ID,
+		ModsecState:    "blocking",
+		CrowdsecActive: true,
+		DdosProtection: true,
+	})
+	require.NoError(t, err)
+	assert.True(t, resp.DdosProtection)
+
+	// The rendered ConnConfig carries the flag so angiecfg emits limit_req/limit_conn.
+	require.NotEmpty(t, cfg.written)
+	assert.True(t, cfg.written[len(cfg.written)-1].DdosProtection)
+
+	// And it reads back on.
+	got, err := svc.GetConnectionSecurity(ctx, &connectionsv1.GetConnectionSecurityRequest{Id: conn.ID})
+	require.NoError(t, err)
+	assert.True(t, got.DdosProtection)
 }
 
 // TestUpdateConnectionSecurity_CrossTenant verifies tenant isolation.

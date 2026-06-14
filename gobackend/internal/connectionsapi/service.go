@@ -50,7 +50,7 @@ type Store interface {
 	CreateConnection(ctx context.Context, c *store.Connection) (*store.Connection, error)
 	UpdateConnection(ctx context.Context, tenantID, connID int64, upd store.ConnectionUpdate) (*store.Connection, error)
 	DeleteConnection(ctx context.Context, tenantID, connID int64) error
-	UpdateSecurity(ctx context.Context, tenantID, connID int64, modsecState string, geoipDenied []string, crowdsecActive bool) (*store.Connection, error)
+	UpdateSecurity(ctx context.Context, tenantID, connID int64, modsecState string, geoipDenied []string, crowdsecActive bool, ddosProtection bool) (*store.Connection, error)
 	UpdateProbeState(ctx context.Context, tenantID, connID int64, p store.PollerState) (*store.Connection, error)
 	ListConnectionsForPoll(ctx context.Context) ([]store.Connection, error)
 	UpdatePollerState(ctx context.Context, connID int64, p store.PollerState) (*store.Connection, error)
@@ -269,6 +269,7 @@ func connCfg(c *store.Connection) angiecfg.ConnConfig {
 		ModsecState:   c.ModsecState,
 		GeoipDenied:   c.GeoipDeniedCountries,
 		CrowdsecActive: c.CrowdsecActive,
+		DdosProtection: c.DdosProtection,
 		SSLCertPath:   c.SSLCertPath,
 		SSLKeyPath:    c.SSLKeyPath,
 	}
@@ -769,6 +770,7 @@ func (s *Service) GetConnectionSecurity(ctx context.Context, req *connectionsv1.
 		ModsecState:          conn.ModsecState,
 		GeoipDeniedCountries: conn.GeoipDeniedCountries,
 		CrowdsecActive:       conn.CrowdsecActive,
+		DdosProtection:       conn.DdosProtection,
 	}, nil
 }
 
@@ -785,7 +787,7 @@ func (s *Service) UpdateConnectionSecurity(ctx context.Context, req *connections
 		return nil, status.Error(codes.InvalidArgument, err.Error())
 	}
 
-	conn, err := s.store.UpdateSecurity(ctx, tenantID, req.Id, req.ModsecState, validatedCodes, req.CrowdsecActive)
+	conn, err := s.store.UpdateSecurity(ctx, tenantID, req.Id, req.ModsecState, validatedCodes, req.CrowdsecActive, req.DdosProtection)
 	if err != nil {
 		if isNotFound(err) {
 			return nil, status.Error(codes.NotFound, "Connection not found")
@@ -803,6 +805,7 @@ func (s *Service) UpdateConnectionSecurity(ctx context.Context, req *connections
 		ModsecState:          conn.ModsecState,
 		GeoipDeniedCountries: conn.GeoipDeniedCountries,
 		CrowdsecActive:       conn.CrowdsecActive,
+		DdosProtection:       conn.DdosProtection,
 	}, nil
 }
 

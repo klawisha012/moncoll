@@ -301,11 +301,12 @@ func TestConnectionUpdateSecurity(t *testing.T) {
 	created, err := st.CreateConnection(ctx, in)
 	require.NoError(t, err)
 
-	updated, err := st.UpdateSecurity(ctx, 1, created.ID, "blocking", []string{"CN", "KP"}, false)
+	updated, err := st.UpdateSecurity(ctx, 1, created.ID, "blocking", []string{"CN", "KP"}, false, true)
 	require.NoError(t, err)
 	require.Equal(t, "blocking", updated.ModsecState)
 	require.Equal(t, []string{"CN", "KP"}, updated.GeoipDeniedCountries)
 	require.False(t, updated.CrowdsecActive)
+	require.True(t, updated.DdosProtection)
 }
 
 func TestListConnectionsForPoll(t *testing.T) {

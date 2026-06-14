@@ -379,23 +379,24 @@ func (s *Store) DeleteConnection(ctx context.Context, tenantID, connID int64) er
 // ─────────────────────────────────────────────────────────────────────────────
 
 // UpdateSecurity applies a security-settings update (modsec_state,
-// geoip_denied_countries, crowdsec_active) to a tenant-scoped connection.
+// geoip_denied_countries, crowdsec_active, ddos_protection) to a tenant-scoped
+// connection.
 //
 // Mirrors service.update_security(session, tenant, conn_id, ...).
 func (s *Store) UpdateSecurity(ctx context.Context, tenantID, connID int64,
-	modsecState string, geoipDeniedCountries []string, crowdsecActive bool,
+	modsecState string, geoipDeniedCountries []string, crowdsecActive bool, ddosProtection bool,
 ) (*Connection, error) {
 	geoipJSON, err := json.Marshal(geoipDeniedCountries)
 	if err != nil {
 		return nil, fmt.Errorf("marshal geoip_denied_countries: %w", err)
 	}
 	q := `UPDATE connections
-	      SET modsec_state = $1, geoip_denied_countries = $2, crowdsec_active = $3, updated_at = now()
-	      WHERE id = $4 AND tenant_id = $5
+	      SET modsec_state = $1, geoip_denied_countries = $2, crowdsec_active = $3, ddos_protection = $4, updated_at = now()
+	      WHERE id = $5 AND tenant_id = $6
 	      RETURNING ` + connFullColumns
 	var out Connection
 	err = scanConnectionFull(
-		s.pool.QueryRow(ctx, q, modsecState, geoipJSON, crowdsecActive, connID, tenantID).Scan,
+		s.pool.QueryRow(ctx, q, modsecState, geoipJSON, crowdsecActive, ddosProtection, connID, tenantID).Scan,
 		&out,
 	)
 	if errors.Is(err, pgx.ErrNoRows) {
