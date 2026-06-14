@@ -4,7 +4,7 @@ type TranslationDict = Record<string, string>;
 
 const en: TranslationDict = {
   // Layout / Sidebar
-  "brand.name": "WAF Panel",
+  "brand.name": "moncoll",
   "brand.sub": "Control Center",
   "nav.overview": "Overview",
   "nav.home": "Home",
@@ -252,7 +252,7 @@ const en: TranslationDict = {
   "tests.noScenariosAvailable": "No scenarios available",
 
   // Layout
-  "brand.logoAlt": "WAF logo",
+  "brand.logoAlt": "moncoll logo",
 
   // Auth — login hero + password reveal
   "auth.login.eyebrow": "— Authentication",
@@ -816,11 +816,32 @@ const en: TranslationDict = {
   "account.add": "Add account",
   "account.logoutAll": "Sign out of all",
   "account.addBanner": "Adding another account — your current one stays signed in.",
+
+  // ── Landing ──
+  "landing.nav.login": "Sign in",
+  "landing.nav.signup": "Create account",
+  "landing.nav.toApp": "Open app",
+  "landing.theme.toggle": "Toggle theme",
+  "landing.hero.eyebrow": "Web Application Firewall",
+  "landing.hero.title1": "Stop attacks",
+  "landing.hero.title2": "at the edge",
+  "landing.hero.title3": "in real time",
+  "landing.hero.deck": "moncoll inspects every request, maps attacks across the globe, and blocks threats with ModSecurity and CrowdSec — before they reach your origin.",
+  "landing.features.title": "What moncoll does",
+  "landing.features.geoip.title": "Live attack map",
+  "landing.features.geoip.desc": "A real-time GeoIP globe lights up every malicious source the moment it hits your edge.",
+  "landing.features.modsec.title": "ModSecurity rules",
+  "landing.features.modsec.desc": "OWASP CRS rules inspect and block injection, XSS, and protocol attacks.",
+  "landing.features.crowdsec.title": "CrowdSec bans",
+  "landing.features.crowdsec.desc": "Crowd-sourced threat intelligence bans known-bad IPs per connection, automatically.",
+  "landing.features.realtime.title": "Real-time dashboards",
+  "landing.features.realtime.desc": "Streaming metrics and security events flow in live over WebSocket — no refresh needed.",
+  "landing.footer.tagline": "moncoll · Web Application Firewall",
 };
 
 const ru: TranslationDict = {
   // Layout / Sidebar
-  "brand.name": "WAF Panel",
+  "brand.name": "moncoll",
   "brand.sub": "Центр управления",
   "nav.overview": "Обзор",
   "nav.home": "Главная",
@@ -1071,7 +1092,7 @@ const ru: TranslationDict = {
   "tests.noScenariosAvailable": "Сценарии недоступны",
 
   // Layout
-  "brand.logoAlt": "Логотип WAF",
+  "brand.logoAlt": "Логотип moncoll",
 
   // Auth — login hero + password reveal
   "auth.login.eyebrow": "— Авторизация",
@@ -1635,6 +1656,27 @@ const ru: TranslationDict = {
   "account.add": "Добавить аккаунт",
   "account.logoutAll": "Выйти из всех",
   "account.addBanner": "Добавление ещё одного аккаунта — текущий останется в системе.",
+
+  // ── Landing ──
+  "landing.nav.login": "Зайти",
+  "landing.nav.signup": "Создать аккаунт",
+  "landing.nav.toApp": "В панель",
+  "landing.theme.toggle": "Переключить тему",
+  "landing.hero.eyebrow": "Web Application Firewall",
+  "landing.hero.title1": "Останавливай",
+  "landing.hero.title2": "атаки на границе",
+  "landing.hero.title3": "в реальном времени",
+  "landing.hero.deck": "moncoll проверяет каждый запрос, отмечает атаки на карте мира и блокирует угрозы через ModSecurity и CrowdSec — до того как они дойдут до вашего сервера.",
+  "landing.features.title": "Что умеет moncoll",
+  "landing.features.geoip.title": "Живая карта атак",
+  "landing.features.geoip.desc": "GeoIP-глобус в реальном времени подсвечивает каждый вредоносный источник в момент атаки.",
+  "landing.features.modsec.title": "Правила ModSecurity",
+  "landing.features.modsec.desc": "Правила OWASP CRS проверяют и блокируют инъекции, XSS и атаки на протокол.",
+  "landing.features.crowdsec.title": "Баны CrowdSec",
+  "landing.features.crowdsec.desc": "Коллективная база угроз автоматически банит известные вредоносные IP по каждому подключению.",
+  "landing.features.realtime.title": "Дашборды в реальном времени",
+  "landing.features.realtime.desc": "Метрики и события безопасности приходят вживую по WebSocket — без перезагрузки страницы.",
+  "landing.footer.tagline": "moncoll · Web Application Firewall",
 };
 
 export const translations: Record<Lang, TranslationDict> = { en, ru };

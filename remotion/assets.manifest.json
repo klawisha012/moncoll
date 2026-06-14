@@ -1,0 +1,33 @@
+{
+  "promo": { "id": "MoncollPromo", "fps": 30, "width": 1920, "height": 1080 },
+  "scenes": [
+    {
+      "id": "geoip",
+      "keyword": "GeoIP",
+      "label": "Live attack map",
+      "route": "/home",
+      "asset": "assets/shot-geoip.png"
+    },
+    {
+      "id": "modsec",
+      "keyword": "ModSecurity",
+      "label": "OWASP CRS rules",
+      "route": "/config",
+      "asset": "assets/shot-modsec.png"
+    },
+    {
+      "id": "crowdsec",
+      "keyword": "CrowdSec",
+      "label": "Crowd-sourced bans",
+      "route": "/crowdsec",
+      "asset": "assets/shot-crowdsec.png"
+    },
+    {
+      "id": "realtime",
+      "keyword": "Real-time",
+      "label": "Live dashboards",
+      "route": "/dashboard",
+      "asset": "assets/shot-realtime.png"
+    }
+  ]
+}

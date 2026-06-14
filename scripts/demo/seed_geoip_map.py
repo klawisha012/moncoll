@@ -55,7 +55,8 @@ def load_env_credentials():
         "password": "",
         "db": "logs"
     }
-    env_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), ".env")
+    # Script lives at scripts/demo/, so the repo root (where .env sits) is three levels up.
+    env_path = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), ".env")
     if not os.path.exists(env_path):
         print(f"Warning: .env file not found at {env_path}, using defaults.")
         return creds
@@ -79,22 +80,24 @@ def load_env_credentials():
 
 
 def get_db_domains():
-    """Query the PostgreSQL container to fetch active domains so we match the dashboard filters."""
+    """Fetch active domains from Postgres so seeded traffic matches dashboard filters.
+
+    The backend was migrated Python -> Go, so the old waf-backend-1 Python
+    container no longer exists. Query the waf-postgres-1 container directly.
+    """
     try:
         cmd = [
-            "docker", "exec", "waf-backend-1", "python", "-c",
-            "from sqlalchemy import create_engine, select; from src.db.models import Connection; "
-            "e=create_engine('postgresql://waf:PLACEHOLDER_POSTGRES_PASSWORD_@postgres:5432/waf'); "
-            "conn=e.connect(); import json; print(json.dumps([r[0] for r in conn.execute(select(Connection.domain)).all()]))"
+            "docker", "exec", "waf-postgres-1", "psql", "-U", "waf", "-d", "waf", "-tAc",
+            "SELECT domain FROM connections WHERE enabled = true;",
         ]
         res = subprocess.run(cmd, capture_output=True, text=True, check=True)
-        domains = json.loads(res.stdout.strip())
+        domains = [d.strip() for d in res.stdout.strip().splitlines() if d.strip()]
         if domains:
             print(f"Discovered active connections: {domains}")
             return list(set(domains))
     except Exception as e:
         print(f"Warning: Failed to fetch connections dynamically, falling back: {e}")
-        
+
     return ["test1.zwarder.ru", "test2.zwarder.ru", "waf.example.com", "localhost"]
 
 

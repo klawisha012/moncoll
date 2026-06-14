@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 144 197" width="144" height="197">
+  <style>
+    .shield { fill: none; stroke: #0c0c0c; stroke-width: 8.88158; }
+    .mark   { fill: none; stroke: #d6362a; stroke-width: 14.2105; }
+    @media (prefers-color-scheme: dark) {
+      .shield { stroke: #ede7d0; }
+      .mark   { stroke: #ff5a4a; }
+    }
+  </style>
+  <path class="shield" d="M139.441 33.2394L71.9408 4.81836L4.4408 33.2394V100.739L71.9408 189.555L139.441 100.739V33.2394Z"/>
+  <path class="mark" d="M32.4408 137.318L17.9408 51.8184L71.9408 93.0421L125.941 51.8184L111.441 137.318"/>
+</svg>
