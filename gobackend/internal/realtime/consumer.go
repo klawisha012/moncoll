@@ -1,30 +1,45 @@
 // Package realtime implements the Redis → aggregator → Centrifugo fan-out
 // consumer, faithfully porting backend/src/realtime/consumer.py.
 //
-// Architecture:
+// Architecture (durable reliable-queue ingest):
 //
-//	Vector → Redis pub/sub "attacks:raw"
-//	              ↓ SUBSCRIBE (subscribeLoop)
+//	Vector → Redis LIST "attacks:raw"          (lpush; durable buffer)
+//	              ↓ BLMOVE raw → "attacks:processing"  (reliable pop)
 //	        in-memory aggregator (geoip bucket map)
-//	              ↓ every 500 ms (flushLoop)
+//	              ↓ LREM processing  (ack: drop the handled entry)
+//	              ↓ every 500 ms (flush)
 //	        Centrifugo channel "dashboard:map"
 //
-// Single-instance assumption: the Python backend is being removed, so there is
-// exactly one consumer. If horizontal scaling is ever needed, move this to a
-// dedicated single-replica worker container (Redis pub/sub copies to EVERY
-// subscriber, which would double-publish with two replicas).
+// Why a list, not pub/sub: pub/sub is fire-and-forget — events published while
+// the consumer is down are lost. A Redis list is durable, so the backlog
+// survives a consumer restart and is drained on return. The reliable-queue
+// pattern (BLMOVE into a processing list, LREM only after the event is
+// aggregated) means a crash mid-processing leaves the entry in the processing
+// list, which is re-drained on restart (at-least-once redelivery).
+//
+// Why a list, not a Redis stream: Vector's redis sink can only write list /
+// channel / sortedset — it cannot XADD to a stream — so a stream cannot be fed
+// end-to-end from the producer. The list reliable queue delivers the same
+// durability + redelivery guarantee the single consumer needs. (A full stream
+// with consumer groups would only be warranted with fan-out to many
+// independent consumers.)
+//
+// Single-instance assumption: there is exactly one consumer. Two consumers
+// would split the queue (each entry goes to exactly one BLMOVE caller), which
+// is fine for load-sharing but would split the geoip aggregation — keep it
+// single-replica.
 //
 // Failure modes (all best-effort, never crash the server):
 //   - Redis down       → backoff reconnect, server unaffected
-//   - Bad JSON message → log + skip
-//   - Centrifugo down  → Publish returns false, delta dropped
-//   - Process restart  → in-flight 500 ms batches lost; events still in CH
+//   - Bad JSON entry   → log + ack (poison entries are not retried forever)
+//   - Centrifugo down  → Publish returns false, delta dropped (ephemeral)
+//   - Process restart  → in-flight 500 ms batch lost; queued + processing
+//                        entries are NOT lost (durable list + re-drain)
 package realtime
 
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"log/slog"
 	"math"
 	"os"
@@ -37,11 +52,13 @@ import (
 // ─── Config ──────────────────────────────────────────────────────────────────
 
 const (
-	defaultRedisURL          = "redis://redis:6379/0"
-	defaultRedisRawChannel   = "attacks:raw"
-	defaultChannelGeoipMap   = "dashboard:map"
-	defaultFlushIntervalMS   = 500
-	defaultGeoipBucketPrec   = 2 // decimal places (~1 km)
+	defaultRedisURL        = "redis://redis:6379/0"
+	defaultRedisRawKey     = "attacks:raw"
+	defaultProcessingKey   = "attacks:processing"
+	defaultChannelGeoipMap = "dashboard:map"
+	defaultFlushIntervalMS = 500
+	defaultGeoipBucketPrec = 2      // decimal places (~1 km)
+	defaultQueueMaxLen     = 100000 // 0 = unbounded
 )
 
 func getenv(k, def string) string {
@@ -63,17 +80,41 @@ func flushInterval() time.Duration {
 	return time.Duration(f * float64(time.Second))
 }
 
+// queueMaxLen is the soft cap on the ingest list. Beyond it the oldest entries
+// are trimmed so a stalled consumer cannot exhaust Redis memory. 0 = unbounded.
+func queueMaxLen() int64 {
+	s := os.Getenv("REALTIME_QUEUE_MAXLEN")
+	if s == "" {
+		return defaultQueueMaxLen
+	}
+	n, err := strconv.ParseInt(s, 10, 64)
+	if err != nil || n < 0 {
+		return defaultQueueMaxLen
+	}
+	return n
+}
+
 // ─── Interfaces (injected for testability) ────────────────────────────────────
 
-// RedisSubscriber is the minimal interface the consumer needs from Redis.
+// RedisList is the minimal interface the reliable-queue consumer needs.
 // *redis.Client satisfies it.
-type RedisSubscriber interface {
-	Subscribe(ctx context.Context, channels ...string) *redis.PubSub
+type RedisList interface {
+	BLMove(ctx context.Context, source, destination, srcpos, destpos string, timeout time.Duration) *redis.StringCmd
+	LRem(ctx context.Context, key string, count int64, value interface{}) *redis.IntCmd
+	LRange(ctx context.Context, key string, start, stop int64) *redis.StringSliceCmd
+	LLen(ctx context.Context, key string) *redis.IntCmd
+	LTrim(ctx context.Context, key string, start, stop int64) *redis.StatusCmd
 }
 
 // Publishes abstracts the Centrifugo HTTP client.
 type Publishes interface {
 	Publish(ctx context.Context, channel string, data any) (bool, error)
+}
+
+// QueueMetrics is the slice of observability.Metrics the consumer reports to.
+// nil is allowed (metrics simply not recorded).
+type QueueMetrics interface {
+	SetQueueLength(queue string, n int64)
 }
 
 // ─── Aggregator ───────────────────────────────────────────────────────────────
@@ -192,91 +233,84 @@ func (a *aggregator) drain() []MapPoint {
 
 // Consumer holds the injected dependencies for the Redis→Centrifugo pipeline.
 type Consumer struct {
-	rc   RedisSubscriber
-	pub  Publishes
-	log  *slog.Logger
+	rc      RedisList
+	pub     Publishes
+	log     *slog.Logger
+	metrics QueueMetrics // nil-safe
+
+	// processErr, when non-nil, is consulted before aggregating an entry. A
+	// returned error simulates a processing failure: the entry is left in the
+	// processing list (unacked) for redelivery. Test-only.
+	processErr func(raw map[string]any) error
 }
 
 // New constructs a Consumer with real Redis + Centrifugo clients.
-// rc must be a connected *redis.Client (or nil-safe wrapper); pub is typically
-// *centrifugo.Publisher.
-func New(rc RedisSubscriber, pub Publishes, log *slog.Logger) *Consumer {
-	return &Consumer{rc: rc, pub: pub, log: log}
+// rc must be a connected *redis.Client; pub is typically *centrifugo.Publisher.
+// metrics may be nil.
+func New(rc RedisList, pub Publishes, log *slog.Logger, metrics QueueMetrics) *Consumer {
+	return &Consumer{rc: rc, pub: pub, log: log, metrics: metrics}
 }
 
-// RunForever starts the subscribe loop and flush loop, blocking until ctx is
-// cancelled. Best-effort: Redis/Centrifugo errors are logged and retried; the
-// function never panics or returns an error.
-// Mirrors consumer.run_forever in consumer.py.
+// RunForever drains any in-flight processing backlog, then runs the reliable-
+// queue consume loop, blocking until ctx is cancelled. Best-effort: Redis /
+// Centrifugo errors are logged and retried; the function never panics.
 func (c *Consumer) RunForever(ctx context.Context) {
 	agg := newAggregator()
-	// Channel used to pass messages from subscribeLoop to the aggregator.
-	// Buffered so a slow flush tick doesn't block the redis receive loop.
-	msgCh := make(chan map[string]any, 256)
+	rawKey := getenv("REDIS_RAW_CHANNEL", defaultRedisRawKey)
+	procKey := getenv("REDIS_PROCESSING_KEY", defaultProcessingKey)
 
-	go c.subscribeLoop(ctx, msgCh)
-	c.runLoops(ctx, agg, msgCh)
+	// Recover entries taken but not acked before a previous crash.
+	c.recoverProcessing(ctx, agg, procKey)
+
+	c.consumeLoop(ctx, agg, rawKey, procKey)
 	c.log.InfoContext(ctx, "realtime: consumer stopped")
 }
 
-// runLoops drives the aggregator from msgCh and the flush ticker from a single
-// goroutine, eliminating the need for a mutex on the aggregator.
-func (c *Consumer) runLoops(ctx context.Context, agg *aggregator, msgCh <-chan map[string]any) {
-	interval := flushInterval()
-	ticker := time.NewTicker(interval)
-	defer ticker.Stop()
-
-	rawChannel := getenv("REDIS_RAW_CHANNEL", defaultRedisRawChannel)
-	geoipMapChannel := getenv("CHANNEL_GEOIP_MAP", defaultChannelGeoipMap)
-	_ = rawChannel // used in subscribe loop
-
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case raw, ok := <-msgCh:
-			if !ok {
-				return
-			}
-			agg.addEvent(raw)
-		case <-ticker.C:
-			points := agg.drain()
-			if len(points) == 0 {
-				continue
-			}
-			payload := map[string]any{
-				"type":   "geoip_map_delta",
-				"ts":     time.Now().UnixMilli(),
-				"points": points,
-			}
-			c.log.DebugContext(ctx, "realtime: flushing points",
-				"count", len(points), "channel", geoipMapChannel)
-			ok, _ := c.pub.Publish(ctx, geoipMapChannel, payload)
-			if !ok {
-				c.log.WarnContext(ctx, "realtime: drop points — publish failed",
-					"count", len(points))
-			}
+// recoverProcessing re-handles any entries still in the processing list from a
+// prior crash (at-least-once redelivery), acking each on success.
+func (c *Consumer) recoverProcessing(ctx context.Context, agg *aggregator, procKey string) {
+	vals, err := c.rc.LRange(ctx, procKey, 0, -1).Result()
+	if err != nil {
+		if err != redis.Nil {
+			c.log.WarnContext(ctx, "realtime: recover processing list failed", "err", err)
 		}
+		return
+	}
+	if len(vals) > 0 {
+		c.log.InfoContext(ctx, "realtime: recovering in-flight entries", "count", len(vals), "key", procKey)
+	}
+	for _, v := range vals {
+		c.handleValue(ctx, agg, procKey, v)
 	}
 }
 
-// subscribeLoop holds a Redis pub/sub subscription, reconnecting with
-// exponential backoff on error. Parsed events are sent to msgCh.
-// Mirrors _subscribe_loop in consumer.py.
-func (c *Consumer) subscribeLoop(ctx context.Context, msgCh chan<- map[string]any) {
-	rawChannel := getenv("REDIS_RAW_CHANNEL", defaultRedisRawChannel)
+// consumeLoop is the single-goroutine reliable-queue loop: BLMOVE one entry from
+// the ingest list into the processing list, aggregate it, ack it, and flush the
+// aggregated deltas to Centrifugo on the flush interval.
+func (c *Consumer) consumeLoop(ctx context.Context, agg *aggregator, rawKey, procKey string) {
+	geoipMapChannel := getenv("CHANNEL_GEOIP_MAP", defaultChannelGeoipMap)
+	interval := flushInterval()
+	maxLen := queueMaxLen()
 	backoff := time.Second
+	lastFlush := time.Now()
 
 	for {
-		select {
-		case <-ctx.Done():
+		if ctx.Err() != nil {
 			return
-		default:
 		}
 
-		if err := c.runSubscription(ctx, rawChannel, msgCh); err != nil {
-			c.log.WarnContext(ctx, "realtime: redis subscribe failed, retrying",
-				"backoff", backoff, "err", err)
+		// Block up to one flush interval waiting for the next entry. BLMOVE pops
+		// the oldest (RIGHT, since Vector lpushes newest to the head) and pushes
+		// it onto the processing list (LEFT) atomically.
+		val, err := c.rc.BLMove(ctx, rawKey, procKey, "RIGHT", "LEFT", interval).Result()
+		switch {
+		case err == redis.Nil:
+			// No entry within the interval — fall through to the flush check.
+		case err != nil:
+			if ctx.Err() != nil {
+				return
+			}
+			c.log.WarnContext(ctx, "realtime: BLMOVE failed, retrying", "backoff", backoff, "err", err)
 			select {
 			case <-ctx.Done():
 				return
@@ -285,44 +319,87 @@ func (c *Consumer) subscribeLoop(ctx context.Context, msgCh chan<- map[string]an
 					backoff *= 2
 				}
 			}
-		} else {
-			// runSubscription returned nil — ctx was cancelled.
-			return
+			continue
+		default:
+			backoff = time.Second
+			c.handleValue(ctx, agg, procKey, val)
+		}
+
+		// Flush aggregated deltas and refresh queue gauges on the interval.
+		if time.Since(lastFlush) >= interval {
+			c.flush(ctx, agg, geoipMapChannel)
+			c.reportAndTrim(ctx, rawKey, procKey, maxLen)
+			lastFlush = time.Now()
 		}
 	}
 }
 
-// runSubscription subscribes to one Redis pub/sub channel and forwards
-// messages to msgCh. Returns nil when ctx is cancelled, non-nil error on
-// subscription failure.
-func (c *Consumer) runSubscription(ctx context.Context, channel string, msgCh chan<- map[string]any) error {
-	ps := c.rc.Subscribe(ctx, channel)
-	defer ps.Close() //nolint:errcheck
+// handleValue parses one raw entry, aggregates it, and acks it (LREM from the
+// processing list). Malformed entries are acked (not retried forever). When the
+// processErr test hook returns an error the entry is left unacked for redelivery.
+func (c *Consumer) handleValue(ctx context.Context, agg *aggregator, procKey, val string) {
+	var raw map[string]any
+	if err := json.Unmarshal([]byte(val), &raw); err != nil {
+		c.log.WarnContext(ctx, "realtime: bad json from redis, discarding", "err", err)
+		c.ack(ctx, procKey, val)
+		return
+	}
+	if c.processErr != nil {
+		if err := c.processErr(raw); err != nil {
+			c.log.WarnContext(ctx, "realtime: processing failed, leaving for redelivery", "err", err)
+			return
+		}
+	}
+	agg.addEvent(raw)
+	c.ack(ctx, procKey, val)
+}
 
-	c.log.InfoContext(ctx, "realtime: subscribed to redis", "channel", channel)
+// ack removes one instance of the handled entry from the processing list.
+func (c *Consumer) ack(ctx context.Context, procKey, val string) {
+	if err := c.rc.LRem(ctx, procKey, 1, val).Err(); err != nil {
+		c.log.WarnContext(ctx, "realtime: ack (LREM) failed", "err", err)
+	}
+}
 
-	ch := ps.Channel()
-	for {
-		select {
-		case <-ctx.Done():
-			return nil
-		case msg, ok := <-ch:
-			if !ok {
-				return fmt.Errorf("redis pubsub channel closed")
-			}
-			var raw map[string]any
-			if err := json.Unmarshal([]byte(msg.Payload), &raw); err != nil {
-				c.log.WarnContext(ctx, "realtime: bad json from redis", "err", err)
-				continue
-			}
-			select {
-			case msgCh <- raw:
-			case <-ctx.Done():
-				return nil
-			default:
-				// Buffer full — drop event to avoid blocking the redis receive loop.
-				c.log.WarnContext(ctx, "realtime: msgCh full, dropping event")
-			}
+// flush publishes accumulated geoip deltas to Centrifugo (ephemeral; a failed
+// publish drops that batch — the next batch supersedes it).
+func (c *Consumer) flush(ctx context.Context, agg *aggregator, channel string) {
+	points := agg.drain()
+	if len(points) == 0 {
+		return
+	}
+	payload := map[string]any{
+		"type":   "geoip_map_delta",
+		"ts":     time.Now().UnixMilli(),
+		"points": points,
+	}
+	c.log.DebugContext(ctx, "realtime: flushing points", "count", len(points), "channel", channel)
+	ok, _ := c.pub.Publish(ctx, channel, payload)
+	if !ok {
+		c.log.WarnContext(ctx, "realtime: drop points — publish failed", "count", len(points))
+	}
+}
+
+// reportAndTrim updates queue-length gauges and caps the ingest list so a
+// stalled consumer cannot grow it unbounded.
+func (c *Consumer) reportAndTrim(ctx context.Context, rawKey, procKey string, maxLen int64) {
+	rawLen, err := c.rc.LLen(ctx, rawKey).Result()
+	if err != nil {
+		return
+	}
+	if c.metrics != nil {
+		c.metrics.SetQueueLength(rawKey, rawLen)
+		if procLen, err := c.rc.LLen(ctx, procKey).Result(); err == nil {
+			c.metrics.SetQueueLength(procKey, procLen)
+		}
+	}
+	if maxLen > 0 && rawLen > maxLen {
+		// Vector lpushes newest to the head, so keep the newest maxLen entries.
+		if err := c.rc.LTrim(ctx, rawKey, 0, maxLen-1).Err(); err != nil {
+			c.log.WarnContext(ctx, "realtime: LTRIM failed", "err", err)
+		} else {
+			c.log.WarnContext(ctx, "realtime: ingest list trimmed (backlog shed)",
+				"key", rawKey, "had", rawLen, "kept", maxLen)
 		}
 	}
 }
@@ -331,8 +408,6 @@ func (c *Consumer) runSubscription(ctx context.Context, channel string, msgCh ch
 
 // NewRedisClient constructs a *redis.Client from REDIS_URL env.
 // Returns nil and logs a warning if the URL cannot be parsed.
-// The returned client is lazy-connected — subscribe errors will surface at
-// first use and be handled by subscribeLoop's backoff.
 func NewRedisClient() *redis.Client {
 	url := getenv("REDIS_URL", defaultRedisURL)
 	opt, err := redis.ParseURL(url)
@@ -341,6 +416,8 @@ func NewRedisClient() *redis.Client {
 		return nil
 	}
 	opt.DialTimeout = 2 * time.Second
-	opt.ReadTimeout = 0 // pub/sub blocks indefinitely
+	// BLMOVE blocks up to the flush interval per call; allow a little headroom
+	// over the longest expected block so a normal timeout is not read as an error.
+	opt.ReadTimeout = 10 * time.Second
 	return redis.NewClient(opt)
 }

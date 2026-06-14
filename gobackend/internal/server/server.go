@@ -269,7 +269,7 @@ func (s *Server) Start(ctx context.Context) error {
 
 	// 9. Start background Realtime consumer.
 	rtRedis := realtime.NewRedisClient()
-	rtConsumer := realtime.New(rtRedis, centPub, s.log)
+	rtConsumer := realtime.New(rtRedis, centPub, s.log, s.metrics)
 	go rtConsumer.RunForever(ctx)
 
 	// 10. Start REST gateway server.

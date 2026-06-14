@@ -2,11 +2,14 @@ package realtime
 
 import (
 	"context"
+	"encoding/json"
 	"log/slog"
 	"os"
+	"sync"
 	"testing"
 	"time"
 
+	"github.com/redis/go-redis/v9"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -47,7 +50,6 @@ func TestAggregator_AccumulatesAndDrains(t *testing.T) {
 		bucketPrecision: 2,
 	}
 
-	// Three events: two into the same bucket (same rounded coords), one different.
 	event1 := map[string]any{
 		"geoip": map[string]any{
 			"latitude":     float64(51.123),
@@ -58,8 +60,8 @@ func TestAggregator_AccumulatesAndDrains(t *testing.T) {
 	}
 	event2 := map[string]any{
 		"geoip": map[string]any{
-			"latitude":     float64(51.127), // rounds to 51.13 — different bucket
-			"longitude":    float64(13.451), // rounds to 13.45 — different bucket
+			"latitude":     float64(51.127),
+			"longitude":    float64(13.451),
 			"country_code": "DE",
 			"city_name":    "Dresden",
 		},
@@ -82,7 +84,6 @@ func TestAggregator_AccumulatesAndDrains(t *testing.T) {
 	points := agg.drain()
 	require.Len(t, points, 3, "expected 3 distinct buckets")
 
-	// After drain the buffer must be empty.
 	assert.Empty(t, agg.buckets)
 	assert.Nil(t, agg.drain(), "second drain should return nil")
 }
@@ -93,7 +94,6 @@ func TestAggregator_SameBucketCounts(t *testing.T) {
 		bucketPrecision: 1,
 	}
 
-	// Two events that round to the same 1-decimal bucket.
 	ev := func(lat, lon float64) map[string]any {
 		return map[string]any{
 			"geoip": map[string]any{
@@ -104,9 +104,9 @@ func TestAggregator_SameBucketCounts(t *testing.T) {
 			},
 		}
 	}
-	agg.addEvent(ev(55.71, 37.61)) // rounds to 55.7 / 37.6
-	agg.addEvent(ev(55.74, 37.64)) // same bucket
-	agg.addEvent(ev(55.74, 37.64)) // same bucket again
+	agg.addEvent(ev(55.71, 37.61))
+	agg.addEvent(ev(55.74, 37.64))
+	agg.addEvent(ev(55.74, 37.64))
 
 	points := agg.drain()
 	require.Len(t, points, 1)
@@ -114,10 +114,11 @@ func TestAggregator_SameBucketCounts(t *testing.T) {
 	assert.Equal(t, "RU", points[0].CC)
 }
 
-// ─── Flush-window batching integration test ───────────────────────────────────
+// ─── Fakes ─────────────────────────────────────────────────────────────────────
 
 // fakePublisher captures Publish calls for assertions.
 type fakePublisher struct {
+	mu    sync.Mutex
 	calls []publishCall
 }
 
@@ -127,67 +128,203 @@ type publishCall struct {
 }
 
 func (f *fakePublisher) Publish(_ context.Context, channel string, data any) (bool, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
 	f.calls = append(f.calls, publishCall{channel: channel, data: data})
 	return true, nil
 }
 
-func TestFlushLoop_BatchesWithinWindow(t *testing.T) {
-	// Drive the consumer's runLoops directly (bypassing Redis).
-	pub := &fakePublisher{}
-	log := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelDebug}))
-	c := &Consumer{pub: pub, log: log}
+func (f *fakePublisher) count() int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return len(f.calls)
+}
 
-	// Use a very short flush interval for the test.
-	t.Setenv("AGGREGATOR_FLUSH_INTERVAL_S", "0.05") // 50 ms
-
-	agg := &aggregator{
-		buckets:         make(map[bucketKey]int),
-		bucketPrecision: 2,
+func (f *fakePublisher) first() (publishCall, bool) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if len(f.calls) == 0 {
+		return publishCall{}, false
 	}
-	msgCh := make(chan map[string]any, 64)
+	return f.calls[0], true
+}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 300*time.Millisecond)
-	defer cancel()
+// fakeRedis is an in-memory RedisList. Lists are stored head-first (index 0 =
+// LEFT/head); Vector lpushes newest to the head, so the oldest entry is the tail.
+type fakeRedis struct {
+	mu   sync.Mutex
+	data map[string][]string
+}
 
-	// Enqueue 5 events with the same bucket so they accumulate and are
-	// flushed as a single point with delta=5.
-	for i := 0; i < 5; i++ {
-		msgCh <- map[string]any{
-			"geoip": map[string]any{
-				"latitude":     float64(51.10), // all round to the same bucket
-				"longitude":    float64(13.10),
-				"country_code": "DE",
-				"city_name":    "Test",
-			},
+func newFakeRedis() *fakeRedis { return &fakeRedis{data: make(map[string][]string)} }
+
+// lpush simulates Vector's redis list sink (newest prepended to the head).
+func (f *fakeRedis) lpush(key string, vals ...string) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	for _, v := range vals {
+		f.data[key] = append([]string{v}, f.data[key]...)
+	}
+}
+
+func (f *fakeRedis) llen(key string) int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return len(f.data[key])
+}
+
+func (f *fakeRedis) BLMove(ctx context.Context, source, destination, _, _ string, timeout time.Duration) *redis.StringCmd {
+	f.mu.Lock()
+	l := f.data[source]
+	if len(l) == 0 {
+		f.mu.Unlock()
+		// Emulate the blocking wait so consumeLoop does not busy-spin, but stay
+		// responsive to cancellation.
+		t := timeout
+		if t > 20*time.Millisecond {
+			t = 20 * time.Millisecond
 		}
+		select {
+		case <-ctx.Done():
+		case <-time.After(t):
+		}
+		return redis.NewStringResult("", redis.Nil)
 	}
+	// Pop the tail (RIGHT = oldest) and prepend to the destination head (LEFT).
+	val := l[len(l)-1]
+	f.data[source] = l[:len(l)-1]
+	f.data[destination] = append([]string{val}, f.data[destination]...)
+	f.mu.Unlock()
+	return redis.NewStringResult(val, nil)
+}
 
-	go c.runLoops(ctx, agg, msgCh)
-	<-ctx.Done()
+func (f *fakeRedis) LRem(_ context.Context, key string, count int64, value interface{}) *redis.IntCmd {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	s, _ := value.(string)
+	var out []string
+	var removed int64
+	for _, v := range f.data[key] {
+		if v == s && (count == 0 || removed < count) {
+			removed++
+			continue
+		}
+		out = append(out, v)
+	}
+	f.data[key] = out
+	return redis.NewIntResult(removed, nil)
+}
 
-	// At least one batch should have been published.
-	require.NotEmpty(t, pub.calls, "expected at least one flush publish")
+func (f *fakeRedis) LRange(_ context.Context, key string, _, _ int64) *redis.StringSliceCmd {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return redis.NewStringSliceResult(append([]string(nil), f.data[key]...), nil)
+}
 
-	// Verify shape of first publish: channel must be dashboard:map.
-	first := pub.calls[0]
+func (f *fakeRedis) LLen(_ context.Context, key string) *redis.IntCmd {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return redis.NewIntResult(int64(len(f.data[key])), nil)
+}
+
+func (f *fakeRedis) LTrim(_ context.Context, _ string, _, _ int64) *redis.StatusCmd {
+	return redis.NewStatusResult("OK", nil)
+}
+
+func testLogger() *slog.Logger {
+	return slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelWarn}))
+}
+
+func sampleEventJSON(t *testing.T) string {
+	t.Helper()
+	b, err := json.Marshal(map[string]any{
+		"geoip": map[string]any{
+			"latitude":     51.10,
+			"longitude":    13.10,
+			"country_code": "DE",
+			"city_name":    "Test",
+		},
+	})
+	require.NoError(t, err)
+	return string(b)
+}
+
+// runUntil runs RunForever in a goroutine and blocks until it returns (ctx done)
+// or the deadline elapses.
+func runUntil(c *Consumer, d time.Duration) {
+	ctx, cancel := context.WithTimeout(context.Background(), d)
+	defer cancel()
+	done := make(chan struct{})
+	go func() { c.RunForever(ctx); close(done) }()
+	<-done
+}
+
+// ─── Reliable-queue consumer tests ─────────────────────────────────────────────
+
+// TestConsumer_DeliversBacklogAndAcks covers durability + replay: an event
+// enqueued while the consumer was "down" is delivered to Centrifugo after the
+// consumer starts, and is acked (removed from both lists, never redelivered).
+func TestConsumer_DeliversBacklogAndAcks(t *testing.T) {
+	t.Setenv("AGGREGATOR_FLUSH_INTERVAL_S", "0.05")
+	fake := newFakeRedis()
+	fake.lpush(defaultRedisRawKey, sampleEventJSON(t)) // published while consumer was down
+	pub := &fakePublisher{}
+
+	c := &Consumer{rc: fake, pub: pub, log: testLogger()}
+	runUntil(c, 250*time.Millisecond)
+
+	require.NotZero(t, pub.count(), "backlog event should be flushed to Centrifugo after start")
+	first, ok := pub.first()
+	require.True(t, ok)
 	assert.Equal(t, defaultChannelGeoipMap, first.channel)
-
-	payload, ok := first.data.(map[string]any)
-	require.True(t, ok)
+	payload := first.data.(map[string]any)
 	assert.Equal(t, "geoip_map_delta", payload["type"])
-	_, hasTS := payload["ts"]
-	assert.True(t, hasTS)
-	points, ok := payload["points"].([]MapPoint)
-	require.True(t, ok)
-	require.NotEmpty(t, points)
 
-	// Total delta across all points from first publish must equal 5.
-	totalDelta := 0
-	for _, p := range points {
-		assert.Equal(t, "DE", p.CC)
-		assert.GreaterOrEqual(t, p.Delta, 1)
-		totalDelta += p.Delta
+	assert.Equal(t, 0, fake.llen(defaultRedisRawKey), "ingest list should be drained")
+	assert.Equal(t, 0, fake.llen(defaultProcessingKey), "processed entry should be acked (LREM'd)")
+}
+
+// TestConsumer_FailedProcessingRedeliveredOnRestart covers the PEL semantics: an
+// entry whose processing fails is left in the processing list (unacked); on a
+// restart it is re-drained and, when processing succeeds, acked.
+func TestConsumer_FailedProcessingRedeliveredOnRestart(t *testing.T) {
+	t.Setenv("AGGREGATOR_FLUSH_INTERVAL_S", "0.05")
+	fake := newFakeRedis()
+	fake.lpush(defaultRedisRawKey, sampleEventJSON(t))
+
+	// Run 1: processing always fails → entry must remain in the processing list.
+	failing := &Consumer{
+		rc:         fake,
+		pub:        &fakePublisher{},
+		log:        testLogger(),
+		processErr: func(map[string]any) error { return assert.AnError },
 	}
-	// All 5 events are in the same bucket, so first flush must have delta=5 in one point.
-	assert.Equal(t, 5, totalDelta)
+	runUntil(failing, 200*time.Millisecond)
+
+	assert.Equal(t, 0, fake.llen(defaultRedisRawKey), "entry moved out of the ingest list")
+	require.Equal(t, 1, fake.llen(defaultProcessingKey), "failed entry must stay in the processing list for redelivery")
+
+	// Run 2 (restart): processing succeeds → recoverProcessing redelivers it.
+	pub2 := &fakePublisher{}
+	healthy := &Consumer{rc: fake, pub: pub2, log: testLogger()}
+	runUntil(healthy, 200*time.Millisecond)
+
+	require.NotZero(t, pub2.count(), "redelivered entry should reach Centrifugo on restart")
+	assert.Equal(t, 0, fake.llen(defaultProcessingKey), "redelivered entry should now be acked")
+}
+
+// TestConsumer_BadJSONIsDiscarded covers poison handling: malformed entries are
+// acked (removed) rather than retried forever.
+func TestConsumer_BadJSONIsDiscarded(t *testing.T) {
+	t.Setenv("AGGREGATOR_FLUSH_INTERVAL_S", "0.05")
+	fake := newFakeRedis()
+	fake.lpush(defaultRedisRawKey, "{not valid json")
+	pub := &fakePublisher{}
+
+	c := &Consumer{rc: fake, pub: pub, log: testLogger()}
+	runUntil(c, 200*time.Millisecond)
+
+	assert.Equal(t, 0, fake.llen(defaultRedisRawKey))
+	assert.Equal(t, 0, fake.llen(defaultProcessingKey), "poison entry must be acked, not stuck")
+	assert.Zero(t, pub.count(), "malformed entry yields nothing to publish")
 }

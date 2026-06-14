@@ -21,6 +21,7 @@ type Metrics struct {
 	httpDuration *prometheus.HistogramVec
 	dbDuration   *prometheus.HistogramVec
 	dbErrors     *prometheus.CounterVec
+	queueLength  *prometheus.GaugeVec
 }
 
 // NewMetrics builds the collectors and registers them, along with the standard
@@ -51,13 +52,25 @@ func NewMetrics() *Metrics {
 			Name: "db_query_errors_total",
 			Help: "Outbound dependency calls that returned an error.",
 		}, []string{"subsystem", "operation"}),
+		queueLength: prometheus.NewGaugeVec(prometheus.GaugeOpts{
+			Name: "realtime_queue_length",
+			Help: "Current length of a realtime Redis queue (e.g. the attacks ingest list and its in-flight processing list).",
+		}, []string{"queue"}),
 	}
 	reg.MustRegister(
 		m.httpRequests, m.httpErrors, m.httpDuration, m.dbDuration, m.dbErrors,
+		m.queueLength,
 		collectors.NewGoCollector(),
 		collectors.NewProcessCollector(collectors.ProcessCollectorOpts{}),
 	)
 	return m
+}
+
+// SetQueueLength publishes the current length of a named realtime queue so the
+// attacks ingest backlog (and its in-flight processing list) is observable
+// before it becomes a problem.
+func (m *Metrics) SetQueueLength(queue string, n int64) {
+	m.queueLength.WithLabelValues(queue).Set(float64(n))
 }
 
 // Handler serves the registry in Prometheus text exposition format.
