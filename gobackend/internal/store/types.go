@@ -158,6 +158,7 @@ type Connection struct {
 	ModsecState          string   // "off" | "detection_only" | "blocking"
 	GeoipDeniedCountries []string // JSON array: ISO 3166-1 alpha-2 country codes
 	CrowdsecActive       bool
+	DdosProtection       bool // when true, Angie emits limit_req/limit_conn for this conn
 	SSLCertPath          *string // populated once status=active
 	SSLKeyPath           *string
 	CreatedAt            time.Time

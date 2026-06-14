@@ -23,7 +23,7 @@ const connFullColumns = `id, tenant_id, name, domain, enabled, status,
 	status_detail, acme_retry_count, acme_next_retry_at,
 	next_poll_at, dns_ttl_seconds, last_checked_at,
 	http_versions, compression_algo,
-	modsec_state, geoip_denied_countries, crowdsec_active,
+	modsec_state, geoip_denied_countries, crowdsec_active, ddos_protection,
 	ssl_cert_path, ssl_key_path,
 	created_at, updated_at`
 
@@ -39,7 +39,7 @@ func scanConnectionFull(scan func(...any) error, c *Connection) error {
 		&c.StatusDetail, &c.AcmeRetryCount, &c.AcmeNextRetryAt,
 		&c.NextPollAt, &c.DNSTTLSeconds, &c.LastCheckedAt,
 		&c.HTTPVersions, &c.CompressionAlgo,
-		&c.ModsecState, &geoipJSON, &c.CrowdsecActive,
+		&c.ModsecState, &geoipJSON, &c.CrowdsecActive, &c.DdosProtection,
 		&c.SSLCertPath, &c.SSLKeyPath,
 		&c.CreatedAt, &c.UpdatedAt,
 	)

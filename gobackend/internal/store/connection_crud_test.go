@@ -47,6 +47,7 @@ CREATE TABLE IF NOT EXISTS connections (
 	modsec_state          TEXT NOT NULL DEFAULT 'detection_only',
 	geoip_denied_countries JSON NOT NULL DEFAULT '[]',
 	crowdsec_active       BOOLEAN NOT NULL DEFAULT true,
+	ddos_protection       BOOLEAN NOT NULL DEFAULT false,
 	ssl_cert_path         VARCHAR(512),
 	ssl_key_path          VARCHAR(512),
 	created_at            TIMESTAMPTZ NOT NULL DEFAULT now(),
