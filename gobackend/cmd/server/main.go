@@ -115,6 +115,14 @@ func runServer(ctx context.Context, log *slog.Logger) {
 		os.Exit(1)
 	}
 
+	// Refuse to boot with an insecure secret configuration (empty ClickHouse
+	// password, half-configured SMTP/OAuth/Turnstile). Fail-fast and uniform
+	// regardless of how the process is launched.
+	if err := config.ValidateSecrets(); err != nil {
+		log.Error("insecure secret configuration", "err", err)
+		os.Exit(1)
+	}
+
 	srv := server.New(cfg, log)
 	if err := srv.Start(ctx); err != nil {
 		log.Error("server start failed", "err", err)
