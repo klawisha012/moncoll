@@ -36,7 +36,8 @@ func TestStoreReadsUsersAndTenants(t *testing.T) {
 	_, err = st.pool.Exec(ctx, `
 		CREATE TABLE tenants (id BIGINT PRIMARY KEY, name TEXT NOT NULL, suspended_at TIMESTAMPTZ);
 		CREATE TABLE users (id BIGINT PRIMARY KEY, platform_role TEXT NOT NULL,
-			email_verified_at TIMESTAMPTZ, totp_enabled_at TIMESTAMPTZ, tenant_id BIGINT);
+			email_verified_at TIMESTAMPTZ, totp_enabled_at TIMESTAMPTZ, tenant_id BIGINT,
+			token_version BIGINT NOT NULL DEFAULT 0);
 		INSERT INTO tenants VALUES (3, 'acme', NULL), (4, 'beta', now());
 		INSERT INTO users VALUES (7, 'admin', now(), now(), NULL),
 		                         (8, 'client', NULL, NULL, 3);`)
