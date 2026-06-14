@@ -11,7 +11,7 @@
 
 import { createSignal, createEffect, createMemo, onMount, onCleanup, For, Show } from "solid-js";
 import { useSearchParams } from "@solidjs/router";
-import { Save, Shield, Globe, ShieldAlert } from "lucide-solid";
+import { Save, Shield, Globe, ShieldAlert, Gauge } from "lucide-solid";
 import {
   api,
   Connection,
@@ -140,6 +140,7 @@ export default function ConfigEditor() {
     if (!sec || !init) return false;
     if (sec.modsec_state !== init.modsec_state) return true;
     if (sec.crowdsec_active !== init.crowdsec_active) return true;
+    if (sec.ddos_protection !== init.ddos_protection) return true;
     const a = [...sec.geoip_denied_countries].sort();
     const b = [...init.geoip_denied_countries].sort();
     return a.length !== b.length || a.some((v, i) => v !== b[i]);
@@ -280,6 +281,31 @@ export default function ConfigEditor() {
                       }}
                     />
                     <span>{settings.t("config.crowdsec.activeLabel")}</span>
+                  </label>
+                </div>
+
+                <div class="card">
+                  <div class="card-header">
+                    <h3>
+                      <Gauge
+                        size={16}
+                        style={{ "margin-right": "6px", "vertical-align": "middle" }}
+                      />
+                      {settings.t("config.ddos.title")}
+                    </h3>
+                  </div>
+                  <p style={{ "margin-top": 0, opacity: 0.75 }}>
+                    {settings.t("config.ddos.description")}
+                  </p>
+                  <label class="checkbox-row" style={{ "margin-top": "12px" }}>
+                    <input
+                      type="checkbox"
+                      checked={security()!.ddos_protection}
+                      onChange={(e) => {
+                        setSecurity((p) => p ? { ...p, ddos_protection: e.currentTarget.checked } : p);
+                      }}
+                    />
+                    <span>{settings.t("config.ddos.activeLabel")}</span>
                   </label>
                 </div>
 

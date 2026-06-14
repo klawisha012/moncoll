@@ -974,6 +974,7 @@ type SecurityConfig struct {
 	ModsecState          string                 `protobuf:"bytes,1,opt,name=modsec_state,json=modsecState,proto3" json:"modsec_state,omitempty"`
 	GeoipDeniedCountries []string               `protobuf:"bytes,2,rep,name=geoip_denied_countries,json=geoipDeniedCountries,proto3" json:"geoip_denied_countries,omitempty"`
 	CrowdsecActive       bool                   `protobuf:"varint,3,opt,name=crowdsec_active,json=crowdsecActive,proto3" json:"crowdsec_active,omitempty"`
+	DdosProtection       bool                   `protobuf:"varint,4,opt,name=ddos_protection,json=ddosProtection,proto3" json:"ddos_protection,omitempty"`
 	unknownFields        protoimpl.UnknownFields
 	sizeCache            protoimpl.SizeCache
 }
@@ -1029,6 +1030,13 @@ func (x *SecurityConfig) GetCrowdsecActive() bool {
 	return false
 }
 
+func (x *SecurityConfig) GetDdosProtection() bool {
+	if x != nil {
+		return x.DdosProtection
+	}
+	return false
+}
+
 type GetConnectionSecurityRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Id            int64                  `protobuf:"varint,1,opt,name=id,proto3" json:"id,omitempty"`
@@ -1079,6 +1087,7 @@ type UpdateConnectionSecurityRequest struct {
 	ModsecState          string                 `protobuf:"bytes,2,opt,name=modsec_state,json=modsecState,proto3" json:"modsec_state,omitempty"`
 	GeoipDeniedCountries []string               `protobuf:"bytes,3,rep,name=geoip_denied_countries,json=geoipDeniedCountries,proto3" json:"geoip_denied_countries,omitempty"`
 	CrowdsecActive       bool                   `protobuf:"varint,4,opt,name=crowdsec_active,json=crowdsecActive,proto3" json:"crowdsec_active,omitempty"`
+	DdosProtection       bool                   `protobuf:"varint,5,opt,name=ddos_protection,json=ddosProtection,proto3" json:"ddos_protection,omitempty"`
 	unknownFields        protoimpl.UnknownFields
 	sizeCache            protoimpl.SizeCache
 }
@@ -1137,6 +1146,13 @@ func (x *UpdateConnectionSecurityRequest) GetGeoipDeniedCountries() []string {
 func (x *UpdateConnectionSecurityRequest) GetCrowdsecActive() bool {
 	if x != nil {
 		return x.CrowdsecActive
+	}
+	return false
+}
+
+func (x *UpdateConnectionSecurityRequest) GetDdosProtection() bool {
+	if x != nil {
+		return x.DdosProtection
 	}
 	return false
 }
@@ -1224,18 +1240,20 @@ const file_connections_v1_connections_proto_rawDesc = "" +
 	"\x18ReloadConnectionsRequest\"D\n" +
 	"\x0eReloadResponse\x12\x18\n" +
 	"\asuccess\x18\x01 \x01(\bR\asuccess\x12\x18\n" +
-	"\amessage\x18\x02 \x01(\tR\amessage\"\x92\x01\n" +
+	"\amessage\x18\x02 \x01(\tR\amessage\"\xbb\x01\n" +
 	"\x0eSecurityConfig\x12!\n" +
 	"\fmodsec_state\x18\x01 \x01(\tR\vmodsecState\x124\n" +
 	"\x16geoip_denied_countries\x18\x02 \x03(\tR\x14geoipDeniedCountries\x12'\n" +
-	"\x0fcrowdsec_active\x18\x03 \x01(\bR\x0ecrowdsecActive\".\n" +
+	"\x0fcrowdsec_active\x18\x03 \x01(\bR\x0ecrowdsecActive\x12'\n" +
+	"\x0fddos_protection\x18\x04 \x01(\bR\x0eddosProtection\".\n" +
 	"\x1cGetConnectionSecurityRequest\x12\x0e\n" +
-	"\x02id\x18\x01 \x01(\x03R\x02id\"\xb3\x01\n" +
+	"\x02id\x18\x01 \x01(\x03R\x02id\"\xdc\x01\n" +
 	"\x1fUpdateConnectionSecurityRequest\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\x03R\x02id\x12!\n" +
 	"\fmodsec_state\x18\x02 \x01(\tR\vmodsecState\x124\n" +
 	"\x16geoip_denied_countries\x18\x03 \x03(\tR\x14geoipDeniedCountries\x12'\n" +
-	"\x0fcrowdsec_active\x18\x04 \x01(\bR\x0ecrowdsecActive2\x9c\n" +
+	"\x0fcrowdsec_active\x18\x04 \x01(\bR\x0ecrowdsecActive\x12'\n" +
+	"\x0fddos_protection\x18\x05 \x01(\bR\x0eddosProtection2\x9c\n" +
 	"\n" +
 	"\x12ConnectionsService\x12h\n" +
 	"\vGetEdgeInfo\x12\x1f.connections.v1.EdgeInfoRequest\x1a .connections.v1.EdgeInfoResponse\"\x16\x82\xd3\xe4\x93\x02\x10\x12\x0e/api/edge-info\x12\x89\x01\n" +

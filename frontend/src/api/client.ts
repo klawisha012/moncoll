@@ -11,6 +11,7 @@ export interface SecurityConfig {
   modsec_state: ModSecState;
   geoip_denied_countries: string[];
   crowdsec_active: boolean;
+  ddos_protection: boolean;
 }
 
 export type HttpVersion = "h1" | "h2" | "h3";

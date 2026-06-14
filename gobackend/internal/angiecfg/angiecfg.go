@@ -26,6 +26,16 @@ const acmeTrustedCA = "/etc/ssl/certs/ca-certificates.crt"
 // tenantsBase is the backend-side root for per-tenant trees.
 const tenantsBase = "/var/lib/waf/tenants"
 
+// Anti-DDoS defaults — per-connection, keyed by client IP ($binary_remote_addr).
+// Tuned to absorb floods without tripping legitimate SPA/API bursts.
+const (
+	ddosReqRate   = "20r/s" // sustained request rate per IP
+	ddosReqBurst  = 40      // burst allowance before throttling
+	ddosConnPerIP = 20      // max concurrent connections per IP
+	ddosZoneSize  = "10m"   // shared-memory zone (~160k IPs)
+	ddosLimitCode = 429     // status returned when a limit trips
+)
+
 // validHTTPVersions and validCompression mirror the Python constants.
 var validHTTPVersions = map[string]bool{"h1": true, "h2": true, "h3": true}
 var validCompression = map[string]bool{"auto": true, "gzip": true, "brotli": true, "zstd": true, "none": true}
@@ -52,6 +62,7 @@ type ConnConfig struct {
 
 	GeoipDenied    []string // ISO 3166-1 alpha-2 country codes
 	CrowdsecActive bool
+	DdosProtection bool // when true, emit limit_req/limit_conn rate-limiting
 
 	// Cert/key paths as Angie sees them (from inside the Angie container).
 	// If both are non-nil AND Status=="active", the TLS server block is emitted.
@@ -198,6 +209,13 @@ func renderConf(cfg ConnConfig) (string, error) {
 	}
 	writeln(&b, "")
 
+	if cfg.DdosProtection {
+		for _, l := range emitDdosZones(connID) {
+			writeln(&b, l)
+		}
+		writeln(&b, "")
+	}
+
 	// ── Plain HTTP server block ──────────────────────────────────────────────
 	writeln(&b, "server {")
 	writeln(&b, "    listen 80;")
@@ -209,6 +227,11 @@ func renderConf(cfg ConnConfig) (string, error) {
 	writeln(&b, "")
 	if crowdsecActive {
 		writeln(&b, blockedIPsInclude)
+	}
+	if cfg.DdosProtection && !hasCert {
+		for _, l := range emitDdosServer(connID) {
+			writeln(&b, l)
+		}
 	}
 	writeln(&b, "")
 	for _, l := range emitModsecState(modsecState) {
@@ -246,6 +269,11 @@ func renderConf(cfg ConnConfig) (string, error) {
 		writeln(&b, "    location / {")
 		for _, l := range emitGeoIPDeny(geoipDenied) {
 			writeln(&b, l)
+		}
+		if cfg.DdosProtection {
+			for _, l := range emitDdosLocation(connID) {
+				writeln(&b, l)
+			}
 		}
 		for _, l := range proxyBlock {
 			writeln(&b, l)
@@ -289,6 +317,11 @@ func renderConf(cfg ConnConfig) (string, error) {
 		if crowdsecActive {
 			writeln(&b, blockedIPsInclude)
 		}
+		if cfg.DdosProtection {
+			for _, l := range emitDdosServer(connID) {
+				writeln(&b, l)
+			}
+		}
 		writeln(&b, "")
 
 		for _, l := range emitModsecState(modsecState) {
@@ -329,6 +362,11 @@ func renderConf(cfg ConnConfig) (string, error) {
 		writeln(&b, "    location / {")
 		for _, l := range emitGeoIPDeny(geoipDenied) {
 			writeln(&b, l)
+		}
+		if cfg.DdosProtection {
+			for _, l := range emitDdosLocation(connID) {
+				writeln(&b, l)
+			}
 		}
 		for _, l := range proxyBlock {
 			writeln(&b, l)
@@ -401,6 +439,33 @@ func emitModsecState(state string) []string {
 	return []string{
 		"    modsecurity on;",
 		fmt.Sprintf("    modsecurity_rules 'SecRuleEngine %s';", engine),
+	}
+}
+
+// emitDdosZones returns the http-context shared-memory zones for a connection.
+// Emitted in the connection's own .conf (next to its upstream) so angie.conf is
+// never touched and each domain gets an isolated zone.
+func emitDdosZones(connID int64) []string {
+	return []string{
+		fmt.Sprintf("limit_req_zone $binary_remote_addr zone=conn_%d_rl:%s rate=%s;", connID, ddosZoneSize, ddosReqRate),
+		fmt.Sprintf("limit_conn_zone $binary_remote_addr zone=conn_%d_cz:%s;", connID, ddosZoneSize),
+	}
+}
+
+// emitDdosServer returns the server-level connection cap + custom status codes.
+func emitDdosServer(connID int64) []string {
+	return []string{
+		fmt.Sprintf("    limit_conn conn_%d_cz %d;", connID, ddosConnPerIP),
+		fmt.Sprintf("    limit_req_status %d;", ddosLimitCode),
+		fmt.Sprintf("    limit_conn_status %d;", ddosLimitCode),
+	}
+}
+
+// emitDdosLocation returns the per-request rate limit for the dynamic catch-all
+// location. NOT applied to static assets or WebSocket (socket.io) locations.
+func emitDdosLocation(connID int64) []string {
+	return []string{
+		fmt.Sprintf("        limit_req zone=conn_%d_rl burst=%d nodelay;", connID, ddosReqBurst),
 	}
 }
 

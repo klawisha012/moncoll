@@ -47,6 +47,7 @@ CREATE TABLE IF NOT EXISTS connections (
 	modsec_state          TEXT NOT NULL DEFAULT 'detection_only',
 	geoip_denied_countries JSON NOT NULL DEFAULT '[]',
 	crowdsec_active       BOOLEAN NOT NULL DEFAULT true,
+	ddos_protection       BOOLEAN NOT NULL DEFAULT false,
 	ssl_cert_path         VARCHAR(512),
 	ssl_key_path          VARCHAR(512),
 	created_at            TIMESTAMPTZ NOT NULL DEFAULT now(),
@@ -300,11 +301,12 @@ func TestConnectionUpdateSecurity(t *testing.T) {
 	created, err := st.CreateConnection(ctx, in)
 	require.NoError(t, err)
 
-	updated, err := st.UpdateSecurity(ctx, 1, created.ID, "blocking", []string{"CN", "KP"}, false)
+	updated, err := st.UpdateSecurity(ctx, 1, created.ID, "blocking", []string{"CN", "KP"}, false, true)
 	require.NoError(t, err)
 	require.Equal(t, "blocking", updated.ModsecState)
 	require.Equal(t, []string{"CN", "KP"}, updated.GeoipDeniedCountries)
 	require.False(t, updated.CrowdsecActive)
+	require.True(t, updated.DdosProtection)
 }
 
 func TestListConnectionsForPoll(t *testing.T) {

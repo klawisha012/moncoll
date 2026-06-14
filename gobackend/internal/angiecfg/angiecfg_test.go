@@ -478,3 +478,61 @@ func TestRender_ZstdCompression(t *testing.T) {
 	assert.Contains(t, conf, "    gzip off;")
 	assert.Contains(t, conf, "    brotli off;")
 }
+
+// ── Anti-DDoS: active (TLS) connection with DdosProtection on ────────────────
+
+func TestRender_Ddos_Active_EmitsLimits(t *testing.T) {
+	cfg := angiecfg.ConnConfig{
+		ID: 7, TenantID: 3, Name: "ddos-site", Domain: "ddos.example.com",
+		OriginHosts: []string{"9.9.9.9"}, OriginPort: 443,
+		Status: "active", OriginTLSMode: "strict",
+		HTTPVersions: "h1,h2", Compression: "auto", ModsecState: "blocking",
+		CrowdsecActive: true, DdosProtection: true,
+		SSLCertPath: ptr("/c.pem"), SSLKeyPath: ptr("/k.pem"),
+	}
+	conf := confContent(t, requireRender(t, cfg), cfg.ID)
+
+	// http-context zones (per-connection, in this conn's own .conf)
+	assert.Contains(t, conf, "limit_req_zone $binary_remote_addr zone=conn_7_rl:10m rate=20r/s;")
+	assert.Contains(t, conf, "limit_conn_zone $binary_remote_addr zone=conn_7_cz:10m;")
+	// server-level connection cap + 429 status
+	assert.Contains(t, conf, "    limit_conn conn_7_cz 20;")
+	assert.Contains(t, conf, "    limit_req_status 429;")
+	assert.Contains(t, conf, "    limit_conn_status 429;")
+	// request rate limit in the dynamic location only
+	assert.Contains(t, conf, "        limit_req zone=conn_7_rl burst=40 nodelay;")
+}
+
+// ── Anti-DDoS off: no limit directives anywhere ──────────────────────────────
+
+func TestRender_Ddos_Off_EmitsNoLimits(t *testing.T) {
+	cfg := angiecfg.ConnConfig{
+		ID: 8, TenantID: 3, Name: "plain", Domain: "plain.example.com",
+		OriginHosts: []string{"9.9.9.9"}, OriginPort: 443,
+		Status: "active", OriginTLSMode: "strict",
+		HTTPVersions: "h1,h2", Compression: "auto", ModsecState: "blocking",
+		CrowdsecActive: true, DdosProtection: false,
+		SSLCertPath: ptr("/c.pem"), SSLKeyPath: ptr("/k.pem"),
+	}
+	conf := confContent(t, requireRender(t, cfg), cfg.ID)
+
+	assert.NotContains(t, conf, "limit_req")
+	assert.NotContains(t, conf, "limit_conn")
+}
+
+// ── Anti-DDoS: pre-active connection still gets limits on the :80 server ──────
+
+func TestRender_Ddos_PreActive_EmitsLimits(t *testing.T) {
+	cfg := angiecfg.ConnConfig{
+		ID: 9, TenantID: 3, Name: "pre", Domain: "pre.example.com",
+		OriginHosts: []string{"9.9.9.9"}, OriginPort: 443,
+		Status: "pending_verification", OriginTLSMode: "strict",
+		HTTPVersions: "h1,h2", Compression: "auto", ModsecState: "detection_only",
+		DdosProtection: true,
+	}
+	conf := confContent(t, requireRender(t, cfg), cfg.ID)
+
+	assert.Contains(t, conf, "limit_req_zone $binary_remote_addr zone=conn_9_rl:10m rate=20r/s;")
+	assert.Contains(t, conf, "    limit_conn conn_9_cz 20;")
+	assert.Contains(t, conf, "        limit_req zone=conn_9_rl burst=40 nodelay;")
+}
