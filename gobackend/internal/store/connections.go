@@ -5,11 +5,41 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strconv"
 	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 )
+
+// RunInTenantTx runs fn inside a transaction with the GUC app.tenant_id set
+// (SET LOCAL semantics) so the connections Row-Level Security policy scopes
+// every statement to tenantID — a defense-in-depth backstop beneath the
+// explicit WHERE tenant_id filters.
+//
+// This is the activation mechanism for the 0007 RLS policy: client request
+// paths should run their tenant-scoped connection access through here. It only
+// takes effect when the app connects as a non-superuser, non-BYPASSRLS role
+// (a Postgres superuser always bypasses RLS); see 0007_connections_rls.up.sql.
+func (s *Store) RunInTenantTx(ctx context.Context, tenantID int64, fn func(pgx.Tx) error) error {
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback(ctx) }() // no-op after Commit
+
+	// set_config(name, value, is_local=true) == SET LOCAL: scoped to this tx.
+	if _, err := tx.Exec(ctx,
+		`SELECT set_config('app.tenant_id', $1, true)`,
+		strconv.FormatInt(tenantID, 10),
+	); err != nil {
+		return err
+	}
+	if err := fn(tx); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
+}
 
 // pgUniqueViolation is the Postgres SQLSTATE for unique_violation.
 const pgUniqueViolation = "23505"
