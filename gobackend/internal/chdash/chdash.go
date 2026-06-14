@@ -29,6 +29,7 @@ import (
 
 	clickhouse "github.com/ClickHouse/clickhouse-go/v2"
 	"github.com/redis/go-redis/v9"
+	"golang.org/x/sync/singleflight"
 
 	"github.com/zwarder/waf/gobackend/internal/store"
 )
@@ -127,8 +128,9 @@ func redisClient() *redis.Client {
 // so endpoint handlers can call Query / QueryCached without knowing the
 // connection details.
 type Client struct {
-	rc *redis.Client // nil if Redis is unavailable
-	ex Executor      // test double if non-nil
+	rc *redis.Client      // nil if Redis is unavailable
+	ex Executor           // test double if non-nil
+	sf singleflight.Group // coalesces concurrent cache-miss executions
 }
 
 // Executor is a query runner interface, allowing tests to mock database calls.
@@ -215,10 +217,6 @@ func (c *Client) Query(ctx context.Context, sql string) ([][]interface{}, error)
 // in Redis. Mirrors Python _safe_execute. Cache is best-effort: Redis
 // unavailability or errors fall through to a direct ClickHouse call.
 func (c *Client) QueryCached(ctx context.Context, sql string) ([][]interface{}, error) {
-	if c.ex != nil {
-		return c.ex.QueryCached(ctx, sql)
-	}
-
 	key := cacheKey(sql)
 
 	// Try cache read.
@@ -233,22 +231,41 @@ func (c *Client) QueryCached(ctx context.Context, sql string) ([][]interface{}, 
 		}
 	}
 
-	// Cache miss — execute.
-	result, err := c.Query(ctx, sql)
-	if err != nil || result == nil {
-		return result, err
-	}
+	// Cache miss — coalesce concurrent executions of the same query so that a
+	// hot key expiring does not stampede ClickHouse: the first caller executes,
+	// the rest wait for and share its result. singleflight is in-flight only,
+	// which is the right scope for per-process peak concurrency.
+	v, err, _ := c.sf.Do(key, func() (interface{}, error) {
+		var (
+			result [][]interface{}
+			qerr   error
+		)
+		if c.ex != nil {
+			result, qerr = c.ex.QueryCached(ctx, sql)
+		} else {
+			result, qerr = c.Query(ctx, sql)
+		}
+		if qerr != nil || result == nil {
+			return result, qerr
+		}
 
-	// Write to cache (best-effort).
-	if c.rc != nil {
-		if raw, err2 := json.Marshal(result); err2 == nil {
-			if err3 := c.rc.Set(ctx, key, raw, queryTTL).Err(); err3 != nil {
-				slog.Warn("chdash: redis set failed", "err", err3)
+		// Write to cache (best-effort).
+		if c.rc != nil {
+			if raw, err2 := json.Marshal(result); err2 == nil {
+				if err3 := c.rc.Set(ctx, key, raw, queryTTL).Err(); err3 != nil {
+					slog.Warn("chdash: redis set failed", "err", err3)
+				}
 			}
 		}
+		return result, nil
+	})
+	if err != nil {
+		return nil, err
 	}
-
-	return result, nil
+	if v == nil {
+		return nil, nil
+	}
+	return v.([][]interface{}), nil
 }
 
 // Scalar extracts the first cell of the first row as an int64.
