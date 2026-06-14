@@ -278,9 +278,11 @@ func (s *Server) Start(ctx context.Context) error {
 		return fmt.Errorf("gateway init failed: %w", err)
 	}
 
-	// Instrument the whole gateway at the highest seam: a trace span per
-	// request, wrapping RED metrics, wrapping the mux.
-	gatewayHandler := observability.TraceHandler(s.metrics.Middleware(mux))
+	// Instrument the whole gateway at the highest seam, outermost-first: an
+	// end-to-end request deadline (inherited by every downstream hop), then a
+	// trace span, then RED metrics, then the mux.
+	gatewayHandler := withRequestTimeout(s.cfg.Timeouts.HTTPRequest,
+		observability.TraceHandler(s.metrics.Middleware(mux)))
 	s.restSrv = &http.Server{Addr: s.cfg.GRPCAddr, Handler: gatewayHandler, ReadHeaderTimeout: 5 * time.Second}
 	go func() {
 		s.log.Info("rest gateway serving", "addr", s.cfg.GRPCAddr)
@@ -294,7 +296,7 @@ func (s *Server) Start(ctx context.Context) error {
 	go func() { _ = s.metricsSrv.ListenAndServe() }()
 
 	// 12. Start CrowdSec blocked-IPs sync loop.
-	go runBlockedIPsSyncLoop(ctx, s.log, syncer, st)
+	go runBlockedIPsSyncLoop(ctx, s.log, syncer, st, s.cfg.Timeouts.CrowdSecSync)
 
 	return nil
 }
@@ -366,7 +368,7 @@ func (oauthFactory) Provider(name string) (authapi.OAuthProvider, bool) {
 	return p, true
 }
 
-func runBlockedIPsSyncLoop(ctx context.Context, log *slog.Logger, syncer *crowdsec.Syncer, st *store.Store) {
+func runBlockedIPsSyncLoop(ctx context.Context, log *slog.Logger, syncer *crowdsec.Syncer, st *store.Store, syncTimeout time.Duration) {
 	interval := 15 * time.Second
 	if s := os.Getenv("WAF_CROWDSEC_SYNC_INTERVAL"); s != "" {
 		if n, err := strconv.Atoi(s); err == nil && n > 0 {
@@ -384,7 +386,11 @@ func runBlockedIPsSyncLoop(ctx context.Context, log *slog.Logger, syncer *crowds
 		}
 
 		func() {
-			rows, err := st.ListConnections(ctx)
+			// Bound one sync iteration so a stuck DB/file op cannot wedge the loop.
+			iterCtx, cancel := context.WithTimeout(ctx, syncTimeout)
+			defer cancel()
+
+			rows, err := st.ListConnections(iterCtx)
 			if err != nil {
 				log.Warn("crowdsec sync: ListConnections failed", "err", err)
 				return
@@ -406,7 +412,7 @@ func runBlockedIPsSyncLoop(ctx context.Context, log *slog.Logger, syncer *crowds
 				return
 			}
 
-			if err := syncer.SyncBlockedIPsConf(ctx); err != nil {
+			if err := syncer.SyncBlockedIPsConf(iterCtx); err != nil {
 				log.Warn("crowdsec sync: SyncBlockedIPsConf failed", "err", err)
 			}
 		}()
