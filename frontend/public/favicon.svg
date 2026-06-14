@@ -1,15 +1,12 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" width="128" height="128">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 144 197" width="144" height="197">
   <style>
-    .bg     { fill: #f1ead8; }
-    .shield { fill: #f1ead8; stroke: #0c0c0c; stroke-width: 7; stroke-linejoin: round; }
-    .mark   { fill: none; stroke: #d6362a; stroke-width: 12; stroke-linecap: round; stroke-linejoin: round; }
+    .shield { fill: none; stroke: #0c0c0c; stroke-width: 8.88158; }
+    .mark   { fill: none; stroke: #d6362a; stroke-width: 14.2105; }
     @media (prefers-color-scheme: dark) {
-      .bg     { fill: #181818; }
-      .shield { fill: #181818; stroke: #ede7d0; }
+      .shield { stroke: #ede7d0; }
       .mark   { stroke: #ff5a4a; }
     }
   </style>
-  <rect class="bg" x="0" y="0" width="128" height="128" rx="24"/>
-  <path class="shield" d="M28 32 L64 42 L100 32 L100 70 C100 94 86 110 64 118 C42 110 28 94 28 70 Z"/>
-  <path class="mark" d="M46 88 L46 56 L64 72 L82 56 L82 88"/>
+  <path class="shield" d="M139.441 33.2394L71.9408 4.81836L4.4408 33.2394V100.739L71.9408 189.555L139.441 100.739V33.2394Z"/>
+  <path class="mark" d="M32.4408 137.318L17.9408 51.8184L71.9408 93.0421L125.941 51.8184L111.441 137.318"/>
 </svg>
