@@ -1,6 +1,8 @@
 package teamsapi
 
 import (
+	"io"
+	"log/slog"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -10,6 +12,10 @@ import (
 
 	teamsv1 "github.com/zwarder/waf/gobackend/gen/teams/v1"
 )
+
+func newSvcWithNotifier(f *fakeStore, n *fakeNotifier) *Service {
+	return New(f, &fakeMailer{}, "https://waf.test", slog.New(slog.NewTextHandler(io.Discard, nil)), n)
+}
 
 const (
 	callerID int64 = 10
@@ -101,4 +107,43 @@ func TestLeaveTeam_LastOwnerBlocked(t *testing.T) {
 	_, err := newSvc(f).LeaveTeam(ctx, &teamsv1.LeaveTeamRequest{})
 	require.Error(t, err)
 	assert.Equal(t, codes.FailedPrecondition, status.Code(err))
+}
+
+// ── Notification tests ──────────────────────────────────────────────────────
+
+// TestChangeRole_EmitsNotification: successful ChangeRole notifies the target user.
+func TestChangeRole_EmitsNotification(t *testing.T) {
+	f := &fakeStore{
+		memberRoles: map[int64]string{
+			callerID: "owner",
+			targetID: "member",
+		},
+	}
+	n := &fakeNotifier{}
+	ctx := ctxWithUser(callerID, tenantID)
+	_, err := newSvcWithNotifier(f, n).ChangeRole(ctx, &teamsv1.ChangeRoleRequest{UserId: targetID, Role: "admin"})
+	require.NoError(t, err)
+
+	call, ok := n.findType("team.role_changed")
+	require.True(t, ok, "expected team.role_changed notification")
+	assert.Equal(t, targetID, call.userID)
+}
+
+// TestRemoveMember_EmitsNotification: successful RemoveMember notifies the removed user.
+func TestRemoveMember_EmitsNotification(t *testing.T) {
+	f := &fakeStore{
+		memberRoles: map[int64]string{
+			callerID: "owner",
+			targetID: "member",
+		},
+		ownerCount: 2,
+	}
+	n := &fakeNotifier{}
+	ctx := ctxWithUser(callerID, tenantID)
+	_, err := newSvcWithNotifier(f, n).RemoveMember(ctx, &teamsv1.MemberRequest{UserId: targetID})
+	require.NoError(t, err)
+
+	call, ok := n.findType("team.member_removed")
+	require.True(t, ok, "expected team.member_removed notification")
+	assert.Equal(t, targetID, call.userID)
 }

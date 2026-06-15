@@ -66,6 +66,16 @@ func (s *Service) RemoveMember(ctx context.Context, req *teamsv1.MemberRequest) 
 	if err := s.store.DeleteMembership(ctx, *id.TenantID, req.GetUserId()); err != nil {
 		return nil, status.Error(codes.Internal, "internal error")
 	}
+
+	// Best-effort: notify the removed member.
+	if s.notifier != nil {
+		if nErr := s.notifier.NotifyUser(ctx, req.GetUserId(), id.TenantID, "team.member_removed",
+			"Removed from team", "You were removed from the team",
+			map[string]any{}); nErr != nil {
+			s.log.Warn("RemoveMember notify user", "err", nErr)
+		}
+	}
+
 	return &emptypb.Empty{}, nil
 }
 
@@ -91,6 +101,16 @@ func (s *Service) ChangeRole(ctx context.Context, req *teamsv1.ChangeRoleRequest
 	if err := s.store.UpdateMembershipRole(ctx, *id.TenantID, req.GetUserId(), role); err != nil {
 		return nil, status.Error(codes.Internal, "internal error")
 	}
+
+	// Best-effort: notify the member whose role changed.
+	if s.notifier != nil {
+		if nErr := s.notifier.NotifyUser(ctx, req.GetUserId(), id.TenantID, "team.role_changed",
+			"Role changed", "Your role is now "+req.GetRole(),
+			map[string]any{"role": req.GetRole()}); nErr != nil {
+			s.log.Warn("ChangeRole notify user", "err", nErr)
+		}
+	}
+
 	return &emptypb.Empty{}, nil
 }
 

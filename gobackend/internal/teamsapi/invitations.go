@@ -133,6 +133,19 @@ func (s *Service) CreateInvitation(ctx context.Context, req *teamsv1.CreateInvit
 	out := invToProto(inv, teamName)
 	out.AcceptUrl = url
 	out.EmailSent = sendErr == nil && s.mail.Configured()
+
+	// Best-effort: notify a registered user with the invited email address.
+	if s.notifier != nil {
+		if u, uErr := s.store.GetUserByEmail(ctx, email); uErr == nil && u != nil {
+			tid := tenantID
+			if nErr := s.notifier.NotifyUser(ctx, u.ID, &tid, "team.invitation", "Team invitation",
+				"You've been invited to "+teamName,
+				map[string]any{"invitation_id": inv.ID, "team_name": teamName, "role": role}); nErr != nil {
+				s.log.Warn("CreateInvitation notify user", "err", nErr)
+			}
+		}
+	}
+
 	return out, nil
 }
 
@@ -223,6 +236,17 @@ func (s *Service) AcceptInvitation(ctx context.Context, req *teamsv1.AcceptInvit
 		s.log.Error("AcceptInvitation", "err", err)
 		return nil, status.Error(codes.Internal, "internal error")
 	}
+
+	// Best-effort: notify remaining team members that someone joined.
+	if s.notifier != nil {
+		joinerEmail := s.callerEmail(ctx, id)
+		if nErr := s.notifier.NotifyTenantMembers(ctx, inv.TenantID, id.UserID, "team.member_joined",
+			"New team member", joinerEmail+" joined the team",
+			map[string]any{"user_id": id.UserID}); nErr != nil {
+			s.log.Warn("AcceptInvitation notify members", "err", nErr)
+		}
+	}
+
 	return &emptypb.Empty{}, nil
 }
 
@@ -278,6 +302,42 @@ func (s *Service) ResendInvitation(ctx context.Context, req *teamsv1.InvitationI
 	out.AcceptUrl = url
 	out.EmailSent = sendErr == nil && s.mail.Configured()
 	return out, nil
+}
+
+// AcceptInvitationById accepts a pending invitation by its numeric ID.
+// The caller must be authenticated and their email must match the invitation.
+func (s *Service) AcceptInvitationById(ctx context.Context, req *teamsv1.InvitationIdRequest) (*emptypb.Empty, error) {
+	id, err := identity(ctx)
+	if err != nil {
+		return nil, err
+	}
+	inv, err := s.store.GetInvitationByID(ctx, req.GetId())
+	if err != nil {
+		return nil, status.Error(codes.NotFound, "invitation not found")
+	}
+	if normalizeEmail(s.callerEmail(ctx, id)) != inv.Email {
+		return nil, status.Error(codes.PermissionDenied, "not your invitation")
+	}
+	if err := s.store.AcceptInvitation(ctx, inv, id.UserID); err != nil {
+		var nf *store.NotFoundError
+		if errors.As(err, &nf) {
+			return nil, status.Error(codes.FailedPrecondition, "invitation already used")
+		}
+		s.log.Error("AcceptInvitationById", "err", err)
+		return nil, status.Error(codes.Internal, "internal error")
+	}
+
+	// Best-effort: notify remaining team members that someone joined.
+	if s.notifier != nil {
+		joinerEmail := s.callerEmail(ctx, id)
+		if nErr := s.notifier.NotifyTenantMembers(ctx, inv.TenantID, id.UserID, "team.member_joined",
+			"New team member", joinerEmail+" joined the team",
+			map[string]any{"user_id": id.UserID}); nErr != nil {
+			s.log.Warn("AcceptInvitationById notify members", "err", nErr)
+		}
+	}
+
+	return &emptypb.Empty{}, nil
 }
 
 func (s *Service) adminOwnsInvitation(ctx context.Context, invID int64) (*auth.Identity, *store.Invitation, error) {

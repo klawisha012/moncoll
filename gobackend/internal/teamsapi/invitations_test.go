@@ -7,6 +7,7 @@ import (
 	"errors"
 	"io"
 	"log/slog"
+	"sync"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -17,6 +18,44 @@ import (
 	teamsv1 "github.com/zwarder/waf/gobackend/gen/teams/v1"
 	"github.com/zwarder/waf/gobackend/internal/store"
 )
+
+// fakeNotifier records notification emit calls for assertion in tests.
+type fakeNotifier struct {
+	mu    sync.Mutex
+	calls []notifyCall
+}
+
+type notifyCall struct {
+	method   string // "user" or "members"
+	userID   int64
+	tenantID *int64
+	typ      string
+}
+
+func (n *fakeNotifier) NotifyUser(_ context.Context, userID int64, tenantID *int64, typ, _, _ string, _ map[string]any) error {
+	n.mu.Lock()
+	defer n.mu.Unlock()
+	n.calls = append(n.calls, notifyCall{method: "user", userID: userID, tenantID: tenantID, typ: typ})
+	return nil
+}
+
+func (n *fakeNotifier) NotifyTenantMembers(_ context.Context, tenantID, excludeUserID int64, typ, _, _ string, _ map[string]any) error {
+	n.mu.Lock()
+	defer n.mu.Unlock()
+	n.calls = append(n.calls, notifyCall{method: "members", userID: excludeUserID, tenantID: &tenantID, typ: typ})
+	return nil
+}
+
+func (n *fakeNotifier) findType(typ string) (notifyCall, bool) {
+	n.mu.Lock()
+	defer n.mu.Unlock()
+	for _, c := range n.calls {
+		if c.typ == typ {
+			return c, true
+		}
+	}
+	return notifyCall{}, false
+}
 
 func adminStore() *fakeStore {
 	return &fakeStore{
@@ -29,7 +68,11 @@ func adminStore() *fakeStore {
 
 func svcWithMailer(f *fakeStore) (*Service, *fakeMailer) {
 	m := &fakeMailer{}
-	return New(f, m, "https://waf.test", slog.New(slog.NewTextHandler(io.Discard, nil))), m
+	return New(f, m, "https://waf.test", slog.New(slog.NewTextHandler(io.Discard, nil)), nil), m
+}
+
+func svcWithNotifier(f *fakeStore, n *fakeNotifier) *Service {
+	return New(f, &fakeMailer{}, "https://waf.test", slog.New(slog.NewTextHandler(io.Discard, nil)), n)
 }
 
 func TestCreateInvitationRequiresAdmin(t *testing.T) {
@@ -169,3 +212,74 @@ func TestRevokeRequiresAdmin(t *testing.T) {
 	assert.Equal(t, codes.PermissionDenied, status.Code(err))
 }
 
+// ── Notification tests ──────────────────────────────────────────────────────
+
+func TestCreateInvitation_NotifiesRegisteredUser(t *testing.T) {
+	// Use memberRoles so membership lookups are per-userID, not per-tenantID.
+	// User 1 (owner) is a member; user 99 (invited) is not.
+	f := &fakeStore{
+		memberRoles: map[int64]string{1: "owner"},
+		usersByID: map[int64]*store.User{
+			1:  {ID: 1, Email: "owner@t.test"},
+			99: {ID: 99, Email: "invited@y.test"},
+		},
+		users: map[string]*store.User{
+			"owner@t.test":   {ID: 1, Email: "owner@t.test"},
+			"invited@y.test": {ID: 99, Email: "invited@y.test"},
+		},
+		tenantNames: map[int64]string{1: "Team One"},
+	}
+	n := &fakeNotifier{}
+	svc := svcWithNotifier(f, n)
+
+	_, err := svc.CreateInvitation(ctxWithUser(1, 1), &teamsv1.CreateInvitationRequest{Email: "invited@y.test", Role: "member"})
+	require.NoError(t, err)
+
+	call, ok := n.findType("team.invitation")
+	require.True(t, ok, "expected team.invitation notification")
+	assert.Equal(t, int64(99), call.userID)
+}
+
+func TestCreateInvitation_NoNotifyForUnknownEmail(t *testing.T) {
+	f := adminStore()
+	// "unknown@y.test" has no account.
+	n := &fakeNotifier{}
+	svc := svcWithNotifier(f, n)
+
+	_, err := svc.CreateInvitation(ctxWithUser(1, 1), &teamsv1.CreateInvitationRequest{Email: "unknown@y.test", Role: "member"})
+	require.NoError(t, err)
+
+	_, ok := n.findType("team.invitation")
+	assert.False(t, ok, "no notification expected for unregistered email")
+}
+
+func TestAcceptInvitationById_MatchingEmail_AcceptsAndNotifies(t *testing.T) {
+	f := adminStore()
+	f.usersByID[2] = &store.User{ID: 2, Email: "joiner@y.test"}
+	f.invites = map[int64]*store.Invitation{
+		42: {ID: 42, TenantID: 1, Email: "joiner@y.test", Role: "member", Status: "pending"},
+	}
+	f.members = []store.TeamMember{{UserID: 1, Email: "owner@t.test"}}
+	n := &fakeNotifier{}
+	svc := svcWithNotifier(f, n)
+
+	_, err := svc.AcceptInvitationById(ctxWithUser(2, 0), &teamsv1.InvitationIdRequest{Id: 42})
+	require.NoError(t, err)
+	assert.Equal(t, "accepted", f.invites[42].Status)
+
+	call, ok := n.findType("team.member_joined")
+	require.True(t, ok, "expected team.member_joined notification")
+	assert.Equal(t, int64(2), call.userID) // excludeUserID = joiner
+}
+
+func TestAcceptInvitationById_WrongEmail_PermissionDenied(t *testing.T) {
+	f := adminStore()
+	// User 1 is "owner@t.test" but invitation is for "other@y.test".
+	f.invites = map[int64]*store.Invitation{
+		55: {ID: 55, TenantID: 1, Email: "other@y.test", Role: "member", Status: "pending"},
+	}
+	svc := svcWithNotifier(f, &fakeNotifier{})
+
+	_, err := svc.AcceptInvitationById(ctxWithUser(1, 1), &teamsv1.InvitationIdRequest{Id: 55})
+	assert.Equal(t, codes.PermissionDenied, status.Code(err))
+}

@@ -50,36 +50,44 @@ type Mailer interface {
 	Configured() bool
 }
 
+// Notifier emits user-facing notifications for team events (best-effort).
+type Notifier interface {
+	NotifyUser(ctx context.Context, userID int64, tenantID *int64, typ, title, body string, data map[string]any) error
+	NotifyTenantMembers(ctx context.Context, tenantID, excludeUserID int64, typ, title, body string, data map[string]any) error
+}
+
 // Service implements teamsv1.TeamsServiceServer.
 type Service struct {
 	teamsv1.UnimplementedTeamsServiceServer
 	store         Store
 	mail          Mailer
+	notifier      Notifier
 	publicBaseURL string
 	log           *slog.Logger
 }
 
-// New constructs a Service.
-func New(st Store, mail Mailer, publicBaseURL string, log *slog.Logger) *Service {
-	return &Service{store: st, mail: mail, publicBaseURL: strings.TrimRight(publicBaseURL, "/"), log: log}
+// New constructs a Service. notifier may be nil (all emit calls are nil-safe).
+func New(st Store, mail Mailer, publicBaseURL string, log *slog.Logger, notifier Notifier) *Service {
+	return &Service{store: st, mail: mail, notifier: notifier, publicBaseURL: strings.TrimRight(publicBaseURL, "/"), log: log}
 }
 
 func (s *Service) AuthLevels() map[string]auth.Level {
 	return map[string]auth.Level{
-		teamsv1.TeamsService_ListMyTeams_FullMethodName:       auth.LevelVerified,
-		teamsv1.TeamsService_SwitchTeam_FullMethodName:        auth.LevelVerified,
-		teamsv1.TeamsService_ListInvitations_FullMethodName:   auth.LevelVerified,
-		teamsv1.TeamsService_CreateInvitation_FullMethodName:  auth.LevelVerified,
-		teamsv1.TeamsService_PreviewInvitation_FullMethodName: auth.LevelPublic,
-		teamsv1.TeamsService_AcceptInvitation_FullMethodName:  auth.LevelVerified,
-		teamsv1.TeamsService_DeclineInvitation_FullMethodName: auth.LevelVerified,
-		teamsv1.TeamsService_RevokeInvitation_FullMethodName:  auth.LevelVerified,
-		teamsv1.TeamsService_ResendInvitation_FullMethodName:  auth.LevelVerified,
-		teamsv1.TeamsService_ListMembers_FullMethodName:       auth.LevelVerified,
-		teamsv1.TeamsService_RemoveMember_FullMethodName:      auth.LevelVerified,
-		teamsv1.TeamsService_ChangeRole_FullMethodName:        auth.LevelVerified,
-		teamsv1.TeamsService_LeaveTeam_FullMethodName:         auth.LevelVerified,
-		teamsv1.TeamsService_LookupUserByEmail_FullMethodName: auth.LevelVerified,
+		teamsv1.TeamsService_ListMyTeams_FullMethodName:          auth.LevelVerified,
+		teamsv1.TeamsService_SwitchTeam_FullMethodName:           auth.LevelVerified,
+		teamsv1.TeamsService_ListInvitations_FullMethodName:      auth.LevelVerified,
+		teamsv1.TeamsService_CreateInvitation_FullMethodName:     auth.LevelVerified,
+		teamsv1.TeamsService_PreviewInvitation_FullMethodName:    auth.LevelPublic,
+		teamsv1.TeamsService_AcceptInvitation_FullMethodName:     auth.LevelVerified,
+		teamsv1.TeamsService_AcceptInvitationById_FullMethodName: auth.LevelVerified,
+		teamsv1.TeamsService_DeclineInvitation_FullMethodName:    auth.LevelVerified,
+		teamsv1.TeamsService_RevokeInvitation_FullMethodName:     auth.LevelVerified,
+		teamsv1.TeamsService_ResendInvitation_FullMethodName:     auth.LevelVerified,
+		teamsv1.TeamsService_ListMembers_FullMethodName:          auth.LevelVerified,
+		teamsv1.TeamsService_RemoveMember_FullMethodName:         auth.LevelVerified,
+		teamsv1.TeamsService_ChangeRole_FullMethodName:           auth.LevelVerified,
+		teamsv1.TeamsService_LeaveTeam_FullMethodName:            auth.LevelVerified,
+		teamsv1.TeamsService_LookupUserByEmail_FullMethodName:    auth.LevelVerified,
 	}
 }
 

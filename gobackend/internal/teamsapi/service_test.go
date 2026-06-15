@@ -194,7 +194,7 @@ func ctxWithUser(userID int64, tenantID int64) context.Context {
 }
 
 func newSvc(f *fakeStore) *Service {
-	return New(f, &fakeMailer{}, "https://waf.test", slog.New(slog.NewTextHandler(io.Discard, nil)))
+	return New(f, &fakeMailer{}, "https://waf.test", slog.New(slog.NewTextHandler(io.Discard, nil)), nil)
 }
 
 func TestListMyTeamsMarksActive(t *testing.T) {

@@ -48,15 +48,16 @@ import (
 	"github.com/zwarder/waf/gobackend/internal/modsec"
 	"github.com/zwarder/waf/gobackend/internal/modsecurity"
 	"github.com/zwarder/waf/gobackend/internal/monitoring"
+	"github.com/zwarder/waf/gobackend/internal/notificationsapi"
+	"github.com/zwarder/waf/gobackend/internal/notify"
 	"github.com/zwarder/waf/gobackend/internal/oauth"
 	"github.com/zwarder/waf/gobackend/internal/observability"
-	"github.com/zwarder/waf/gobackend/internal/notificationsapi"
 	"github.com/zwarder/waf/gobackend/internal/realtime"
 	"github.com/zwarder/waf/gobackend/internal/realtimeapi"
 	"github.com/zwarder/waf/gobackend/internal/sslapi"
 	"github.com/zwarder/waf/gobackend/internal/store"
-	"github.com/zwarder/waf/gobackend/internal/tenantfs"
 	"github.com/zwarder/waf/gobackend/internal/teamsapi"
+	"github.com/zwarder/waf/gobackend/internal/tenantfs"
 	"github.com/zwarder/waf/gobackend/internal/testsapi"
 )
 
@@ -161,7 +162,9 @@ func (s *Server) Start(ctx context.Context) error {
 		s.log,
 	)
 
-	teamsSvc := teamsapi.New(st, email.NewSender(), os.Getenv("WAF_PUBLIC_BASE_URL"), s.log)
+	centPub := centrifugo.NewPublisher()
+	teamsNotifier := notify.New(st, centPub, s.log)
+	teamsSvc := teamsapi.New(st, email.NewSender(), os.Getenv("WAF_PUBLIC_BASE_URL"), s.log, teamsNotifier)
 
 	authCfg := authapi.Config{
 		PasetoKey:      s.cfg.PasetoKey,
@@ -189,7 +192,6 @@ func (s *Server) Start(ctx context.Context) error {
 		s.log,
 	)
 
-	centPub := centrifugo.NewPublisher()
 	realtimeSvc := realtimeapi.New(centrifugo.MintConnectionToken)
 
 	testsCatalog := testsapi.NewFileCatalogLoader(getenvOr("WAF_TESTS_MANIFEST_PATH", "/app/manifest.json"))
