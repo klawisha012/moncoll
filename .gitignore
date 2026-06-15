@@ -133,3 +133,6 @@ AGENTS.md
 containers/k8s/kubeconfig.yaml
 **/kubeconfig*.yaml
 *.kubeconfig
+
+# Local scratch drafts (PRD / planning notes), never committed
+.prd-*.md
