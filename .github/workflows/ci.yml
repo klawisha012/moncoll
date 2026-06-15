@@ -419,6 +419,17 @@ jobs:
             curl -sSfL "$base/$f" -o "configs/angie/geoip2/${f/-Test/}"
           done
           ls -la configs/angie/geoip2/
+      - name: Provision default TLS cert (gitignored self-signed)
+        # _default-tls.conf and waf-admin.conf load this cert via
+        # ssl_certificate; it is gitignored (self-signed, minted per
+        # environment) so without it Angie aborts at startup with
+        # `cannot load certificate .../_default/default.crt`.
+        run: |
+          mkdir -p configs/angie/http.d/_default
+          openssl req -x509 -nodes -newkey rsa:2048 -days 365 \
+            -keyout configs/angie/http.d/_default/default.key \
+            -out configs/angie/http.d/_default/default.crt \
+            -subj "/CN=localhost"
       - name: Start full stack
         id: stack-up
         # `--wait` blocks until every service reports healthy; if a service
@@ -499,6 +510,13 @@ jobs:
           for f in GeoLite2-Country-Test.mmdb GeoLite2-City-Test.mmdb GeoLite2-ASN-Test.mmdb; do
             curl -sSfL "$base/$f" -o "configs/angie/geoip2/${f/-Test/}"
           done
+      - name: Provision default TLS cert (gitignored self-signed)
+        run: |
+          mkdir -p configs/angie/http.d/_default
+          openssl req -x509 -nodes -newkey rsa:2048 -days 365 \
+            -keyout configs/angie/http.d/_default/default.key \
+            -out configs/angie/http.d/_default/default.crt \
+            -subj "/CN=localhost"
       - name: Start angie + backend + postgres
         run: docker compose up -d --build --wait angie backend postgres
         timeout-minutes: 10

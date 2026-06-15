@@ -54,6 +54,12 @@ services:
     depends_on:
       - vector
       - crowdsec
+      # Angie resolves the `centrifugo`/`frontend` upstream hostnames at
+      # config-parse time (literal proxy_pass targets in waf-admin.conf).
+      # Without start ordering it can boot before their DNS exists and
+      # crash-loop on `host not found in upstream "centrifugo"`.
+      - centrifugo
+      - frontend
     # Healthcheck so `docker compose up --wait` blocks until Angie is
     # actually serving — without this, --wait only checks "started" and
     # CI can race past a crash-looping container.
