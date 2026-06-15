@@ -120,6 +120,29 @@ func TestPreviewInvitation(t *testing.T) {
 	assert.Empty(t, bad.TeamName)
 }
 
+func TestPreviewInvitationReportsAccountExists(t *testing.T) {
+	f := adminStore()
+	raw := "previewtok2"
+	sum := sha256.Sum256([]byte(raw))
+	f.invites = map[int64]*store.Invitation{10: {
+		ID: 10, TenantID: 1, Email: "known@y.test", Role: "member", Status: "pending",
+		TokenHash: hex.EncodeToString(sum[:]),
+	}}
+	svc, _ := svcWithMailer(f)
+
+	// No user with that email yet → account_exists false.
+	out, err := svc.PreviewInvitation(context.Background(), &teamsv1.PreviewInvitationRequest{Token: raw})
+	require.NoError(t, err)
+	require.True(t, out.Valid)
+	require.False(t, out.AccountExists)
+
+	// Seed a user with the invited email → account_exists true.
+	f.users["known@y.test"] = &store.User{ID: 2, Email: "known@y.test"}
+	out2, err := svc.PreviewInvitation(context.Background(), &teamsv1.PreviewInvitationRequest{Token: raw})
+	require.NoError(t, err)
+	require.True(t, out2.AccountExists)
+}
+
 func TestAcceptInvitationMatchesEmail(t *testing.T) {
 	f := adminStore()
 	f.usersByID[2] = &store.User{ID: 2, Email: "joiner@y.test"}

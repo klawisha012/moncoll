@@ -185,11 +185,16 @@ func (s *Service) PreviewInvitation(ctx context.Context, req *teamsv1.PreviewInv
 		return &teamsv1.InvitationPreview{Valid: false}, nil
 	}
 	teamName, _ := s.store.GetTenantDisplayName(ctx, inv.TenantID)
+	accountExists := false
+	if u, uErr := s.store.GetUserByEmail(ctx, inv.Email); uErr == nil && u != nil {
+		accountExists = true
+	}
 	return &teamsv1.InvitationPreview{
-		Valid:    true,
-		TeamName: teamName,
-		Role:     inv.Role,
-		Email:    inv.Email,
+		Valid:         true,
+		TeamName:      teamName,
+		Role:          inv.Role,
+		Email:         inv.Email,
+		AccountExists: accountExists,
 	}, nil
 }
 
