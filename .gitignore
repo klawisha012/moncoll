@@ -126,3 +126,10 @@ artifacts/
 AGENTS.md
 # Standalone academic report (unrelated to WAF project)
 /report-case-tools/
+
+# Kubernetes admin credentials — a kubeconfig carries a client private key and
+# must never be committed (was tracked at containers/k8s/kubeconfig.yaml; see
+# .gitleaks.toml entry 8). Ignore it and any other kubeconfig.
+containers/k8s/kubeconfig.yaml
+**/kubeconfig*.yaml
+*.kubeconfig
