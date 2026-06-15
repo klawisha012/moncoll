@@ -16,7 +16,9 @@ export default function Login() {
   const [email, setEmail] = createSignal("");
   const [password, setPassword] = createSignal("");
   const [showPassword, setShowPassword] = createSignal(false);
-  const [captchaToken, setCaptchaToken] = createSignal("e2e-test-bypass");
+  // Empty until the Turnstile widget issues a real token (handleToken). When
+  // Turnstile is unconfigured the backend treats any token (incl. "") as a pass.
+  const [captchaToken, setCaptchaToken] = createSignal("");
   // Toggled to force the Turnstile widget to unmount and remount, issuing a fresh,
   // single-use token after the previous one was consumed by a backend call
   // that didn't fully complete the login (e.g. totp_required).

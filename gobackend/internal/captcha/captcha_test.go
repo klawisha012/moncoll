@@ -87,14 +87,21 @@ func TestVerify_NotConfigured_Passes(t *testing.T) {
 	}
 }
 
-func TestVerify_E2EBypass(t *testing.T) {
-	v := newVerifierWithClient("some-secret", nil)
+func TestVerify_BypassTokenNoLongerMagic(t *testing.T) {
+	// The old hardcoded "e2e-test-bypass" backdoor is removed: with a secret
+	// configured, that token is verified against Cloudflare like any other and
+	// is rejected when siteverify says success=false. e2e suites instead rely on
+	// the unconfigured (empty-secret) pass-through above.
+	srv, client := fakeTurnstile(t, false, []string{"invalid-input-response"})
+	defer srv.Close()
+
+	v := newVerifierWithClient("some-secret", client)
 	ok, err := v.Verify(context.Background(), "e2e-test-bypass", "")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if !ok {
-		t.Error("expected e2e-test-bypass token to always pass")
+	if ok {
+		t.Error("e2e-test-bypass must NOT be honored as a bypass when a secret is configured")
 	}
 }
 
