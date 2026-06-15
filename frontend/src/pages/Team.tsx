@@ -1,5 +1,5 @@
 import { createSignal, onMount, For, Show } from "solid-js";
-import { api, type TeamMember, type Invitation } from "../api/client";
+import { api, type TeamMember, type Invitation, type UserLookup } from "../api/client";
 import { useSettings } from "../context/SettingsContext";
 import { useAuth } from "../context/AuthContext";
 
@@ -25,6 +25,8 @@ export default function Team() {
   const [email, setEmail] = createSignal("");
   const [role, setRole] = createSignal("member");
   const [busy, setBusy] = createSignal(false);
+  const [lookup, setLookup] = createSignal<UserLookup | null>(null);
+  let lookupTimer: ReturnType<typeof setTimeout> | undefined;
   const [toast, setToast] = createSignal<{ kind: ToastKind; msg: string } | null>(null);
   const [linkPanel, setLinkPanel] = createSignal<LinkPanel | null>(null);
   const [confirm, setConfirm] = createSignal<Confirm | null>(null);
@@ -77,6 +79,25 @@ export default function Team() {
     }
   };
 
+  // Debounced exact-email lookup: tell the admin whether this address already
+  // has a WAF account before they send the invite.
+  const onEmailInput = (val: string) => {
+    setEmail(val);
+    setLookup(null);
+    if (lookupTimer) clearTimeout(lookupTimer);
+    const addr = val.trim();
+    if (!addr.includes("@") || addr.length < 3) return;
+    lookupTimer = setTimeout(() => {
+      api.teams
+        .lookupUser(addr)
+        .then((r) => {
+          // Ignore stale responses if the field changed while in flight.
+          if (email().trim().toLowerCase() === addr.toLowerCase()) setLookup(r);
+        })
+        .catch(() => {});
+    }, 400);
+  };
+
   const invite = async (e: Event) => {
     e.preventDefault();
     const addr = email().trim();
@@ -85,6 +106,7 @@ export default function Team() {
     try {
       const inv = await api.teams.invite(addr, role());
       setEmail("");
+      setLookup(null);
       presentInvite(inv);
       showToast("success", t("team.invited.ok", { email: inv.email }));
       void load();
@@ -242,16 +264,28 @@ export default function Team() {
               required
               placeholder={t("team.invite.placeholder")}
               value={email()}
-              onInput={(e) => setEmail(e.currentTarget.value)}
+              onInput={(e) => onEmailInput(e.currentTarget.value)}
             />
             <select class="input" style="width: auto;" value={role()} onChange={(e) => setRole(e.currentTarget.value)}>
               <option value="member">{t("team.role.member")}</option>
               <option value="admin">{t("team.role.admin")}</option>
             </select>
-            <button type="submit" class="btn btn-primary" disabled={busy()}>
+            <button type="submit" class="btn btn-primary" disabled={busy() || lookup()?.already_member === true}>
               {t("team.invite")}
             </button>
           </form>
+
+          <Show when={lookup()}>
+            <p
+              style={`margin: 10px 0 0; font-size: 13px; color: ${lookup()!.already_member ? "var(--text-muted)" : lookup()!.found ? "var(--ok, #1a7f37)" : "var(--text-secondary)"};`}
+            >
+              {lookup()!.already_member
+                ? t("team.lookup.member", { name: lookup()!.display_name || lookup()!.email || "" })
+                : lookup()!.found
+                ? t("team.lookup.registered", { name: lookup()!.display_name || lookup()!.email || "" })
+                : t("team.lookup.unregistered")}
+            </p>
+          </Show>
 
           {/* Invite link + delivery status */}
           <Show when={linkPanel()}>
