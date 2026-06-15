@@ -37,12 +37,13 @@ type fakeStore struct {
 	tenants      map[string]*store.Tenant
 	nextID       int64
 
-	createUserErr  error
-	updates        []store.UserUpdate
-	memberships    [][3]any // [tenantID, userID, role]
+	createUserErr     error
+	updates           []store.UserUpdate
+	memberships       [][3]any // [tenantID, userID, role]
 	pendingInvites    map[string][]store.Invitation
 	invitationsByHash map[string]*store.Invitation
 	acceptedInvites   []int64
+	acceptInviteErr   error
 	activeTenant      int64
 }
 
@@ -179,6 +180,9 @@ func (f *fakeStore) ListPendingInvitationsForEmail(_ context.Context, email stri
 	return f.pendingInvites[email], nil
 }
 func (f *fakeStore) AcceptInvitation(_ context.Context, inv *store.Invitation, _ int64) error {
+	if f.acceptInviteErr != nil {
+		return f.acceptInviteErr
+	}
 	f.acceptedInvites = append(f.acceptedInvites, inv.ID)
 	return nil
 }
@@ -888,7 +892,7 @@ func TestSignupViaInviteCreatesAccountAndJoins(t *testing.T) {
 
 	u, e := h.st.GetUserByEmail(context.Background(), "invitee@y.test")
 	require.NoError(t, e)
-	require.NotNil(t, u.EmailVerifiedAt)               // auto-verified
+	require.NotNil(t, u.EmailVerifiedAt)                // auto-verified
 	require.Contains(t, h.st.acceptedInvites, int64(1)) // joined invited team
 	require.Equal(t, int64(5), h.st.activeTenant)       // active = invited team
 }
@@ -914,4 +918,32 @@ func TestSignupViaInviteWeakPassword(t *testing.T) {
 	h.st.invitationsByHash[sha256Hex(raw)] = &store.Invitation{ID: 3, TenantID: 5, Email: "weak@y.test", Role: "member", Status: "pending"}
 	_, err := h.svc.SignupViaInvite(context.Background(), &authv1.SignupViaInviteRequest{Token: raw, Password: "short"})
 	require.Equal(t, codes.InvalidArgument, status.Code(err))
+}
+
+func TestSignupViaInviteGracefulWhenInviteAlreadyUsed(t *testing.T) {
+	h := newHarness(t, Config{})
+	raw := "racetok"
+	h.st.invitationsByHash[sha256Hex(raw)] = &store.Invitation{ID: 4, TenantID: 5, Email: "race@y.test", Role: "member", Status: "pending"}
+	h.st.acceptInviteErr = &store.NotFoundError{Entity: "invitation"}
+
+	md, err := runWithMD(context.Background(), func(ctx context.Context) error {
+		_, e := h.svc.SignupViaInvite(ctx, &authv1.SignupViaInviteRequest{Token: raw, Password: "hunter2pass"})
+		return e
+	})
+	require.NoError(t, err)                                // account still created, user logged in
+	require.True(t, hasCookie(md, sessionCookie))          // session issued
+	require.NotContains(t, h.st.acceptedInvites, int64(4)) // invite not marked accepted
+	require.Equal(t, int64(0), h.st.activeTenant)          // active stayed the personal team (SetActiveTenant not called)
+	u, e := h.st.GetUserByEmail(context.Background(), "race@y.test")
+	require.NoError(t, e)
+	require.NotNil(t, u.EmailVerifiedAt)
+}
+
+func TestSignupViaInviteConflictMapsToAlreadyExists(t *testing.T) {
+	h := newHarness(t, Config{})
+	raw := "conftok"
+	h.st.invitationsByHash[sha256Hex(raw)] = &store.Invitation{ID: 6, TenantID: 5, Email: "conf@y.test", Role: "member", Status: "pending"}
+	h.st.createUserErr = &store.ConflictError{Detail: "email already taken"}
+	_, err := h.svc.SignupViaInvite(context.Background(), &authv1.SignupViaInviteRequest{Token: raw, Password: "hunter2pass"})
+	require.Equal(t, codes.AlreadyExists, status.Code(err))
 }
