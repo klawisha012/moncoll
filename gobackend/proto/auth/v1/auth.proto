@@ -36,6 +36,17 @@ service AuthService {
     };
   }
 
+  // POST /api/auth/signup-via-invite → LoginResponse (sets session cookie).
+  // Public: creates an account for the email bound to a team-invitation token,
+  // auto-verifies it (the token proves inbox control), joins the invited team,
+  // and logs the user in. No captcha (the unguessable token gates the endpoint).
+  rpc SignupViaInvite(SignupViaInviteRequest) returns (LoginResponse) {
+    option (google.api.http) = {
+      post: "/api/auth/signup-via-invite"
+      body: "*"
+    };
+  }
+
   // POST /api/auth/login → LoginResponse (sets session cookie).
   rpc Login(LoginRequest) returns (LoginResponse) {
     option (google.api.http) = {
@@ -167,6 +178,13 @@ message SignupResponse {
 
 message VerifyEmailRequest {
   string token = 1;
+}
+
+// ── signup-via-invite ────────────────────────────────────────────────────────
+
+message SignupViaInviteRequest {
+  string token = 1;     // raw invitation token (from the invite link)
+  string password = 2;  // 8-256 chars; becomes the new account's password
 }
 
 // ── login ──────────────────────────────────────────────────────────────────────

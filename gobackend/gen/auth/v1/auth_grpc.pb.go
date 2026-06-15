@@ -20,20 +20,21 @@ import (
 const _ = grpc.SupportPackageIsVersion9
 
 const (
-	AuthService_GetProviders_FullMethodName   = "/auth.v1.AuthService/GetProviders"
-	AuthService_Signup_FullMethodName         = "/auth.v1.AuthService/Signup"
-	AuthService_VerifyEmail_FullMethodName    = "/auth.v1.AuthService/VerifyEmail"
-	AuthService_Login_FullMethodName          = "/auth.v1.AuthService/Login"
-	AuthService_Logout_FullMethodName         = "/auth.v1.AuthService/Logout"
-	AuthService_Me_FullMethodName             = "/auth.v1.AuthService/Me"
-	AuthService_ListAccounts_FullMethodName   = "/auth.v1.AuthService/ListAccounts"
-	AuthService_SwitchAccount_FullMethodName  = "/auth.v1.AuthService/SwitchAccount"
-	AuthService_ForgotPassword_FullMethodName = "/auth.v1.AuthService/ForgotPassword"
-	AuthService_ResetPassword_FullMethodName  = "/auth.v1.AuthService/ResetPassword"
-	AuthService_TotpSetup_FullMethodName      = "/auth.v1.AuthService/TotpSetup"
-	AuthService_TotpConfirm_FullMethodName    = "/auth.v1.AuthService/TotpConfirm"
-	AuthService_OauthStart_FullMethodName     = "/auth.v1.AuthService/OauthStart"
-	AuthService_OauthCallback_FullMethodName  = "/auth.v1.AuthService/OauthCallback"
+	AuthService_GetProviders_FullMethodName    = "/auth.v1.AuthService/GetProviders"
+	AuthService_Signup_FullMethodName          = "/auth.v1.AuthService/Signup"
+	AuthService_VerifyEmail_FullMethodName     = "/auth.v1.AuthService/VerifyEmail"
+	AuthService_SignupViaInvite_FullMethodName = "/auth.v1.AuthService/SignupViaInvite"
+	AuthService_Login_FullMethodName           = "/auth.v1.AuthService/Login"
+	AuthService_Logout_FullMethodName          = "/auth.v1.AuthService/Logout"
+	AuthService_Me_FullMethodName              = "/auth.v1.AuthService/Me"
+	AuthService_ListAccounts_FullMethodName    = "/auth.v1.AuthService/ListAccounts"
+	AuthService_SwitchAccount_FullMethodName   = "/auth.v1.AuthService/SwitchAccount"
+	AuthService_ForgotPassword_FullMethodName  = "/auth.v1.AuthService/ForgotPassword"
+	AuthService_ResetPassword_FullMethodName   = "/auth.v1.AuthService/ResetPassword"
+	AuthService_TotpSetup_FullMethodName       = "/auth.v1.AuthService/TotpSetup"
+	AuthService_TotpConfirm_FullMethodName     = "/auth.v1.AuthService/TotpConfirm"
+	AuthService_OauthStart_FullMethodName      = "/auth.v1.AuthService/OauthStart"
+	AuthService_OauthCallback_FullMethodName   = "/auth.v1.AuthService/OauthCallback"
 )
 
 // AuthServiceClient is the client API for AuthService service.
@@ -56,6 +57,11 @@ type AuthServiceClient interface {
 	Signup(ctx context.Context, in *SignupRequest, opts ...grpc.CallOption) (*SignupResponse, error)
 	// POST /api/auth/verify-email → LoginResponse (sets session cookie).
 	VerifyEmail(ctx context.Context, in *VerifyEmailRequest, opts ...grpc.CallOption) (*LoginResponse, error)
+	// POST /api/auth/signup-via-invite → LoginResponse (sets session cookie).
+	// Public: creates an account for the email bound to a team-invitation token,
+	// auto-verifies it (the token proves inbox control), joins the invited team,
+	// and logs the user in. No captcha (the unguessable token gates the endpoint).
+	SignupViaInvite(ctx context.Context, in *SignupViaInviteRequest, opts ...grpc.CallOption) (*LoginResponse, error)
 	// POST /api/auth/login → LoginResponse (sets session cookie).
 	Login(ctx context.Context, in *LoginRequest, opts ...grpc.CallOption) (*LoginResponse, error)
 	// POST /api/auth/logout → 204 (clears session cookie).
@@ -114,6 +120,16 @@ func (c *authServiceClient) VerifyEmail(ctx context.Context, in *VerifyEmailRequ
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(LoginResponse)
 	err := c.cc.Invoke(ctx, AuthService_VerifyEmail_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *authServiceClient) SignupViaInvite(ctx context.Context, in *SignupViaInviteRequest, opts ...grpc.CallOption) (*LoginResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(LoginResponse)
+	err := c.cc.Invoke(ctx, AuthService_SignupViaInvite_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -250,6 +266,11 @@ type AuthServiceServer interface {
 	Signup(context.Context, *SignupRequest) (*SignupResponse, error)
 	// POST /api/auth/verify-email → LoginResponse (sets session cookie).
 	VerifyEmail(context.Context, *VerifyEmailRequest) (*LoginResponse, error)
+	// POST /api/auth/signup-via-invite → LoginResponse (sets session cookie).
+	// Public: creates an account for the email bound to a team-invitation token,
+	// auto-verifies it (the token proves inbox control), joins the invited team,
+	// and logs the user in. No captcha (the unguessable token gates the endpoint).
+	SignupViaInvite(context.Context, *SignupViaInviteRequest) (*LoginResponse, error)
 	// POST /api/auth/login → LoginResponse (sets session cookie).
 	Login(context.Context, *LoginRequest) (*LoginResponse, error)
 	// POST /api/auth/logout → 204 (clears session cookie).
@@ -292,6 +313,9 @@ func (UnimplementedAuthServiceServer) Signup(context.Context, *SignupRequest) (*
 }
 func (UnimplementedAuthServiceServer) VerifyEmail(context.Context, *VerifyEmailRequest) (*LoginResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method VerifyEmail not implemented")
+}
+func (UnimplementedAuthServiceServer) SignupViaInvite(context.Context, *SignupViaInviteRequest) (*LoginResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method SignupViaInvite not implemented")
 }
 func (UnimplementedAuthServiceServer) Login(context.Context, *LoginRequest) (*LoginResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method Login not implemented")
@@ -397,6 +421,24 @@ func _AuthService_VerifyEmail_Handler(srv interface{}, ctx context.Context, dec 
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
 		return srv.(AuthServiceServer).VerifyEmail(ctx, req.(*VerifyEmailRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _AuthService_SignupViaInvite_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(SignupViaInviteRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AuthServiceServer).SignupViaInvite(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: AuthService_SignupViaInvite_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AuthServiceServer).SignupViaInvite(ctx, req.(*SignupViaInviteRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -617,6 +659,10 @@ var AuthService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "VerifyEmail",
 			Handler:    _AuthService_VerifyEmail_Handler,
+		},
+		{
+			MethodName: "SignupViaInvite",
+			Handler:    _AuthService_SignupViaInvite_Handler,
 		},
 		{
 			MethodName: "Login",

@@ -110,6 +110,33 @@ func local_request_AuthService_VerifyEmail_0(ctx context.Context, marshaler runt
 	return msg, metadata, err
 }
 
+func request_AuthService_SignupViaInvite_0(ctx context.Context, marshaler runtime.Marshaler, client AuthServiceClient, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
+	var (
+		protoReq SignupViaInviteRequest
+		metadata runtime.ServerMetadata
+	)
+	if err := marshaler.NewDecoder(req.Body).Decode(&protoReq); err != nil && !errors.Is(err, io.EOF) {
+		return nil, metadata, status.Errorf(codes.InvalidArgument, "%v", err)
+	}
+	if req.Body != nil {
+		_, _ = io.Copy(io.Discard, req.Body)
+	}
+	msg, err := client.SignupViaInvite(ctx, &protoReq, grpc.Header(&metadata.HeaderMD), grpc.Trailer(&metadata.TrailerMD))
+	return msg, metadata, err
+}
+
+func local_request_AuthService_SignupViaInvite_0(ctx context.Context, marshaler runtime.Marshaler, server AuthServiceServer, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
+	var (
+		protoReq SignupViaInviteRequest
+		metadata runtime.ServerMetadata
+	)
+	if err := marshaler.NewDecoder(req.Body).Decode(&protoReq); err != nil && !errors.Is(err, io.EOF) {
+		return nil, metadata, status.Errorf(codes.InvalidArgument, "%v", err)
+	}
+	msg, err := server.SignupViaInvite(ctx, &protoReq)
+	return msg, metadata, err
+}
+
 func request_AuthService_Login_0(ctx context.Context, marshaler runtime.Marshaler, client AuthServiceClient, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
 	var (
 		protoReq LoginRequest
@@ -513,6 +540,26 @@ func RegisterAuthServiceHandlerServer(ctx context.Context, mux *runtime.ServeMux
 		}
 		forward_AuthService_VerifyEmail_0(annotatedContext, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
 	})
+	mux.Handle(http.MethodPost, pattern_AuthService_SignupViaInvite_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
+		ctx, cancel := context.WithCancel(req.Context())
+		defer cancel()
+		var stream runtime.ServerTransportStream
+		ctx = grpc.NewContextWithServerTransportStream(ctx, &stream)
+		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
+		annotatedContext, err := runtime.AnnotateIncomingContext(ctx, mux, req, "/auth.v1.AuthService/SignupViaInvite", runtime.WithHTTPPathPattern("/api/auth/signup-via-invite"))
+		if err != nil {
+			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
+			return
+		}
+		resp, md, err := local_request_AuthService_SignupViaInvite_0(annotatedContext, inboundMarshaler, server, req, pathParams)
+		md.HeaderMD, md.TrailerMD = metadata.Join(md.HeaderMD, stream.Header()), metadata.Join(md.TrailerMD, stream.Trailer())
+		annotatedContext = runtime.NewServerMetadataContext(annotatedContext, md)
+		if err != nil {
+			runtime.HTTPError(annotatedContext, mux, outboundMarshaler, w, req, err)
+			return
+		}
+		forward_AuthService_SignupViaInvite_0(annotatedContext, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
+	})
 	mux.Handle(http.MethodPost, pattern_AuthService_Login_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
 		ctx, cancel := context.WithCancel(req.Context())
 		defer cancel()
@@ -824,6 +871,23 @@ func RegisterAuthServiceHandlerClient(ctx context.Context, mux *runtime.ServeMux
 		}
 		forward_AuthService_VerifyEmail_0(annotatedContext, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
 	})
+	mux.Handle(http.MethodPost, pattern_AuthService_SignupViaInvite_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
+		ctx, cancel := context.WithCancel(req.Context())
+		defer cancel()
+		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
+		annotatedContext, err := runtime.AnnotateContext(ctx, mux, req, "/auth.v1.AuthService/SignupViaInvite", runtime.WithHTTPPathPattern("/api/auth/signup-via-invite"))
+		if err != nil {
+			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
+			return
+		}
+		resp, md, err := request_AuthService_SignupViaInvite_0(annotatedContext, inboundMarshaler, client, req, pathParams)
+		annotatedContext = runtime.NewServerMetadataContext(annotatedContext, md)
+		if err != nil {
+			runtime.HTTPError(annotatedContext, mux, outboundMarshaler, w, req, err)
+			return
+		}
+		forward_AuthService_SignupViaInvite_0(annotatedContext, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
+	})
 	mux.Handle(http.MethodPost, pattern_AuthService_Login_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
 		ctx, cancel := context.WithCancel(req.Context())
 		defer cancel()
@@ -1015,35 +1079,37 @@ func RegisterAuthServiceHandlerClient(ctx context.Context, mux *runtime.ServeMux
 }
 
 var (
-	pattern_AuthService_GetProviders_0   = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2}, []string{"api", "auth", "providers"}, ""))
-	pattern_AuthService_Signup_0         = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2}, []string{"api", "auth", "signup"}, ""))
-	pattern_AuthService_VerifyEmail_0    = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2}, []string{"api", "auth", "verify-email"}, ""))
-	pattern_AuthService_Login_0          = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2}, []string{"api", "auth", "login"}, ""))
-	pattern_AuthService_Logout_0         = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2}, []string{"api", "auth", "logout"}, ""))
-	pattern_AuthService_Me_0             = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2}, []string{"api", "auth", "me"}, ""))
-	pattern_AuthService_ListAccounts_0   = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2}, []string{"api", "auth", "accounts"}, ""))
-	pattern_AuthService_SwitchAccount_0  = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2, 2, 3}, []string{"api", "auth", "accounts", "switch"}, ""))
-	pattern_AuthService_ForgotPassword_0 = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2, 2, 3}, []string{"api", "auth", "password", "forgot"}, ""))
-	pattern_AuthService_ResetPassword_0  = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2, 2, 3}, []string{"api", "auth", "password", "reset"}, ""))
-	pattern_AuthService_TotpSetup_0      = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2, 2, 3}, []string{"api", "auth", "totp", "setup"}, ""))
-	pattern_AuthService_TotpConfirm_0    = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2, 2, 3}, []string{"api", "auth", "totp", "confirm"}, ""))
-	pattern_AuthService_OauthStart_0     = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2, 1, 0, 4, 1, 5, 3, 2, 4}, []string{"api", "auth", "oauth", "provider", "start"}, ""))
-	pattern_AuthService_OauthCallback_0  = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2, 1, 0, 4, 1, 5, 3, 2, 4}, []string{"api", "auth", "oauth", "provider", "callback"}, ""))
+	pattern_AuthService_GetProviders_0    = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2}, []string{"api", "auth", "providers"}, ""))
+	pattern_AuthService_Signup_0          = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2}, []string{"api", "auth", "signup"}, ""))
+	pattern_AuthService_VerifyEmail_0     = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2}, []string{"api", "auth", "verify-email"}, ""))
+	pattern_AuthService_SignupViaInvite_0 = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2}, []string{"api", "auth", "signup-via-invite"}, ""))
+	pattern_AuthService_Login_0           = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2}, []string{"api", "auth", "login"}, ""))
+	pattern_AuthService_Logout_0          = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2}, []string{"api", "auth", "logout"}, ""))
+	pattern_AuthService_Me_0              = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2}, []string{"api", "auth", "me"}, ""))
+	pattern_AuthService_ListAccounts_0    = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2}, []string{"api", "auth", "accounts"}, ""))
+	pattern_AuthService_SwitchAccount_0   = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2, 2, 3}, []string{"api", "auth", "accounts", "switch"}, ""))
+	pattern_AuthService_ForgotPassword_0  = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2, 2, 3}, []string{"api", "auth", "password", "forgot"}, ""))
+	pattern_AuthService_ResetPassword_0   = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2, 2, 3}, []string{"api", "auth", "password", "reset"}, ""))
+	pattern_AuthService_TotpSetup_0       = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2, 2, 3}, []string{"api", "auth", "totp", "setup"}, ""))
+	pattern_AuthService_TotpConfirm_0     = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2, 2, 3}, []string{"api", "auth", "totp", "confirm"}, ""))
+	pattern_AuthService_OauthStart_0      = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2, 1, 0, 4, 1, 5, 3, 2, 4}, []string{"api", "auth", "oauth", "provider", "start"}, ""))
+	pattern_AuthService_OauthCallback_0   = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2, 1, 0, 4, 1, 5, 3, 2, 4}, []string{"api", "auth", "oauth", "provider", "callback"}, ""))
 )
 
 var (
-	forward_AuthService_GetProviders_0   = runtime.ForwardResponseMessage
-	forward_AuthService_Signup_0         = runtime.ForwardResponseMessage
-	forward_AuthService_VerifyEmail_0    = runtime.ForwardResponseMessage
-	forward_AuthService_Login_0          = runtime.ForwardResponseMessage
-	forward_AuthService_Logout_0         = runtime.ForwardResponseMessage
-	forward_AuthService_Me_0             = runtime.ForwardResponseMessage
-	forward_AuthService_ListAccounts_0   = runtime.ForwardResponseMessage
-	forward_AuthService_SwitchAccount_0  = runtime.ForwardResponseMessage
-	forward_AuthService_ForgotPassword_0 = runtime.ForwardResponseMessage
-	forward_AuthService_ResetPassword_0  = runtime.ForwardResponseMessage
-	forward_AuthService_TotpSetup_0      = runtime.ForwardResponseMessage
-	forward_AuthService_TotpConfirm_0    = runtime.ForwardResponseMessage
-	forward_AuthService_OauthStart_0     = runtime.ForwardResponseMessage
-	forward_AuthService_OauthCallback_0  = runtime.ForwardResponseMessage
+	forward_AuthService_GetProviders_0    = runtime.ForwardResponseMessage
+	forward_AuthService_Signup_0          = runtime.ForwardResponseMessage
+	forward_AuthService_VerifyEmail_0     = runtime.ForwardResponseMessage
+	forward_AuthService_SignupViaInvite_0 = runtime.ForwardResponseMessage
+	forward_AuthService_Login_0           = runtime.ForwardResponseMessage
+	forward_AuthService_Logout_0          = runtime.ForwardResponseMessage
+	forward_AuthService_Me_0              = runtime.ForwardResponseMessage
+	forward_AuthService_ListAccounts_0    = runtime.ForwardResponseMessage
+	forward_AuthService_SwitchAccount_0   = runtime.ForwardResponseMessage
+	forward_AuthService_ForgotPassword_0  = runtime.ForwardResponseMessage
+	forward_AuthService_ResetPassword_0   = runtime.ForwardResponseMessage
+	forward_AuthService_TotpSetup_0       = runtime.ForwardResponseMessage
+	forward_AuthService_TotpConfirm_0     = runtime.ForwardResponseMessage
+	forward_AuthService_OauthStart_0      = runtime.ForwardResponseMessage
+	forward_AuthService_OauthCallback_0   = runtime.ForwardResponseMessage
 )

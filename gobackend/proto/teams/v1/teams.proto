@@ -115,6 +115,10 @@ message InvitationPreview {
   string team_name = 2;
   string role = 3;
   string email = 4;
+  // account_exists is true when a user with `email` already exists. The accept
+  // page uses it to decide between an inline create-password form (no account)
+  // and a sign-in prompt (account exists). Only meaningful when valid=true.
+  bool account_exists = 5;
 }
 message InvitationIdRequest {
   int64 id = 1;

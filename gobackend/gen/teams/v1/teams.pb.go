@@ -567,11 +567,15 @@ func (x *PreviewInvitationRequest) GetToken() string {
 }
 
 type InvitationPreview struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Valid         bool                   `protobuf:"varint,1,opt,name=valid,proto3" json:"valid,omitempty"` // false when the token is unknown, expired, or already used
-	TeamName      string                 `protobuf:"bytes,2,opt,name=team_name,json=teamName,proto3" json:"team_name,omitempty"`
-	Role          string                 `protobuf:"bytes,3,opt,name=role,proto3" json:"role,omitempty"`
-	Email         string                 `protobuf:"bytes,4,opt,name=email,proto3" json:"email,omitempty"`
+	state    protoimpl.MessageState `protogen:"open.v1"`
+	Valid    bool                   `protobuf:"varint,1,opt,name=valid,proto3" json:"valid,omitempty"` // false when the token is unknown, expired, or already used
+	TeamName string                 `protobuf:"bytes,2,opt,name=team_name,json=teamName,proto3" json:"team_name,omitempty"`
+	Role     string                 `protobuf:"bytes,3,opt,name=role,proto3" json:"role,omitempty"`
+	Email    string                 `protobuf:"bytes,4,opt,name=email,proto3" json:"email,omitempty"`
+	// account_exists is true when a user with `email` already exists. The accept
+	// page uses it to decide between an inline create-password form (no account)
+	// and a sign-in prompt (account exists). Only meaningful when valid=true.
+	AccountExists bool `protobuf:"varint,5,opt,name=account_exists,json=accountExists,proto3" json:"account_exists,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -632,6 +636,13 @@ func (x *InvitationPreview) GetEmail() string {
 		return x.Email
 	}
 	return ""
+}
+
+func (x *InvitationPreview) GetAccountExists() bool {
+	if x != nil {
+		return x.AccountExists
+	}
+	return false
 }
 
 type InvitationIdRequest struct {
@@ -1006,12 +1017,13 @@ const file_teams_v1_teams_proto_rawDesc = "" +
 	"\x17AcceptInvitationRequest\x12\x14\n" +
 	"\x05token\x18\x01 \x01(\tR\x05token\"0\n" +
 	"\x18PreviewInvitationRequest\x12\x14\n" +
-	"\x05token\x18\x01 \x01(\tR\x05token\"p\n" +
+	"\x05token\x18\x01 \x01(\tR\x05token\"\x97\x01\n" +
 	"\x11InvitationPreview\x12\x14\n" +
 	"\x05valid\x18\x01 \x01(\bR\x05valid\x12\x1b\n" +
 	"\tteam_name\x18\x02 \x01(\tR\bteamName\x12\x12\n" +
 	"\x04role\x18\x03 \x01(\tR\x04role\x12\x14\n" +
-	"\x05email\x18\x04 \x01(\tR\x05email\"%\n" +
+	"\x05email\x18\x04 \x01(\tR\x05email\x12%\n" +
+	"\x0eaccount_exists\x18\x05 \x01(\bR\raccountExists\"%\n" +
 	"\x13InvitationIdRequest\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\x03R\x02id\"n\n" +
 	"\x06Member\x12\x17\n" +
