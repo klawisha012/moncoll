@@ -54,6 +54,7 @@ type Store interface {
 
 	ListPendingInvitationsForEmail(ctx context.Context, email string) ([]store.Invitation, error)
 	AcceptInvitation(ctx context.Context, inv *store.Invitation, userID int64) error
+	GetInvitationByTokenHash(ctx context.Context, tokenHash string) (*store.Invitation, error)
 	SetActiveTenant(ctx context.Context, userID, tenantID int64) error
 }
 
@@ -176,7 +177,8 @@ func (s *Service) AuthLevels() map[string]auth.Level {
 		authv1.AuthService_OauthStart_FullMethodName:     auth.LevelPublic,
 		authv1.AuthService_OauthCallback_FullMethodName:  auth.LevelPublic,
 		authv1.AuthService_ListAccounts_FullMethodName:   auth.LevelPublic,
-		authv1.AuthService_SwitchAccount_FullMethodName:  auth.LevelPublic,
+		authv1.AuthService_SwitchAccount_FullMethodName:    auth.LevelPublic,
+		authv1.AuthService_SignupViaInvite_FullMethodName:  auth.LevelPublic,
 	}
 }
 

@@ -40,19 +40,21 @@ type fakeStore struct {
 	createUserErr  error
 	updates        []store.UserUpdate
 	memberships    [][3]any // [tenantID, userID, role]
-	pendingInvites map[string][]store.Invitation
-	acceptedInvites []int64
-	activeTenant   int64
+	pendingInvites    map[string][]store.Invitation
+	invitationsByHash map[string]*store.Invitation
+	acceptedInvites   []int64
+	activeTenant      int64
 }
 
 func newFakeStore() *fakeStore {
 	return &fakeStore{
-		usersByEmail: map[string]*store.User{},
-		usersByID:    map[int64]*store.User{},
-		verifs:       map[string]*store.EmailVerification{},
-		oauthAccts:   map[string]*store.OAuthAccount{},
-		tenants:      map[string]*store.Tenant{},
-		nextID:       1,
+		usersByEmail:      map[string]*store.User{},
+		usersByID:         map[int64]*store.User{},
+		verifs:            map[string]*store.EmailVerification{},
+		oauthAccts:        map[string]*store.OAuthAccount{},
+		tenants:           map[string]*store.Tenant{},
+		invitationsByHash: map[string]*store.Invitation{},
+		nextID:            1,
 	}
 }
 
@@ -179,6 +181,13 @@ func (f *fakeStore) ListPendingInvitationsForEmail(_ context.Context, email stri
 func (f *fakeStore) AcceptInvitation(_ context.Context, inv *store.Invitation, _ int64) error {
 	f.acceptedInvites = append(f.acceptedInvites, inv.ID)
 	return nil
+}
+func (f *fakeStore) GetInvitationByTokenHash(_ context.Context, h string) (*store.Invitation, error) {
+	inv, ok := f.invitationsByHash[h]
+	if !ok {
+		return nil, &store.NotFoundError{Entity: "invitation"}
+	}
+	return inv, nil
 }
 func (f *fakeStore) SetActiveTenant(_ context.Context, _ int64, tenantID int64) error {
 	f.activeTenant = tenantID
@@ -855,4 +864,54 @@ func TestOauthCallbackExistingUserNoExtraMembership(t *testing.T) {
 	require.NoError(t, err)
 	// No membership should be created for a returning (existing) user.
 	require.Empty(t, h.st.memberships)
+}
+
+// ── SignupViaInvite ───────────────────────────────────────────────────────────
+
+func TestSignupViaInviteCreatesAccountAndJoins(t *testing.T) {
+	h := newHarness(t, Config{})
+	raw := "invitetok"
+	h.st.invitationsByHash[sha256Hex(raw)] = &store.Invitation{
+		ID: 1, TenantID: 5, Email: "invitee@y.test", Role: "member", Status: "pending",
+	}
+
+	md, err := runWithMD(context.Background(), func(ctx context.Context) error {
+		resp, e := h.svc.SignupViaInvite(ctx, &authv1.SignupViaInviteRequest{Token: raw, Password: "hunter2pass"})
+		if e == nil {
+			require.NotNil(t, resp.User)
+			require.Equal(t, "invitee@y.test", resp.User.Email)
+		}
+		return e
+	})
+	require.NoError(t, err)
+	require.True(t, hasCookie(md, sessionCookie))
+
+	u, e := h.st.GetUserByEmail(context.Background(), "invitee@y.test")
+	require.NoError(t, e)
+	require.NotNil(t, u.EmailVerifiedAt)               // auto-verified
+	require.Contains(t, h.st.acceptedInvites, int64(1)) // joined invited team
+	require.Equal(t, int64(5), h.st.activeTenant)       // active = invited team
+}
+
+func TestSignupViaInviteRejectsExistingAccount(t *testing.T) {
+	h := newHarness(t, Config{})
+	h.st.usersByEmail["taken@y.test"] = &store.User{ID: 9, Email: "taken@y.test"}
+	raw := "tok2"
+	h.st.invitationsByHash[sha256Hex(raw)] = &store.Invitation{ID: 2, TenantID: 5, Email: "taken@y.test", Role: "member", Status: "pending"}
+	_, err := h.svc.SignupViaInvite(context.Background(), &authv1.SignupViaInviteRequest{Token: raw, Password: "hunter2pass"})
+	require.Equal(t, codes.AlreadyExists, status.Code(err))
+}
+
+func TestSignupViaInviteInvalidToken(t *testing.T) {
+	h := newHarness(t, Config{})
+	_, err := h.svc.SignupViaInvite(context.Background(), &authv1.SignupViaInviteRequest{Token: "nope", Password: "hunter2pass"})
+	require.Equal(t, codes.NotFound, status.Code(err))
+}
+
+func TestSignupViaInviteWeakPassword(t *testing.T) {
+	h := newHarness(t, Config{})
+	raw := "tok3"
+	h.st.invitationsByHash[sha256Hex(raw)] = &store.Invitation{ID: 3, TenantID: 5, Email: "weak@y.test", Role: "member", Status: "pending"}
+	_, err := h.svc.SignupViaInvite(context.Background(), &authv1.SignupViaInviteRequest{Token: raw, Password: "short"})
+	require.Equal(t, codes.InvalidArgument, status.Code(err))
 }
