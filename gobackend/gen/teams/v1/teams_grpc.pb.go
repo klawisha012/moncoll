@@ -33,6 +33,7 @@ const (
 	TeamsService_RemoveMember_FullMethodName      = "/teams.v1.TeamsService/RemoveMember"
 	TeamsService_ChangeRole_FullMethodName        = "/teams.v1.TeamsService/ChangeRole"
 	TeamsService_LeaveTeam_FullMethodName         = "/teams.v1.TeamsService/LeaveTeam"
+	TeamsService_LookupUserByEmail_FullMethodName = "/teams.v1.TeamsService/LookupUserByEmail"
 )
 
 // TeamsServiceClient is the client API for TeamsService service.
@@ -58,6 +59,9 @@ type TeamsServiceClient interface {
 	RemoveMember(ctx context.Context, in *MemberRequest, opts ...grpc.CallOption) (*emptypb.Empty, error)
 	ChangeRole(ctx context.Context, in *ChangeRoleRequest, opts ...grpc.CallOption) (*emptypb.Empty, error)
 	LeaveTeam(ctx context.Context, in *LeaveTeamRequest, opts ...grpc.CallOption) (*emptypb.Empty, error)
+	// LookupUserByEmail resolves an EXACT email to a platform user, for admins
+	// composing an invitation. Admin-only; exact match only (no enumeration).
+	LookupUserByEmail(ctx context.Context, in *LookupUserByEmailRequest, opts ...grpc.CallOption) (*UserLookupResponse, error)
 }
 
 type teamsServiceClient struct {
@@ -198,6 +202,16 @@ func (c *teamsServiceClient) LeaveTeam(ctx context.Context, in *LeaveTeamRequest
 	return out, nil
 }
 
+func (c *teamsServiceClient) LookupUserByEmail(ctx context.Context, in *LookupUserByEmailRequest, opts ...grpc.CallOption) (*UserLookupResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(UserLookupResponse)
+	err := c.cc.Invoke(ctx, TeamsService_LookupUserByEmail_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // TeamsServiceServer is the server API for TeamsService service.
 // All implementations must embed UnimplementedTeamsServiceServer
 // for forward compatibility.
@@ -221,6 +235,9 @@ type TeamsServiceServer interface {
 	RemoveMember(context.Context, *MemberRequest) (*emptypb.Empty, error)
 	ChangeRole(context.Context, *ChangeRoleRequest) (*emptypb.Empty, error)
 	LeaveTeam(context.Context, *LeaveTeamRequest) (*emptypb.Empty, error)
+	// LookupUserByEmail resolves an EXACT email to a platform user, for admins
+	// composing an invitation. Admin-only; exact match only (no enumeration).
+	LookupUserByEmail(context.Context, *LookupUserByEmailRequest) (*UserLookupResponse, error)
 	mustEmbedUnimplementedTeamsServiceServer()
 }
 
@@ -269,6 +286,9 @@ func (UnimplementedTeamsServiceServer) ChangeRole(context.Context, *ChangeRoleRe
 }
 func (UnimplementedTeamsServiceServer) LeaveTeam(context.Context, *LeaveTeamRequest) (*emptypb.Empty, error) {
 	return nil, status.Error(codes.Unimplemented, "method LeaveTeam not implemented")
+}
+func (UnimplementedTeamsServiceServer) LookupUserByEmail(context.Context, *LookupUserByEmailRequest) (*UserLookupResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method LookupUserByEmail not implemented")
 }
 func (UnimplementedTeamsServiceServer) mustEmbedUnimplementedTeamsServiceServer() {}
 func (UnimplementedTeamsServiceServer) testEmbeddedByValue()                      {}
@@ -525,6 +545,24 @@ func _TeamsService_LeaveTeam_Handler(srv interface{}, ctx context.Context, dec f
 	return interceptor(ctx, in, info, handler)
 }
 
+func _TeamsService_LookupUserByEmail_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(LookupUserByEmailRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(TeamsServiceServer).LookupUserByEmail(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: TeamsService_LookupUserByEmail_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(TeamsServiceServer).LookupUserByEmail(ctx, req.(*LookupUserByEmailRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // TeamsService_ServiceDesc is the grpc.ServiceDesc for TeamsService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -583,6 +621,10 @@ var TeamsService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "LeaveTeam",
 			Handler:    _TeamsService_LeaveTeam_Handler,
+		},
+		{
+			MethodName: "LookupUserByEmail",
+			Handler:    _TeamsService_LookupUserByEmail_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

@@ -57,6 +57,12 @@ service TeamsService {
   rpc LeaveTeam(LeaveTeamRequest) returns (google.protobuf.Empty) {
     option (google.api.http) = {post: "/api/teams/leave" body: "*"};
   }
+
+  // LookupUserByEmail resolves an EXACT email to a platform user, for admins
+  // composing an invitation. Admin-only; exact match only (no enumeration).
+  rpc LookupUserByEmail(LookupUserByEmailRequest) returns (UserLookupResponse) {
+    option (google.api.http) = {get: "/api/teams/users/lookup"};
+  }
 }
 
 message ListMyTeamsRequest {}
@@ -143,3 +149,14 @@ message ChangeRoleRequest {
   string role = 2;
 }
 message LeaveTeamRequest {}
+
+message LookupUserByEmailRequest {
+  string email = 1;
+}
+message UserLookupResponse {
+  bool found = 1;
+  int64 user_id = 2;
+  string email = 3;
+  string display_name = 4;
+  bool already_member = 5; // true if that user is already in the caller's active team
+}
