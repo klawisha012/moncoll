@@ -313,11 +313,6 @@ const styles = `
   font-family: 'Inter Tight', sans-serif; font-size: 15.5px; line-height: 1.6;
   color: var(--ink); margin: 0;
 }
-.iv-note {
-  font-family: 'Inter Tight', sans-serif; font-size: 13.5px; line-height: 1.55;
-  color: var(--ink); background: rgba(214, 54, 42, 0.06);
-  border-left: 4px solid var(--red); padding: 12px 14px;
-}
 .iv-error {
   border: 3px solid var(--red); background: rgba(214, 54, 42, 0.08);
   padding: 14px 16px; font-family: 'Inter Tight', sans-serif; font-size: 14.5px;
