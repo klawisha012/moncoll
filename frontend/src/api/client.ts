@@ -522,6 +522,7 @@ export interface Invitation { id: number; tenant_id: number; email: string; role
 export interface InvitationsResponse { outgoing: Invitation[]; incoming: Invitation[]; }
 export interface InvitationPreview { valid?: boolean; team_name?: string; role?: string; email?: string; account_exists?: boolean; }
 export interface MembersResponse { members: TeamMember[]; my_role: string; }
+export interface UserLookup { found?: boolean; user_id?: string; email?: string; display_name?: string; already_member?: boolean; }
 
 // ── Auth types ─────────────────────────────────────────────
 
@@ -1095,6 +1096,8 @@ export const api = {
       fetchApi<void>("/api/teams/invitations/revoke", { method: "POST", body: JSON.stringify({ id }) }),
     resendInvite: (id: number) =>
       fetchApi<Invitation>("/api/teams/invitations/resend", { method: "POST", body: JSON.stringify({ id }) }),
+    lookupUser: (email: string) =>
+      fetchApi<UserLookup>(`/api/teams/users/lookup?email=${encodeURIComponent(email)}`),
   },
 
   // ── Real-time (Centrifugo) ──
