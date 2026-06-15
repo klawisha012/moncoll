@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strconv"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -170,6 +171,26 @@ func (s *Store) SetNotificationStar(ctx context.Context, userID, id int64, starr
 		return nil, fmt.Errorf("SetNotificationStar: %w", err)
 	}
 	return out, nil
+}
+
+// HasRecentCertNotification reports whether a cert.expiring notification for
+// the given connection was created since `since`. This is used as a dedup
+// guard so the daily cert-expiry checker does not re-notify within the dedup
+// window. It checks across all recipients (the fan-out creates one row per
+// tenant member).
+func (s *Store) HasRecentCertNotification(ctx context.Context, connID int64, since time.Time) (bool, error) {
+	const q = `SELECT EXISTS(
+		SELECT 1 FROM notifications
+		WHERE type = 'cert.expiring'
+		  AND data->>'connection_id' = $1
+		  AND created_at > $2
+	)`
+	var exists bool
+	err := s.pool.QueryRow(ctx, q, strconv.FormatInt(connID, 10), since).Scan(&exists)
+	if err != nil {
+		return false, fmt.Errorf("HasRecentCertNotification: %w", err)
+	}
+	return exists, nil
 }
 
 // SoftDeleteNotifications marks the given notification IDs as deleted for

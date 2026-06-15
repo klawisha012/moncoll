@@ -564,6 +564,32 @@ func (s *Store) UpdateProbeState(ctx context.Context, tenantID, connID int64, p 
 	return &out, nil
 }
 
+// ListActiveConnectionsWithCert returns active connections that have a backend
+// cert on disk, platform-wide, for the cert-expiry checker. Only the lean
+// columns needed by the checker are populated (ID, TenantID, Name, Domain,
+// SSLCertPath); all other Connection fields are left at zero values.
+func (s *Store) ListActiveConnectionsWithCert(ctx context.Context) ([]Connection, error) {
+	const q = `SELECT id, tenant_id, name, domain, ssl_cert_path
+	           FROM connections
+	           WHERE status = 'active' AND ssl_cert_path IS NOT NULL
+	           ORDER BY id`
+	rows, err := s.pool.Query(ctx, q)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var out []Connection
+	for rows.Next() {
+		var c Connection
+		if err := rows.Scan(&c.ID, &c.TenantID, &c.Name, &c.Domain, &c.SSLCertPath); err != nil {
+			return nil, err
+		}
+		out = append(out, c)
+	}
+	return out, rows.Err()
+}
+
 // TenantHasVerifiedZone reports whether the tenant has any connection in the
 // given registrable zone whose ownership was already verified (status moved
 // past pending_verification). Matches the zone apex and any subdomain.
