@@ -35,6 +35,9 @@ service TeamsService {
   rpc AcceptInvitation(AcceptInvitationRequest) returns (google.protobuf.Empty) {
     option (google.api.http) = {post: "/api/teams/invitations/accept" body: "*"};
   }
+  rpc AcceptInvitationById(InvitationIdRequest) returns (google.protobuf.Empty) {
+    option (google.api.http) = {post: "/api/teams/invitations/accept-by-id" body: "*"};
+  }
   rpc DeclineInvitation(InvitationIdRequest) returns (google.protobuf.Empty) {
     option (google.api.http) = {post: "/api/teams/invitations/decline" body: "*"};
   }

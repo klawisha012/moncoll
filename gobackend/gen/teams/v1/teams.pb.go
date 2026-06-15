@@ -1168,7 +1168,7 @@ const file_teams_v1_teams_proto_rawDesc = "" +
 	"\auser_id\x18\x02 \x01(\x03R\x06userId\x12\x14\n" +
 	"\x05email\x18\x03 \x01(\tR\x05email\x12!\n" +
 	"\fdisplay_name\x18\x04 \x01(\tR\vdisplayName\x12%\n" +
-	"\x0ealready_member\x18\x05 \x01(\bR\ralreadyMember2\x99\f\n" +
+	"\x0ealready_member\x18\x05 \x01(\bR\ralreadyMember2\x98\r\n" +
 	"\fTeamsService\x12^\n" +
 	"\vListMyTeams\x12\x1c.teams.v1.ListMyTeamsRequest\x1a\x1d.teams.v1.ListMyTeamsResponse\"\x12\x82\xd3\xe4\x93\x02\f\x12\n" +
 	"/api/teams\x12_\n" +
@@ -1177,7 +1177,8 @@ const file_teams_v1_teams_proto_rawDesc = "" +
 	"\x0fListInvitations\x12 .teams.v1.ListInvitationsRequest\x1a!.teams.v1.ListInvitationsResponse\"\x1e\x82\xd3\xe4\x93\x02\x18\x12\x16/api/teams/invitations\x12n\n" +
 	"\x10CreateInvitation\x12!.teams.v1.CreateInvitationRequest\x1a\x14.teams.v1.Invitation\"!\x82\xd3\xe4\x93\x02\x1b:\x01*\"\x16/api/teams/invitations\x12|\n" +
 	"\x11PreviewInvitation\x12\".teams.v1.PreviewInvitationRequest\x1a\x1b.teams.v1.InvitationPreview\"&\x82\xd3\xe4\x93\x02 \x12\x1e/api/teams/invitations/preview\x12w\n" +
-	"\x10AcceptInvitation\x12!.teams.v1.AcceptInvitationRequest\x1a\x16.google.protobuf.Empty\"(\x82\xd3\xe4\x93\x02\":\x01*\"\x1d/api/teams/invitations/accept\x12u\n" +
+	"\x10AcceptInvitation\x12!.teams.v1.AcceptInvitationRequest\x1a\x16.google.protobuf.Empty\"(\x82\xd3\xe4\x93\x02\":\x01*\"\x1d/api/teams/invitations/accept\x12}\n" +
+	"\x14AcceptInvitationById\x12\x1d.teams.v1.InvitationIdRequest\x1a\x16.google.protobuf.Empty\".\x82\xd3\xe4\x93\x02(:\x01*\"#/api/teams/invitations/accept-by-id\x12u\n" +
 	"\x11DeclineInvitation\x12\x1d.teams.v1.InvitationIdRequest\x1a\x16.google.protobuf.Empty\")\x82\xd3\xe4\x93\x02#:\x01*\"\x1e/api/teams/invitations/decline\x12s\n" +
 	"\x10RevokeInvitation\x12\x1d.teams.v1.InvitationIdRequest\x1a\x16.google.protobuf.Empty\"(\x82\xd3\xe4\x93\x02\":\x01*\"\x1d/api/teams/invitations/revoke\x12q\n" +
 	"\x10ResendInvitation\x12\x1d.teams.v1.InvitationIdRequest\x1a\x14.teams.v1.Invitation\"(\x82\xd3\xe4\x93\x02\":\x01*\"\x1d/api/teams/invitations/resend\x12f\n" +
@@ -1237,30 +1238,32 @@ var file_teams_v1_teams_proto_depIdxs = []int32{
 	5,  // 7: teams.v1.TeamsService.CreateInvitation:input_type -> teams.v1.CreateInvitationRequest
 	9,  // 8: teams.v1.TeamsService.PreviewInvitation:input_type -> teams.v1.PreviewInvitationRequest
 	8,  // 9: teams.v1.TeamsService.AcceptInvitation:input_type -> teams.v1.AcceptInvitationRequest
-	11, // 10: teams.v1.TeamsService.DeclineInvitation:input_type -> teams.v1.InvitationIdRequest
-	11, // 11: teams.v1.TeamsService.RevokeInvitation:input_type -> teams.v1.InvitationIdRequest
-	11, // 12: teams.v1.TeamsService.ResendInvitation:input_type -> teams.v1.InvitationIdRequest
-	13, // 13: teams.v1.TeamsService.ListMembers:input_type -> teams.v1.ListMembersRequest
-	15, // 14: teams.v1.TeamsService.RemoveMember:input_type -> teams.v1.MemberRequest
-	16, // 15: teams.v1.TeamsService.ChangeRole:input_type -> teams.v1.ChangeRoleRequest
-	17, // 16: teams.v1.TeamsService.LeaveTeam:input_type -> teams.v1.LeaveTeamRequest
-	18, // 17: teams.v1.TeamsService.LookupUserByEmail:input_type -> teams.v1.LookupUserByEmailRequest
-	2,  // 18: teams.v1.TeamsService.ListMyTeams:output_type -> teams.v1.ListMyTeamsResponse
-	20, // 19: teams.v1.TeamsService.SwitchTeam:output_type -> google.protobuf.Empty
-	7,  // 20: teams.v1.TeamsService.ListInvitations:output_type -> teams.v1.ListInvitationsResponse
-	4,  // 21: teams.v1.TeamsService.CreateInvitation:output_type -> teams.v1.Invitation
-	10, // 22: teams.v1.TeamsService.PreviewInvitation:output_type -> teams.v1.InvitationPreview
-	20, // 23: teams.v1.TeamsService.AcceptInvitation:output_type -> google.protobuf.Empty
-	20, // 24: teams.v1.TeamsService.DeclineInvitation:output_type -> google.protobuf.Empty
-	20, // 25: teams.v1.TeamsService.RevokeInvitation:output_type -> google.protobuf.Empty
-	4,  // 26: teams.v1.TeamsService.ResendInvitation:output_type -> teams.v1.Invitation
-	14, // 27: teams.v1.TeamsService.ListMembers:output_type -> teams.v1.ListMembersResponse
-	20, // 28: teams.v1.TeamsService.RemoveMember:output_type -> google.protobuf.Empty
-	20, // 29: teams.v1.TeamsService.ChangeRole:output_type -> google.protobuf.Empty
-	20, // 30: teams.v1.TeamsService.LeaveTeam:output_type -> google.protobuf.Empty
-	19, // 31: teams.v1.TeamsService.LookupUserByEmail:output_type -> teams.v1.UserLookupResponse
-	18, // [18:32] is the sub-list for method output_type
-	4,  // [4:18] is the sub-list for method input_type
+	11, // 10: teams.v1.TeamsService.AcceptInvitationById:input_type -> teams.v1.InvitationIdRequest
+	11, // 11: teams.v1.TeamsService.DeclineInvitation:input_type -> teams.v1.InvitationIdRequest
+	11, // 12: teams.v1.TeamsService.RevokeInvitation:input_type -> teams.v1.InvitationIdRequest
+	11, // 13: teams.v1.TeamsService.ResendInvitation:input_type -> teams.v1.InvitationIdRequest
+	13, // 14: teams.v1.TeamsService.ListMembers:input_type -> teams.v1.ListMembersRequest
+	15, // 15: teams.v1.TeamsService.RemoveMember:input_type -> teams.v1.MemberRequest
+	16, // 16: teams.v1.TeamsService.ChangeRole:input_type -> teams.v1.ChangeRoleRequest
+	17, // 17: teams.v1.TeamsService.LeaveTeam:input_type -> teams.v1.LeaveTeamRequest
+	18, // 18: teams.v1.TeamsService.LookupUserByEmail:input_type -> teams.v1.LookupUserByEmailRequest
+	2,  // 19: teams.v1.TeamsService.ListMyTeams:output_type -> teams.v1.ListMyTeamsResponse
+	20, // 20: teams.v1.TeamsService.SwitchTeam:output_type -> google.protobuf.Empty
+	7,  // 21: teams.v1.TeamsService.ListInvitations:output_type -> teams.v1.ListInvitationsResponse
+	4,  // 22: teams.v1.TeamsService.CreateInvitation:output_type -> teams.v1.Invitation
+	10, // 23: teams.v1.TeamsService.PreviewInvitation:output_type -> teams.v1.InvitationPreview
+	20, // 24: teams.v1.TeamsService.AcceptInvitation:output_type -> google.protobuf.Empty
+	20, // 25: teams.v1.TeamsService.AcceptInvitationById:output_type -> google.protobuf.Empty
+	20, // 26: teams.v1.TeamsService.DeclineInvitation:output_type -> google.protobuf.Empty
+	20, // 27: teams.v1.TeamsService.RevokeInvitation:output_type -> google.protobuf.Empty
+	4,  // 28: teams.v1.TeamsService.ResendInvitation:output_type -> teams.v1.Invitation
+	14, // 29: teams.v1.TeamsService.ListMembers:output_type -> teams.v1.ListMembersResponse
+	20, // 30: teams.v1.TeamsService.RemoveMember:output_type -> google.protobuf.Empty
+	20, // 31: teams.v1.TeamsService.ChangeRole:output_type -> google.protobuf.Empty
+	20, // 32: teams.v1.TeamsService.LeaveTeam:output_type -> google.protobuf.Empty
+	19, // 33: teams.v1.TeamsService.LookupUserByEmail:output_type -> teams.v1.UserLookupResponse
+	19, // [19:34] is the sub-list for method output_type
+	4,  // [4:19] is the sub-list for method input_type
 	4,  // [4:4] is the sub-list for extension type_name
 	4,  // [4:4] is the sub-list for extension extendee
 	0,  // [0:4] is the sub-list for field type_name

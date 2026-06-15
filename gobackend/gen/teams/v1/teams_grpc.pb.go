@@ -20,20 +20,21 @@ import (
 const _ = grpc.SupportPackageIsVersion9
 
 const (
-	TeamsService_ListMyTeams_FullMethodName       = "/teams.v1.TeamsService/ListMyTeams"
-	TeamsService_SwitchTeam_FullMethodName        = "/teams.v1.TeamsService/SwitchTeam"
-	TeamsService_ListInvitations_FullMethodName   = "/teams.v1.TeamsService/ListInvitations"
-	TeamsService_CreateInvitation_FullMethodName  = "/teams.v1.TeamsService/CreateInvitation"
-	TeamsService_PreviewInvitation_FullMethodName = "/teams.v1.TeamsService/PreviewInvitation"
-	TeamsService_AcceptInvitation_FullMethodName  = "/teams.v1.TeamsService/AcceptInvitation"
-	TeamsService_DeclineInvitation_FullMethodName = "/teams.v1.TeamsService/DeclineInvitation"
-	TeamsService_RevokeInvitation_FullMethodName  = "/teams.v1.TeamsService/RevokeInvitation"
-	TeamsService_ResendInvitation_FullMethodName  = "/teams.v1.TeamsService/ResendInvitation"
-	TeamsService_ListMembers_FullMethodName       = "/teams.v1.TeamsService/ListMembers"
-	TeamsService_RemoveMember_FullMethodName      = "/teams.v1.TeamsService/RemoveMember"
-	TeamsService_ChangeRole_FullMethodName        = "/teams.v1.TeamsService/ChangeRole"
-	TeamsService_LeaveTeam_FullMethodName         = "/teams.v1.TeamsService/LeaveTeam"
-	TeamsService_LookupUserByEmail_FullMethodName = "/teams.v1.TeamsService/LookupUserByEmail"
+	TeamsService_ListMyTeams_FullMethodName          = "/teams.v1.TeamsService/ListMyTeams"
+	TeamsService_SwitchTeam_FullMethodName           = "/teams.v1.TeamsService/SwitchTeam"
+	TeamsService_ListInvitations_FullMethodName      = "/teams.v1.TeamsService/ListInvitations"
+	TeamsService_CreateInvitation_FullMethodName     = "/teams.v1.TeamsService/CreateInvitation"
+	TeamsService_PreviewInvitation_FullMethodName    = "/teams.v1.TeamsService/PreviewInvitation"
+	TeamsService_AcceptInvitation_FullMethodName     = "/teams.v1.TeamsService/AcceptInvitation"
+	TeamsService_AcceptInvitationById_FullMethodName = "/teams.v1.TeamsService/AcceptInvitationById"
+	TeamsService_DeclineInvitation_FullMethodName    = "/teams.v1.TeamsService/DeclineInvitation"
+	TeamsService_RevokeInvitation_FullMethodName     = "/teams.v1.TeamsService/RevokeInvitation"
+	TeamsService_ResendInvitation_FullMethodName     = "/teams.v1.TeamsService/ResendInvitation"
+	TeamsService_ListMembers_FullMethodName          = "/teams.v1.TeamsService/ListMembers"
+	TeamsService_RemoveMember_FullMethodName         = "/teams.v1.TeamsService/RemoveMember"
+	TeamsService_ChangeRole_FullMethodName           = "/teams.v1.TeamsService/ChangeRole"
+	TeamsService_LeaveTeam_FullMethodName            = "/teams.v1.TeamsService/LeaveTeam"
+	TeamsService_LookupUserByEmail_FullMethodName    = "/teams.v1.TeamsService/LookupUserByEmail"
 )
 
 // TeamsServiceClient is the client API for TeamsService service.
@@ -52,6 +53,7 @@ type TeamsServiceClient interface {
 	// these details to its holder is acceptable.
 	PreviewInvitation(ctx context.Context, in *PreviewInvitationRequest, opts ...grpc.CallOption) (*InvitationPreview, error)
 	AcceptInvitation(ctx context.Context, in *AcceptInvitationRequest, opts ...grpc.CallOption) (*emptypb.Empty, error)
+	AcceptInvitationById(ctx context.Context, in *InvitationIdRequest, opts ...grpc.CallOption) (*emptypb.Empty, error)
 	DeclineInvitation(ctx context.Context, in *InvitationIdRequest, opts ...grpc.CallOption) (*emptypb.Empty, error)
 	RevokeInvitation(ctx context.Context, in *InvitationIdRequest, opts ...grpc.CallOption) (*emptypb.Empty, error)
 	ResendInvitation(ctx context.Context, in *InvitationIdRequest, opts ...grpc.CallOption) (*Invitation, error)
@@ -126,6 +128,16 @@ func (c *teamsServiceClient) AcceptInvitation(ctx context.Context, in *AcceptInv
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(emptypb.Empty)
 	err := c.cc.Invoke(ctx, TeamsService_AcceptInvitation_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *teamsServiceClient) AcceptInvitationById(ctx context.Context, in *InvitationIdRequest, opts ...grpc.CallOption) (*emptypb.Empty, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(emptypb.Empty)
+	err := c.cc.Invoke(ctx, TeamsService_AcceptInvitationById_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -228,6 +240,7 @@ type TeamsServiceServer interface {
 	// these details to its holder is acceptable.
 	PreviewInvitation(context.Context, *PreviewInvitationRequest) (*InvitationPreview, error)
 	AcceptInvitation(context.Context, *AcceptInvitationRequest) (*emptypb.Empty, error)
+	AcceptInvitationById(context.Context, *InvitationIdRequest) (*emptypb.Empty, error)
 	DeclineInvitation(context.Context, *InvitationIdRequest) (*emptypb.Empty, error)
 	RevokeInvitation(context.Context, *InvitationIdRequest) (*emptypb.Empty, error)
 	ResendInvitation(context.Context, *InvitationIdRequest) (*Invitation, error)
@@ -265,6 +278,9 @@ func (UnimplementedTeamsServiceServer) PreviewInvitation(context.Context, *Previ
 }
 func (UnimplementedTeamsServiceServer) AcceptInvitation(context.Context, *AcceptInvitationRequest) (*emptypb.Empty, error) {
 	return nil, status.Error(codes.Unimplemented, "method AcceptInvitation not implemented")
+}
+func (UnimplementedTeamsServiceServer) AcceptInvitationById(context.Context, *InvitationIdRequest) (*emptypb.Empty, error) {
+	return nil, status.Error(codes.Unimplemented, "method AcceptInvitationById not implemented")
 }
 func (UnimplementedTeamsServiceServer) DeclineInvitation(context.Context, *InvitationIdRequest) (*emptypb.Empty, error) {
 	return nil, status.Error(codes.Unimplemented, "method DeclineInvitation not implemented")
@@ -415,6 +431,24 @@ func _TeamsService_AcceptInvitation_Handler(srv interface{}, ctx context.Context
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
 		return srv.(TeamsServiceServer).AcceptInvitation(ctx, req.(*AcceptInvitationRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _TeamsService_AcceptInvitationById_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(InvitationIdRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(TeamsServiceServer).AcceptInvitationById(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: TeamsService_AcceptInvitationById_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(TeamsServiceServer).AcceptInvitationById(ctx, req.(*InvitationIdRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -593,6 +627,10 @@ var TeamsService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "AcceptInvitation",
 			Handler:    _TeamsService_AcceptInvitation_Handler,
+		},
+		{
+			MethodName: "AcceptInvitationById",
+			Handler:    _TeamsService_AcceptInvitationById_Handler,
 		},
 		{
 			MethodName: "DeclineInvitation",
