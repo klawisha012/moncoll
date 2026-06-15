@@ -7,6 +7,7 @@ import (
 	"unicode/utf8"
 
 	crowdsecv1 "github.com/zwarder/waf/gobackend/gen/crowdsec/v1"
+	"github.com/zwarder/waf/gobackend/internal/auth"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/wrapperspb"
 )
@@ -53,10 +54,10 @@ func (f *fakeRunner) RunJSON(_ context.Context, args ...string) (json.RawMessage
 }
 
 type fakeSyncer struct {
-	mapping     map[string][]int64
-	syncCalled  int
-	saveCalled  int
-	lastSaved   map[string][]int64
+	mapping    map[string][]int64
+	syncCalled int
+	saveCalled int
+	lastSaved  map[string][]int64
 }
 
 func (f *fakeSyncer) SyncBlockedIPsConf(_ context.Context) error {
@@ -167,6 +168,33 @@ const alertsListJSON = `[
   }
 ]`
 
+// ── Fake Notifier ─────────────────────────────────────────────────────────────
+
+type csNotifyCall struct {
+	tenantID      int64
+	excludeUserID int64
+	typ           string
+	title         string
+	body          string
+	data          map[string]any
+}
+
+type fakeNotifier struct {
+	calls []csNotifyCall
+}
+
+func (f *fakeNotifier) NotifyTenantMembers(_ context.Context, tenantID, excludeUserID int64, typ, title, body string, data map[string]any) error {
+	f.calls = append(f.calls, csNotifyCall{
+		tenantID:      tenantID,
+		excludeUserID: excludeUserID,
+		typ:           typ,
+		title:         title,
+		body:          body,
+		data:          data,
+	})
+	return nil
+}
+
 // ── Tests ─────────────────────────────────────────────────────────────────────
 
 func newTestService() (*Service, *fakeRunner, *fakeSyncer) {
@@ -175,7 +203,7 @@ func newTestService() (*Service, *fakeRunner, *fakeSyncer) {
 		jsonReturns: map[string]json.RawMessage{},
 	}
 	syncer := &fakeSyncer{}
-	svc := New(runner, syncer)
+	svc := New(runner, syncer, nil)
 	return svc, runner, syncer
 }
 
@@ -467,5 +495,97 @@ func TestRemoveScenario_InvalidNameReturnsFalse(t *testing.T) {
 	}
 	if resp.Success {
 		t.Error("expected Success=false for invalid name")
+	}
+}
+
+// ── Notification tests ────────────────────────────────────────────────────────
+
+// identityCtx returns a context with an injected auth.Identity carrying the
+// given tenantID and userID — mirrors how the gRPC interceptor sets identity.
+func identityCtx(tenantID, userID int64) context.Context {
+	tid := tenantID
+	id := &auth.Identity{UserID: userID, PlatformRole: "user", TenantID: &tid}
+	return auth.WithIdentity(context.Background(), id)
+}
+
+// TestAddDecision_EmitsNotification verifies that a successful AddDecision
+// emits security.crowdsec_ban to the actor's tenant, excluding the actor.
+func TestAddDecision_EmitsNotification(t *testing.T) {
+	runner := &fakeRunner{
+		runReturns:  map[string][3]string{"decisions/add": {"0", "Decision added", ""}},
+		jsonReturns: map[string]json.RawMessage{},
+	}
+	syncer := &fakeSyncer{}
+	notif := &fakeNotifier{}
+	svc := New(runner, syncer, notif)
+
+	ctx := identityCtx(99, 7) // tenant 99, actor user 7
+	req := &crowdsecv1.DecisionCreate{
+		Ip:     "10.0.0.5",
+		Reason: "test ban",
+	}
+	resp, err := svc.AddDecision(ctx, req)
+	if err != nil {
+		t.Fatalf("AddDecision: %v", err)
+	}
+	if !resp.Success {
+		t.Fatalf("expected Success=true: %s", resp.Message)
+	}
+
+	if len(notif.calls) != 1 {
+		t.Fatalf("expected 1 notification, got %d", len(notif.calls))
+	}
+	c := notif.calls[0]
+	if c.tenantID != 99 {
+		t.Errorf("tenantID: got %d, want 99", c.tenantID)
+	}
+	if c.excludeUserID != 7 {
+		t.Errorf("excludeUserID: got %d, want 7 (actor)", c.excludeUserID)
+	}
+	if c.typ != "security.crowdsec_ban" {
+		t.Errorf("typ: got %q, want %q", c.typ, "security.crowdsec_ban")
+	}
+	if c.data["ip"] != "10.0.0.5" {
+		t.Errorf("data.ip: got %v, want %q", c.data["ip"], "10.0.0.5")
+	}
+	if c.data["reason"] != "test ban" {
+		t.Errorf("data.reason: got %v, want %q", c.data["reason"], "test ban")
+	}
+}
+
+// TestAddDecision_FailureDoesNotEmitNotification verifies that when the cscli
+// runner returns non-zero (failure), no notification is emitted.
+func TestAddDecision_FailureDoesNotEmitNotification(t *testing.T) {
+	runner := &fakeRunner{
+		runReturns:  map[string][3]string{"decisions/add": {"1", "", "bad IP"}},
+		jsonReturns: map[string]json.RawMessage{},
+	}
+	syncer := &fakeSyncer{}
+	notif := &fakeNotifier{}
+	svc := New(runner, syncer, notif)
+
+	ctx := identityCtx(99, 7)
+	_, err := svc.AddDecision(ctx, &crowdsecv1.DecisionCreate{Ip: "bad-ip"})
+	if err != nil {
+		t.Fatalf("AddDecision: %v", err)
+	}
+
+	if len(notif.calls) != 0 {
+		t.Errorf("expected no notifications on failure, got %d", len(notif.calls))
+	}
+}
+
+// TestAddDecision_NilNotifier_DoesNotPanic verifies nil notifier is safe.
+func TestAddDecision_NilNotifier_DoesNotPanic(t *testing.T) {
+	runner := &fakeRunner{
+		runReturns:  map[string][3]string{"decisions/add": {"0", "ok", ""}},
+		jsonReturns: map[string]json.RawMessage{},
+	}
+	svc := New(runner, &fakeSyncer{}, nil)
+
+	ctx := identityCtx(1, 2)
+	_, err := svc.AddDecision(ctx, &crowdsecv1.DecisionCreate{Ip: "1.2.3.4"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
 	}
 }

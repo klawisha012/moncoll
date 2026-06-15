@@ -35,18 +35,26 @@ type Syncer interface {
 	SaveBlockedIPsMapping(mapping map[string][]int64) error
 }
 
+// Notifier is the subset of notify.Notifier used by the CrowdSec service.
+// Defining it locally keeps the package free of a hard dependency on the
+// notify package and allows tests to inject a fake.
+type Notifier interface {
+	NotifyTenantMembers(ctx context.Context, tenantID, excludeUserID int64, typ, title, body string, data map[string]any) error
+}
+
 // ── Service ───────────────────────────────────────────────────────────────────
 
 // Service implements crowdsecv1.CrowdSecServiceServer.
 type Service struct {
 	crowdsecv1.UnimplementedCrowdSecServiceServer
-	runner Runner
-	syncer Syncer
+	runner   Runner
+	syncer   Syncer
+	notifier Notifier // optional; nil = no notifications
 }
 
-// New constructs a Service with injected dependencies.
-func New(runner Runner, syncer Syncer) *Service {
-	return &Service{runner: runner, syncer: syncer}
+// New constructs a Service with injected dependencies. notifier may be nil.
+func New(runner Runner, syncer Syncer, notifier Notifier) *Service {
+	return &Service{runner: runner, syncer: syncer, notifier: notifier}
 }
 
 func (s *Service) AuthLevels() map[string]auth.Level {
@@ -319,6 +327,14 @@ func (s *Service) AddDecision(ctx context.Context, req *crowdsecv1.DecisionCreat
 		}
 		if err := s.syncer.SyncBlockedIPsConf(ctx); err != nil {
 			slog.Warn("crowdsecapi: SyncBlockedIPsConf failed after AddDecision", "err", err)
+		}
+
+		if id, ok := auth.IdentityFromContext(ctx); ok && id.TenantID != nil && s.notifier != nil {
+			_ = s.notifier.NotifyTenantMembers(ctx, *id.TenantID, id.UserID,
+				"security.crowdsec_ban", "IP banned",
+				"IP "+req.GetIp()+" was banned",
+				map[string]any{"ip": req.GetIp(), "reason": req.GetReason()},
+			)
 		}
 	}
 
@@ -721,4 +737,3 @@ func maxF(a, b float64) float64 {
 	}
 	return b
 }
-
