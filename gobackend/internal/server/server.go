@@ -133,11 +133,15 @@ func (s *Server) Start(ctx context.Context) error {
 	msCfg := modsec.New(getenvOr("WAF_MODSEC_DIR", "/app/etc/angie/modsecurity"))
 	modsecSvc := modsecurity.NewService(msCfg, angie.Reloader{Log: s.log})
 
+	centPub := centrifugo.NewPublisher()
+	teamsNotifier := notify.New(st, centPub, s.log)
+	teamsSvc := teamsapi.New(st, email.NewSender(), os.Getenv("WAF_PUBLIC_BASE_URL"), s.log, teamsNotifier)
+
 	var csSvc *crowdsecapi.Service
 	if csRunner != nil {
-		csSvc = crowdsecapi.New(csRunner, syncer)
+		csSvc = crowdsecapi.New(csRunner, syncer, teamsNotifier)
 	} else {
-		csSvc = crowdsecapi.New(cscli.NoopRunner{}, syncer)
+		csSvc = crowdsecapi.New(cscli.NoopRunner{}, syncer, teamsNotifier)
 	}
 
 	chClient := chdash.NewClient(s.metrics)
@@ -161,10 +165,6 @@ func (s *Server) Start(ctx context.Context) error {
 		angie.Reloader{Log: s.log},
 		s.log,
 	)
-
-	centPub := centrifugo.NewPublisher()
-	teamsNotifier := notify.New(st, centPub, s.log)
-	teamsSvc := teamsapi.New(st, email.NewSender(), os.Getenv("WAF_PUBLIC_BASE_URL"), s.log, teamsNotifier)
 
 	authCfg := authapi.Config{
 		PasetoKey:      s.cfg.PasetoKey,
@@ -272,6 +272,7 @@ func (s *Server) Start(ctx context.Context) error {
 		connectionsapi.CertsManagerAdapter{M: certManager},
 		angie.Reloader{Log: s.log},
 		s.log,
+		teamsNotifier,
 	)
 	go connPoller.Run(ctx)
 

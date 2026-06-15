@@ -30,6 +30,13 @@ import (
 	"github.com/zwarder/waf/gobackend/internal/store"
 )
 
+// Notifier is the subset of notify.Notifier used by the poller.
+// Defining it locally keeps the package free of a hard dependency on the
+// notify package and allows tests to inject a fake.
+type Notifier interface {
+	NotifyTenantMembers(ctx context.Context, tenantID, excludeUserID int64, typ, title, body string, data map[string]any) error
+}
+
 // Poller runs the background DNS/ACME state machine for connections.
 type Poller struct {
 	store    Store
@@ -38,13 +45,14 @@ type Poller struct {
 	cfg      CfgWriter
 	certs    CertManager
 	reloader AngieReloader
+	notifier Notifier // optional; nil = no notifications
 	log      *slog.Logger
 
 	tickInterval time.Duration
 	connTimeout  time.Duration
 }
 
-// NewPoller constructs a Poller.
+// NewPoller constructs a Poller. notifier may be nil (no notifications emitted).
 func NewPoller(
 	store Store,
 	dns conndns.Verifier,
@@ -53,6 +61,7 @@ func NewPoller(
 	certs CertManager,
 	reloader AngieReloader,
 	log *slog.Logger,
+	notifier Notifier,
 ) *Poller {
 	tick := 60 * time.Second
 	if s := os.Getenv("WAF_POLLER_TICK_SECONDS"); s != "" {
@@ -76,6 +85,7 @@ func NewPoller(
 		cfg:          cfg,
 		certs:        certs,
 		reloader:     reloader,
+		notifier:     notifier,
 		log:          log,
 		tickInterval: tick,
 		connTimeout:  connTimeout,
@@ -197,6 +207,27 @@ func (p *Poller) processOne(ctx context.Context, row *store.Connection) {
 			p.log.Warn("poller: failed to write Angie config", "conn", row.ID, "err", wErr)
 		} else {
 			p.reloader.Reload(ctx)
+		}
+
+		if p.notifier != nil {
+			switch updated.Status {
+			case "active":
+				if err := p.notifier.NotifyTenantMembers(ctx, updated.TenantID, 0,
+					"connection.active", "Connection active",
+					"Connection "+updated.Name+" is now active and protected.",
+					map[string]any{"connection_id": updated.ID, "name": updated.Name},
+				); err != nil && p.log != nil {
+					p.log.Warn("poller: notify active failed", "conn", row.ID, "err", err)
+				}
+			case "error":
+				if err := p.notifier.NotifyTenantMembers(ctx, updated.TenantID, 0,
+					"connection.error", "Connection error",
+					"Connection "+updated.Name+" failed: certificate could not be issued.",
+					map[string]any{"connection_id": updated.ID, "name": updated.Name},
+				); err != nil && p.log != nil {
+					p.log.Warn("poller: notify error failed", "conn", row.ID, "err", err)
+				}
+			}
 		}
 	}
 }
