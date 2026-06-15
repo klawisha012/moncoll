@@ -41,6 +41,7 @@ type Poller struct {
 	log      *slog.Logger
 
 	tickInterval time.Duration
+	connTimeout  time.Duration
 }
 
 // NewPoller constructs a Poller.
@@ -59,6 +60,15 @@ func NewPoller(
 			tick = time.Duration(n) * time.Second
 		}
 	}
+	// Per-connection processing deadline so one stuck DNS/ACME/DB op cannot
+	// wedge the whole poller. Generous by default (covers normal ACME issuance);
+	// override with WAF_POLLER_CONN_TIMEOUT_SECONDS.
+	connTimeout := 120 * time.Second
+	if s := os.Getenv("WAF_POLLER_CONN_TIMEOUT_SECONDS"); s != "" {
+		if n, err := strconv.Atoi(s); err == nil && n > 0 {
+			connTimeout = time.Duration(n) * time.Second
+		}
+	}
 	return &Poller{
 		store:        store,
 		dns:          dns,
@@ -68,6 +78,7 @@ func NewPoller(
 		reloader:     reloader,
 		log:          log,
 		tickInterval: tick,
+		connTimeout:  connTimeout,
 	}
 }
 
@@ -129,6 +140,11 @@ func (p *Poller) processOne(ctx context.Context, row *store.Connection) {
 	if !row.Enabled {
 		return
 	}
+	// Bound this connection's I/O (DNS, ACME, DB) so a single stuck op cannot
+	// hang the poller. Derived from the loop context, so a shutdown still wins.
+	ctx, cancel := context.WithTimeout(ctx, p.connTimeout)
+	defer cancel()
+
 	prevStatus := row.Status
 	now := time.Now().UTC()
 

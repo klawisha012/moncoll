@@ -3,7 +3,9 @@
 //
 // Unconfigured behaviour (WAF_TURNSTILE_SECRET_KEY empty) → returns true,
 // matching captcha.py's "if not settings.turnstile_secret_key: return True".
-// The "e2e-test-bypass" token short-circuit is also preserved.
+// When a secret IS configured there is no bypass: every token is verified
+// against Cloudflare. (The legacy "e2e-test-bypass" short-circuit was removed —
+// it was a production CAPTCHA backdoor; e2e tests run with an empty secret.)
 package captcha
 
 import (
@@ -21,9 +23,6 @@ import (
 )
 
 const siteverifyURL = "https://challenges.cloudflare.com/turnstile/v0/siteverify"
-
-// e2eBypassToken mirrors captcha.py's hardcoded bypass for integration tests.
-const e2eBypassToken = "e2e-test-bypass"
 
 // Verifier holds Turnstile configuration and an HTTP client.
 type Verifier struct {
@@ -59,18 +58,14 @@ func isPrivateIP(ip string) bool {
 
 // Verify verifies a Turnstile token against Cloudflare's siteverify API.
 //
-// Mirrors captcha.py verify():
-//   - token == "e2e-test-bypass" → true (integration test bypass)
+// Behaviour:
 //   - secret not configured → true (dev no-op)
 //   - token empty → false
 //   - remoteIP non-empty and not private → forwarded to Cloudflare
 //   - HTTP error → false (logged)
 func (v *Verifier) Verify(ctx context.Context, token, remoteIP string) (bool, error) {
-	// Mirror captcha.py: e2e bypass first
-	if token == e2eBypassToken {
-		return true, nil
-	}
-	// Mirror captcha.py: unconfigured → pass
+	// Unconfigured → pass (dev no-op). When a secret IS set, every token is
+	// verified against Cloudflare — there is no bypass token.
 	if v.secret == "" {
 		return true, nil
 	}

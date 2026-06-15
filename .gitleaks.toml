@@ -99,3 +99,34 @@ paths = [
     '''^gobackend/internal/auth/fernet_test\.go$''',
     '''^gobackend/internal/config/config_test\.go$''',
 ]
+
+# ── 8. Historical kubeconfig client key (UNTRACKED + must be rotated) ───
+# The kubeconfig carried client-key-data (a cluster client private key) +
+# client-certificate-data for a 127.0.0.1:6443 cluster. gitleaks' default
+# ruleset missed it because it is base64-wrapped, not raw PEM; the
+# kubeconfig-client-credential rule below now catches future ones. The file is
+# untracked + gitignored as of this branch, but the key lives in history at two
+# reachable commits — both pinned to keep CI green:
+#   f2a67e0  introduced it at the old path k8s/kubeconfig.yaml (2026-05-27)
+#   94e50f6  carried it through the repo-layout reorg → containers/k8s/ (2026-06-08)
+# ACTION: a client cert cannot be password-rotated — revoke/reissue it on the
+# cluster. Blast radius is limited (loopback API server, private repo), but the
+# key is in history forever; scrub history if the repo is ever made public.
+[[allowlists]]
+description = "Historical kubeconfig client key, commits f2a67e0 (intro) + 94e50f6 (reorg); untracked + gitignored; rotate on cluster"
+commits = [
+    "f2a67e07329b473674cb16860621ebb4d9acb113",
+    "94e50f6b56caee993b5ade15414b6b85fedfbcaf",
+]
+
+# ── Custom rule: detect kubeconfig client credentials ──────────────────
+# The default ruleset does not flag base64-wrapped kubeconfig keys, which is
+# how containers/k8s/kubeconfig.yaml slipped in. Catch them going forward.
+[[rules]]
+id = "kubeconfig-client-credential"
+description = "Kubeconfig client private key / certificate (base64-encoded PEM)"
+regex = '''(?:client-key-data|client-certificate-data)\s*:\s*[A-Za-z0-9+/]{128,}={0,2}'''
+keywords = [
+    "client-key-data",
+    "client-certificate-data",
+]

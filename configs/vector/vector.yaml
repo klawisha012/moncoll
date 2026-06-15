@@ -276,17 +276,22 @@ sinks:
       max_bytes: 10485760 # 10MB
       timeout_secs: 1.0
 
-  # Sink for live GeoIP events to Redis pub/sub. Backend's realtime consumer
-  # SUBSCRIBE'ит на этот канал, агрегирует точки карты в батч-дельты и
-  # публикует в Centrifugo. История остаётся в ClickHouse (sink выше) —
-  # это исключительно push-канал для real-time dashboard.
+  # Sink for live GeoIP events to a durable Redis LIST (not pub/sub). The
+  # backend's realtime consumer reliably drains this list (BLMOVE into a
+  # processing list, LREM after aggregating), so events published while the
+  # consumer is restarting are retained and delivered on return instead of being
+  # lost. lpush prepends newest to the head; the consumer pops the oldest (tail)
+  # for FIFO. История остаётся в ClickHouse (sink выше) — это push-канал для
+  # real-time dashboard.
   geoip_realtime_sink:
     type: redis
     inputs:
       - filter_realtime_attacks
     url: "redis://redis:6379/0"
     key: "attacks:raw"
-    data_type: channel
+    data_type: list
+    list_option:
+      method: lpush
     encoding:
       codec: json
     healthcheck:

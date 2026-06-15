@@ -95,6 +95,20 @@ TTL time_local + INTERVAL 3 MONTH;
 -- Idempotent migration for pre-existing deployments (no-op if column exists)
 ALTER TABLE logs.nginx_access_log ADD COLUMN IF NOT EXISTS host LowCardinality(String) DEFAULT '';
 
+-- ── Data-skipping indexes for per-domain dashboard filtering ──────────────────
+-- Multi-tenant dashboards filter analytics by domain. The sort keys lead with
+-- the time column (good for the time-range scan every dashboard query does), but
+-- the per-domain predicate (host / request_headers['Host']) was unindexed. These
+-- bloom-filter skip indexes let ClickHouse skip granules that cannot contain the
+-- queried domain. ADD INDEX is metadata-only and additive, so it is safe on
+-- populated tables; new parts are indexed on insert (recent-time dashboard
+-- queries benefit immediately). To backfill existing parts, run once manually
+-- (a background mutation, not a blocking lock):
+--   ALTER TABLE logs.nginx_access_log MATERIALIZE INDEX idx_host;
+--   ALTER TABLE logs.waf_audit_log    MATERIALIZE INDEX idx_waf_host;
+ALTER TABLE logs.nginx_access_log ADD INDEX IF NOT EXISTS idx_host host TYPE bloom_filter GRANULARITY 1;
+ALTER TABLE logs.waf_audit_log    ADD INDEX IF NOT EXISTS idx_waf_host request_headers['Host'] TYPE bloom_filter GRANULARITY 1;
+
 
 -- Таблица для алертов CrowdSec
 -- Хранит информацию о обнаруженных аномалиях и решениях

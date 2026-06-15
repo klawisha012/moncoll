@@ -16,6 +16,7 @@ type Config struct {
 	PostgresDSN string
 	GRPCAddr    string // host:port for the gateway/REST listener
 	MetricsAddr string // host:port for /metrics
+	Timeouts    Timeouts
 }
 
 func Load() (*Config, error) {
@@ -32,6 +33,7 @@ func Load() (*Config, error) {
 		PostgresDSN: dsn,
 		GRPCAddr:    getenv("WAF_GO_HTTP_ADDR", ":8080"),
 		MetricsAddr: getenv("WAF_GO_METRICS_ADDR", ":9100"),
+		Timeouts:    LoadTimeouts(),
 	}
 	return cfg, nil
 }

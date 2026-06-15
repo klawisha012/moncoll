@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	"google.golang.org/grpc"
 
 	adminv1 "github.com/zwarder/waf/gobackend/gen/admin/v1"
@@ -66,6 +67,8 @@ type Server struct {
 	grpcSrv    *grpc.Server
 	restSrv    *http.Server
 	metricsSrv *http.Server
+	metrics    *observability.Metrics
+	tp         *sdktrace.TracerProvider
 }
 
 // New constructs a Server instance.
@@ -75,6 +78,16 @@ func New(cfg *config.Config, log *slog.Logger) *Server {
 
 // Start boots the database, runs migrations, registers services, and starts listeners.
 func (s *Server) Start(ctx context.Context) error {
+	// 0. Observability: RED metrics registry + OpenTelemetry tracer. The tracer
+	// is off (never-sample) unless an OTLP endpoint is configured, so this adds
+	// no mandatory external dependency.
+	s.metrics = observability.NewMetrics()
+	if tp, err := observability.InitTracer(ctx, "waf-gobackend"); err != nil {
+		s.log.Warn("otel tracer init failed; continuing without tracing", "err", err)
+	} else {
+		s.tp = tp
+	}
+
 	// 1. Run migrations unless explicitly skipped.
 	if os.Getenv("WAF_SKIP_MIGRATE") != "1" {
 		if err := migrate.Run(s.cfg.PostgresDSN, s.log); err != nil {
@@ -256,7 +269,7 @@ func (s *Server) Start(ctx context.Context) error {
 
 	// 9. Start background Realtime consumer.
 	rtRedis := realtime.NewRedisClient()
-	rtConsumer := realtime.New(rtRedis, centPub, s.log)
+	rtConsumer := realtime.New(rtRedis, centPub, s.log, s.metrics)
 	go rtConsumer.RunForever(ctx)
 
 	// 10. Start REST gateway server.
@@ -265,7 +278,12 @@ func (s *Server) Start(ctx context.Context) error {
 		return fmt.Errorf("gateway init failed: %w", err)
 	}
 
-	s.restSrv = &http.Server{Addr: s.cfg.GRPCAddr, Handler: mux, ReadHeaderTimeout: 5 * time.Second}
+	// Instrument the whole gateway at the highest seam, outermost-first: an
+	// end-to-end request deadline (inherited by every downstream hop), then a
+	// trace span, then RED metrics, then the mux.
+	gatewayHandler := withRequestTimeout(s.cfg.Timeouts.HTTPRequest,
+		observability.TraceHandler(s.metrics.Middleware(mux)))
+	s.restSrv = &http.Server{Addr: s.cfg.GRPCAddr, Handler: gatewayHandler, ReadHeaderTimeout: 5 * time.Second}
 	go func() {
 		s.log.Info("rest gateway serving", "addr", s.cfg.GRPCAddr)
 		if err := s.restSrv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
@@ -274,11 +292,11 @@ func (s *Server) Start(ctx context.Context) error {
 	}()
 
 	// 11. Start Metrics server.
-	s.metricsSrv = &http.Server{Addr: s.cfg.MetricsAddr, Handler: observability.MetricsHandler(), ReadHeaderTimeout: 5 * time.Second}
+	s.metricsSrv = &http.Server{Addr: s.cfg.MetricsAddr, Handler: s.metrics.Handler(), ReadHeaderTimeout: 5 * time.Second}
 	go func() { _ = s.metricsSrv.ListenAndServe() }()
 
 	// 12. Start CrowdSec blocked-IPs sync loop.
-	go runBlockedIPsSyncLoop(ctx, s.log, syncer, st)
+	go runBlockedIPsSyncLoop(ctx, s.log, syncer, st, s.cfg.Timeouts.CrowdSecSync)
 
 	return nil
 }
@@ -297,6 +315,9 @@ func (s *Server) Stop() {
 	}
 	if s.grpcSrv != nil {
 		s.grpcSrv.GracefulStop()
+	}
+	if s.tp != nil {
+		_ = s.tp.Shutdown(shutdownCtx)
 	}
 	if s.csRunner != nil {
 		s.csRunner.Close()
@@ -347,7 +368,7 @@ func (oauthFactory) Provider(name string) (authapi.OAuthProvider, bool) {
 	return p, true
 }
 
-func runBlockedIPsSyncLoop(ctx context.Context, log *slog.Logger, syncer *crowdsec.Syncer, st *store.Store) {
+func runBlockedIPsSyncLoop(ctx context.Context, log *slog.Logger, syncer *crowdsec.Syncer, st *store.Store, syncTimeout time.Duration) {
 	interval := 15 * time.Second
 	if s := os.Getenv("WAF_CROWDSEC_SYNC_INTERVAL"); s != "" {
 		if n, err := strconv.Atoi(s); err == nil && n > 0 {
@@ -365,7 +386,11 @@ func runBlockedIPsSyncLoop(ctx context.Context, log *slog.Logger, syncer *crowds
 		}
 
 		func() {
-			rows, err := st.ListConnections(ctx)
+			// Bound one sync iteration so a stuck DB/file op cannot wedge the loop.
+			iterCtx, cancel := context.WithTimeout(ctx, syncTimeout)
+			defer cancel()
+
+			rows, err := st.ListConnections(iterCtx)
 			if err != nil {
 				log.Warn("crowdsec sync: ListConnections failed", "err", err)
 				return
@@ -387,7 +412,7 @@ func runBlockedIPsSyncLoop(ctx context.Context, log *slog.Logger, syncer *crowds
 				return
 			}
 
-			if err := syncer.SyncBlockedIPsConf(ctx); err != nil {
+			if err := syncer.SyncBlockedIPsConf(iterCtx); err != nil {
 				log.Warn("crowdsec sync: SyncBlockedIPsConf failed", "err", err)
 			}
 		}()

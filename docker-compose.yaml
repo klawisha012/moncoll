@@ -206,7 +206,7 @@ services:
       CLICKHOUSE_ENDPOINT: ${CLICKHOUSE_ENDPOINT:-http://clickhouse:8123}
       CLICKHOUSE_NATIVE_PORT: ${CLICKHOUSE_NATIVE_PORT:-9000}
       CLICKHOUSE_USER: ${CLICKHOUSE_USER:-default}
-      CLICKHOUSE_PASSWORD: ${CLICKHOUSE_PASSWORD:-}
+      CLICKHOUSE_PASSWORD: ${CLICKHOUSE_PASSWORD:?CLICKHOUSE_PASSWORD missing - run scripts/generate-env.sh}
       CLICKHOUSE_DB: ${CLICKHOUSE_DB:-logs}
       # Redis for ClickHouse query result cache (same instance as backend).
       REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
