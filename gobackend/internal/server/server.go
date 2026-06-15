@@ -33,6 +33,7 @@ import (
 	"github.com/zwarder/waf/gobackend/internal/authapi"
 	"github.com/zwarder/waf/gobackend/internal/captcha"
 	"github.com/zwarder/waf/gobackend/internal/centrifugo"
+	"github.com/zwarder/waf/gobackend/internal/certexpiry"
 	"github.com/zwarder/waf/gobackend/internal/certs"
 	"github.com/zwarder/waf/gobackend/internal/chdash"
 	"github.com/zwarder/waf/gobackend/internal/config"
@@ -275,6 +276,9 @@ func (s *Server) Start(ctx context.Context) error {
 		teamsNotifier,
 	)
 	go connPoller.Run(ctx)
+
+	certChecker := certexpiry.NewChecker(st, teamsNotifier, s.log)
+	go certChecker.Run(ctx)
 
 	// 9. Start background Realtime consumer.
 	rtRedis := realtime.NewRedisClient()
