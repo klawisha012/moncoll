@@ -1,0 +1,73 @@
+syntax = "proto3";
+
+package notifications.v1;
+
+import "google/api/annotations.proto";
+import "google/protobuf/empty.proto";
+
+service NotificationsService {
+  rpc ListNotifications(ListNotificationsRequest) returns (ListNotificationsResponse) {
+    option (google.api.http) = {get: "/api/notifications"};
+  }
+  rpc GetUnreadCount(GetUnreadCountRequest) returns (UnreadCountResponse) {
+    option (google.api.http) = {get: "/api/notifications/unread-count"};
+  }
+  rpc MarkRead(MarkReadRequest) returns (google.protobuf.Empty) {
+    option (google.api.http) = {post: "/api/notifications/read" body: "*"};
+  }
+  rpc MarkAllRead(MarkAllReadRequest) returns (google.protobuf.Empty) {
+    option (google.api.http) = {post: "/api/notifications/read-all" body: "*"};
+  }
+  rpc ToggleStar(ToggleStarRequest) returns (Notification) {
+    option (google.api.http) = {post: "/api/notifications/star" body: "*"};
+  }
+  rpc DeleteNotifications(DeleteNotificationsRequest) returns (google.protobuf.Empty) {
+    option (google.api.http) = {post: "/api/notifications/delete" body: "*"};
+  }
+}
+
+message Notification {
+  int64 id = 1;
+  string type = 2;
+  string title = 3;
+  string body = 4;
+  string data_json = 5;   // JSONB surfaced as a JSON string
+  bool read = 6;
+  bool starred = 7;
+  string created_at = 8;   // RFC3339
+  int64 tenant_id = 9;
+  bool has_tenant_id = 10;
+}
+
+// filter: "" | all | unread | starred
+message ListNotificationsRequest {
+  string filter = 1;
+  int32 limit = 2;
+  int64 before_id = 3;
+}
+
+message ListNotificationsResponse {
+  repeated Notification notifications = 1;
+  int64 next_before_id = 2;
+}
+
+message GetUnreadCountRequest {}
+
+message UnreadCountResponse {
+  int64 count = 1;
+}
+
+message MarkReadRequest {
+  repeated int64 ids = 1;
+}
+
+message MarkAllReadRequest {}
+
+message ToggleStarRequest {
+  int64 id = 1;
+  bool starred = 2;
+}
+
+message DeleteNotificationsRequest {
+  repeated int64 ids = 1;
+}
