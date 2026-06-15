@@ -12,8 +12,18 @@ type Store struct {
 	pool *pgxpool.Pool
 }
 
-func New(ctx context.Context, dsn string) (*Store, error) {
-	pool, err := pgxpool.New(ctx, dsn)
+// New opens a pgx pool against dsn. An optional Observer instruments every
+// pooled query (Query/QueryRow/Exec) with duration + error metrics via a
+// pgx.QueryTracer; pass nil/omit it to run uninstrumented (e.g. in tests).
+func New(ctx context.Context, dsn string, obs ...Observer) (*Store, error) {
+	cfg, err := pgxpool.ParseConfig(dsn)
+	if err != nil {
+		return nil, err
+	}
+	if len(obs) > 0 && obs[0] != nil {
+		cfg.ConnConfig.Tracer = queryTracer{obs: obs[0]}
+	}
+	pool, err := pgxpool.NewWithConfig(ctx, cfg)
 	if err != nil {
 		return nil, err
 	}

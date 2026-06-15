@@ -96,7 +96,7 @@ func (s *Server) Start(ctx context.Context) error {
 	}
 
 	// 2. Connect to the store.
-	st, err := store.New(ctx, s.cfg.PostgresDSN)
+	st, err := store.New(ctx, s.cfg.PostgresDSN, s.metrics)
 	if err != nil {
 		return fmt.Errorf("postgres connect failed: %w", err)
 	}
@@ -137,7 +137,7 @@ func (s *Server) Start(ctx context.Context) error {
 		csSvc = crowdsecapi.New(cscli.NoopRunner{}, syncer)
 	}
 
-	chClient := chdash.NewClient()
+	chClient := chdash.NewClient(s.metrics)
 	dashSvc := dashboardapi.New(chClient, st)
 
 	certManager := certs.New()

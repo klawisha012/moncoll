@@ -128,9 +128,10 @@ func redisClient() *redis.Client {
 // so endpoint handlers can call Query / QueryCached without knowing the
 // connection details.
 type Client struct {
-	rc *redis.Client      // nil if Redis is unavailable
-	ex Executor           // test double if non-nil
-	sf singleflight.Group // coalesces concurrent cache-miss executions
+	rc  *redis.Client      // nil if Redis is unavailable
+	ex  Executor           // test double if non-nil
+	obs Observer           // nil-safe; records ClickHouse call metrics
+	sf  singleflight.Group // coalesces concurrent cache-miss executions
 }
 
 // Executor is a query runner interface, allowing tests to mock database calls.
@@ -139,10 +140,22 @@ type Executor interface {
 	QueryCached(ctx context.Context, sql string) ([][]interface{}, error)
 }
 
+// Observer records the duration and error outcome of a ClickHouse call. It is
+// satisfied by *observability.Metrics; declared locally so chdash stays
+// decoupled from the metrics implementation.
+type Observer interface {
+	ObserveDB(subsystem, operation string, start time.Time, err error)
+}
+
 // NewClient constructs a Client. Best-effort: Redis errors are logged, not
-// fatal. The ClickHouse connection is opened per-query (thread-safe).
-func NewClient() *Client {
-	return &Client{rc: redisClient()}
+// fatal. The ClickHouse connection is opened per-query (thread-safe). An
+// optional Observer instruments ClickHouse calls with duration + error metrics.
+func NewClient(obs ...Observer) *Client {
+	c := &Client{rc: redisClient()}
+	if len(obs) > 0 {
+		c.obs = obs[0]
+	}
+	return c
 }
 
 // NewClientWithExecutor constructs a Client wrapping an Executor for testing.
@@ -176,7 +189,11 @@ func (c *Client) Query(ctx context.Context, sql string) ([][]interface{}, error)
 	}
 	defer conn.Close()
 
+	start := time.Now()
 	rows, err := conn.Query(ctx, sql)
+	if c.obs != nil {
+		c.obs.ObserveDB("clickhouse", "query", start, err)
+	}
 	if err != nil {
 		slog.Warn("chdash: clickhouse query failed", "sql", sql, "err", err)
 		return nil, nil
