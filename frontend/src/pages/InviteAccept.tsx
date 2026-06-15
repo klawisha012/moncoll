@@ -18,6 +18,9 @@ export default function InviteAccept() {
   const [preview, setPreview] = createSignal<InvitationPreview | null>(null);
   const [errKey, setErrKey] = createSignal("invite.accept.err");
   const [accounts, setAccounts] = createSignal<Account[]>([]);
+  const [password, setPassword] = createSignal("");
+  const [confirmPassword, setConfirmPassword] = createSignal("");
+  const [formErr, setFormErr] = createSignal("");
 
   // Resolve the token to its team/role/email before asking the user to do
   // anything — the page can then show exactly what they're joining.
@@ -45,6 +48,12 @@ export default function InviteAccept() {
   const matchingAccount = () =>
     accounts().find((a) => a.email.toLowerCase() === invitedEmail().toLowerCase()) ?? null;
 
+  const accountExists = () => preview()?.account_exists ?? false;
+  const showAccept = () => !!auth.user && emailMatches();
+  const showSwitch = () => !!auth.user && !emailMatches() && matchingAccount() !== null;
+  const showCreate = () => !accountExists() && !showAccept() && !showSwitch();
+  const showSignIn = () => accountExists() && !showAccept() && !showSwitch();
+
   const accept = () => {
     setStatus("accepting");
     api.teams
@@ -67,6 +76,24 @@ export default function InviteAccept() {
       const msg = e instanceof Error ? e.message.toLowerCase() : "";
       setErrKey(msg.includes("different email") ? "invite.accept.errEmail" : "invite.accept.err");
       setStatus("error");
+    }
+  };
+
+  const createAccount = async (e: Event) => {
+    e.preventDefault();
+    setFormErr("");
+    const pw = password();
+    if (pw.length < 8) { setFormErr(t("invite.password.tooShort")); return; }
+    if (pw !== confirmPassword()) { setFormErr(t("invite.password.mismatch")); return; }
+    setStatus("accepting");
+    try {
+      await api.auth.signupViaInvite(token(), pw);
+      await auth.refresh();
+      setStatus("accepted");
+    } catch (err) {
+      const msg = err instanceof Error ? err.message.toLowerCase() : "";
+      setFormErr(msg.includes("already") ? t("invite.create.exists") : t("invite.create.err"));
+      setStatus("ready");
     }
   };
 
@@ -135,22 +162,22 @@ export default function InviteAccept() {
 
           {/* ready — branch on auth state */}
           <Show when={status() === "ready" || status() === "accepting"}>
-            {/* not logged in */}
-            <Show when={!auth.user}>
-              <p class="iv-text">{t("invite.needAuth.desc", { email: invitedEmail() })}</p>
-              <div class="iv-note">{t("invite.passwordNote")}</div>
-              <div class="iv-actions">
-                <A href={`/signup?email=${encodeURIComponent(invitedEmail())}`} class="iv-btn iv-btn-primary">
-                  {t("invite.signup")}
-                </A>
-                <A href={`/login?next=${encodeURIComponent(`/invite/accept?token=${token()}`)}`} class="iv-btn iv-btn-ghost">
-                  {t("invite.login")}
-                </A>
-              </div>
+            {/* logged in, right account → accept */}
+            <Show when={showAccept()}>
+              <p class="iv-text">{t("invite.confirm", { email: invitedEmail() })}</p>
+              <button
+                type="button"
+                class="iv-btn iv-btn-primary iv-btn-big"
+                onClick={accept}
+                disabled={status() === "accepting"}
+              >
+                <span>{status() === "accepting" ? t("general.loading") : t("invite.cta.accept")}</span>
+                <span class="iv-ar">→</span>
+              </button>
             </Show>
 
-            {/* logged in, wrong account — stashed account matches: switch & accept in one click */}
-            <Show when={auth.user && !emailMatches() && matchingAccount() !== null}>
+            {/* logged in, wrong account, stashed account matches → switch & accept */}
+            <Show when={showSwitch()}>
               <div class="iv-error">
                 {t("invite.mismatch.desc", { email: invitedEmail(), current: auth.user!.email })}
               </div>
@@ -164,31 +191,45 @@ export default function InviteAccept() {
               </button>
             </Show>
 
-            {/* logged in, wrong account — no stashed matching account: add-account flow */}
-            <Show when={auth.user && !emailMatches() && matchingAccount() === null}>
-              <div class="iv-error">
-                {t("invite.mismatch.desc", { email: invitedEmail(), current: auth.user!.email })}
-              </div>
-              <A
-                href={`/login?add=1&email=${encodeURIComponent(invitedEmail())}&next=${encodeURIComponent(`/invite/accept?token=${token()}`)}`}
-                class="iv-btn iv-btn-primary"
-              >
-                {t("account.add")}
-              </A>
+            {/* invited email has no account → inline create-password form */}
+            <Show when={showCreate()}>
+              <p class="iv-text">{t("invite.create.desc", { email: invitedEmail() })}</p>
+              <form onSubmit={createAccount} class="iv-form">
+                <input
+                  class="iv-input"
+                  type="password"
+                  autocomplete="new-password"
+                  placeholder={t("invite.password")}
+                  value={password()}
+                  onInput={(e) => setPassword(e.currentTarget.value)}
+                />
+                <input
+                  class="iv-input"
+                  type="password"
+                  autocomplete="new-password"
+                  placeholder={t("invite.password.confirm")}
+                  value={confirmPassword()}
+                  onInput={(e) => setConfirmPassword(e.currentTarget.value)}
+                />
+                <Show when={formErr()}>
+                  <div class="iv-error">{formErr()}</div>
+                </Show>
+                <button type="submit" class="iv-btn iv-btn-primary iv-btn-big" disabled={status() === "accepting"}>
+                  <span>{status() === "accepting" ? t("general.loading") : t("invite.create.cta")}</span>
+                  <span class="iv-ar">→</span>
+                </button>
+              </form>
             </Show>
 
-            {/* logged in, right account → accept */}
-            <Show when={auth.user && emailMatches()}>
-              <p class="iv-text">{t("invite.confirm", { email: invitedEmail() })}</p>
-              <button
-                type="button"
-                class="iv-btn iv-btn-primary iv-btn-big"
-                onClick={accept}
-                disabled={status() === "accepting"}
+            {/* invited email already has an account → sign in */}
+            <Show when={showSignIn()}>
+              <p class="iv-text">{t("invite.signin.desc", { email: invitedEmail() })}</p>
+              <A
+                href={`/login?email=${encodeURIComponent(invitedEmail())}&next=${encodeURIComponent(`/invite/accept?token=${token()}`)}`}
+                class="iv-btn iv-btn-primary"
               >
-                <span>{status() === "accepting" ? t("general.loading") : t("invite.cta.accept")}</span>
-                <span class="iv-ar">→</span>
-              </button>
+                {t("invite.login")}
+              </A>
             </Show>
           </Show>
         </div>
@@ -283,6 +324,12 @@ const styles = `
   line-height: 1.55; color: var(--ink);
 }
 .iv-actions { display: flex; gap: 12px; flex-wrap: wrap; }
+.iv-form { display: flex; flex-direction: column; gap: 12px; }
+.iv-input {
+  border: 3px solid var(--rule); background: var(--cream); color: var(--ink);
+  font-family: 'Inter Tight', sans-serif; font-size: 15px; padding: 13px 14px; width: 100%;
+}
+.iv-input:focus { outline: none; box-shadow: 4px 4px 0 var(--rule); }
 .iv-btn {
   border: 3px solid var(--rule); cursor: pointer;
   font-family: 'Oswald', sans-serif; font-weight: 700;
