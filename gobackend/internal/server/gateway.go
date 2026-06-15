@@ -21,6 +21,7 @@ import (
 	dashboardv1 "github.com/zwarder/waf/gobackend/gen/dashboard/v1"
 	modsecurityv1 "github.com/zwarder/waf/gobackend/gen/modsecurity/v1"
 	monitoringv1 "github.com/zwarder/waf/gobackend/gen/monitoring/v1"
+	notificationsv1 "github.com/zwarder/waf/gobackend/gen/notifications/v1"
 	realtimev1 "github.com/zwarder/waf/gobackend/gen/realtime/v1"
 	sslv1 "github.com/zwarder/waf/gobackend/gen/ssl/v1"
 	teamsv1 "github.com/zwarder/waf/gobackend/gen/teams/v1"
@@ -95,6 +96,9 @@ func NewGatewayMux(ctx context.Context, grpcAddr string) (*runtime.ServeMux, err
 		return nil, err
 	}
 	if err := teamsv1.RegisterTeamsServiceHandlerFromEndpoint(ctx, mux, grpcAddr, opts); err != nil {
+		return nil, err
+	}
+	if err := notificationsv1.RegisterNotificationsServiceHandlerFromEndpoint(ctx, mux, grpcAddr, opts); err != nil {
 		return nil, err
 	}
 	return mux, nil

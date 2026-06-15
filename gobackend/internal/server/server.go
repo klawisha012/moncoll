@@ -22,6 +22,7 @@ import (
 	dashboardv1 "github.com/zwarder/waf/gobackend/gen/dashboard/v1"
 	modsecurityv1 "github.com/zwarder/waf/gobackend/gen/modsecurity/v1"
 	monitoringv1 "github.com/zwarder/waf/gobackend/gen/monitoring/v1"
+	notificationsv1 "github.com/zwarder/waf/gobackend/gen/notifications/v1"
 	realtimev1 "github.com/zwarder/waf/gobackend/gen/realtime/v1"
 	sslv1 "github.com/zwarder/waf/gobackend/gen/ssl/v1"
 	teamsv1 "github.com/zwarder/waf/gobackend/gen/teams/v1"
@@ -49,6 +50,7 @@ import (
 	"github.com/zwarder/waf/gobackend/internal/monitoring"
 	"github.com/zwarder/waf/gobackend/internal/oauth"
 	"github.com/zwarder/waf/gobackend/internal/observability"
+	"github.com/zwarder/waf/gobackend/internal/notificationsapi"
 	"github.com/zwarder/waf/gobackend/internal/realtime"
 	"github.com/zwarder/waf/gobackend/internal/realtimeapi"
 	"github.com/zwarder/waf/gobackend/internal/sslapi"
@@ -205,6 +207,8 @@ func (s *Server) Start(ctx context.Context) error {
 	}
 	testsSvc := testsapi.New(testsCatalog, testsStore, testsProber, testsCHPoller, testsCSRunner, s.log)
 
+	notifSvc := notificationsapi.New(st, s.log)
+
 	// 6. Build dynamic authLevels map from registered services.
 	authLevels := make(map[string]auth.Level)
 	services := []any{
@@ -219,6 +223,7 @@ func (s *Server) Start(ctx context.Context) error {
 		authSvc,
 		realtimeSvc,
 		testsSvc,
+		notifSvc,
 	}
 	for _, svc := range services {
 		if auther, ok := svc.(auth.AuthorizableService); ok {
@@ -247,6 +252,7 @@ func (s *Server) Start(ctx context.Context) error {
 	authv1.RegisterAuthServiceServer(s.grpcSrv, authSvc)
 	realtimev1.RegisterRealtimeServiceServer(s.grpcSrv, realtimeSvc)
 	testsv1.RegisterTestsServiceServer(s.grpcSrv, testsSvc)
+	notificationsv1.RegisterNotificationsServiceServer(s.grpcSrv, notifSvc)
 
 	go func() {
 		s.log.Info("grpc serving", "addr", grpcAddr)
