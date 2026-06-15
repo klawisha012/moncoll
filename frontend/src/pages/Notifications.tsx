@@ -1,6 +1,9 @@
-import { createSignal, createEffect, onMount, For, Show } from "solid-js";
+import { createSignal, createEffect, onMount, onCleanup, For, Show } from "solid-js";
 import { api, type AppNotification } from "../api/client";
 import { useSettings } from "../context/SettingsContext";
+import { useAuth } from "../context/AuthContext";
+import { subscribe } from "../realtime/client";
+import { refreshUnread } from "../realtime/notifications";
 
 type FilterTab = "all" | "unread" | "starred";
 type ToastKind = "success" | "error" | "info";
@@ -20,6 +23,7 @@ function fmtDate(iso: string): string {
 
 export default function Notifications() {
   const settings = useSettings();
+  const auth = useAuth();
   const t = settings.t;
 
   const [items, setItems] = createSignal<AppNotification[]>([]);
@@ -38,6 +42,7 @@ export default function Notifications() {
     try {
       const ns = await api.notifications.list(filter());
       setItems(ns);
+      void refreshUnread();
     } catch (e) {
       showToast("error", errMsg(e));
     } finally {
@@ -45,7 +50,14 @@ export default function Notifications() {
     }
   };
 
-  onMount(() => void load());
+  onMount(() => {
+    void load();
+    const uid = auth.user?.id;
+    if (uid) {
+      const unsub = subscribe(`personal:#${uid}`, () => { void load(); void refreshUnread(); });
+      onCleanup(unsub);
+    }
+  });
   createEffect(() => {
     filter(); // track
     void load();
@@ -88,6 +100,7 @@ export default function Notifications() {
     try {
       await api.notifications.markAllRead();
       await load();
+      void refreshUnread();
     } catch (e) {
       showToast("error", errMsg(e));
     }
@@ -98,6 +111,7 @@ export default function Notifications() {
     try {
       await api.notifications.markRead([n.id]);
       setItems((prev) => prev.map((x) => (x.id === n.id ? { ...x, read: true } : x)));
+      void refreshUnread();
     } catch {
       // best-effort
     }
@@ -128,6 +142,7 @@ export default function Notifications() {
       await api.teams.acceptInviteById(Number(data.invitation_id));
       await api.notifications.remove([n.id]);
       await load();
+      void refreshUnread();
       showToast("success", t("invite.accept.ok"));
     } catch (e) {
       showToast("error", errMsg(e));
@@ -141,6 +156,7 @@ export default function Notifications() {
       await api.teams.declineInvite(Number(data.invitation_id));
       await api.notifications.remove([n.id]);
       await load();
+      void refreshUnread();
     } catch (e) {
       showToast("error", errMsg(e));
     }
