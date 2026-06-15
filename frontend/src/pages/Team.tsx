@@ -21,7 +21,6 @@ export default function Team() {
   const [members, setMembers] = createSignal<TeamMember[]>([]);
   const [myRole, setMyRole] = createSignal("member");
   const [outgoing, setOutgoing] = createSignal<Invitation[]>([]);
-  const [incoming, setIncoming] = createSignal<Invitation[]>([]);
   const [email, setEmail] = createSignal("");
   const [role, setRole] = createSignal("member");
   const [busy, setBusy] = createSignal(false);
@@ -46,7 +45,6 @@ export default function Team() {
       setMyRole(m.my_role);
       const inv = await api.teams.invitations();
       setOutgoing(inv.outgoing);
-      setIncoming(inv.incoming);
     } catch (e) {
       showToast("error", errMsg(e));
     }
@@ -375,28 +373,6 @@ export default function Team() {
               </div>
             </Show>
           </div>
-        </div>
-      </Show>
-
-      {/* ── My incoming invitations ───────────────────────────── */}
-      <Show when={incoming().length > 0}>
-        <div class="card">
-          <div class="card-header">
-            <h2>{t("team.myInvitations")}</h2>
-          </div>
-          <For each={incoming()}>
-            {(inv) => (
-              <div style="display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 0; border-bottom: 1.5px solid var(--line);">
-                <span>
-                  <strong>{inv.team_name}</strong>
-                  <span class={roleBadgeClass(inv.role)} style="margin-left: 10px;">{t(`team.role.${inv.role}`)}</span>
-                </span>
-                <button type="button" class="btn btn-sm btn-ghost" onClick={() => act(() => api.teams.declineInvite(inv.id))}>
-                  {t("team.action.decline")}
-                </button>
-              </div>
-            )}
-          </For>
         </div>
       </Show>
 
