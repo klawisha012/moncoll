@@ -75,10 +75,11 @@ func (s *Service) AuthLevels() map[string]auth.Level {
 		teamsv1.TeamsService_DeclineInvitation_FullMethodName: auth.LevelVerified,
 		teamsv1.TeamsService_RevokeInvitation_FullMethodName:  auth.LevelVerified,
 		teamsv1.TeamsService_ResendInvitation_FullMethodName:  auth.LevelVerified,
-		teamsv1.TeamsService_ListMembers_FullMethodName:  auth.LevelVerified,
-		teamsv1.TeamsService_RemoveMember_FullMethodName: auth.LevelVerified,
-		teamsv1.TeamsService_ChangeRole_FullMethodName:   auth.LevelVerified,
-		teamsv1.TeamsService_LeaveTeam_FullMethodName:    auth.LevelVerified,
+		teamsv1.TeamsService_ListMembers_FullMethodName:       auth.LevelVerified,
+		teamsv1.TeamsService_RemoveMember_FullMethodName:      auth.LevelVerified,
+		teamsv1.TeamsService_ChangeRole_FullMethodName:        auth.LevelVerified,
+		teamsv1.TeamsService_LeaveTeam_FullMethodName:         auth.LevelVerified,
+		teamsv1.TeamsService_LookupUserByEmail_FullMethodName: auth.LevelVerified,
 	}
 }
 
