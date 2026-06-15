@@ -520,7 +520,7 @@ export interface Team { tenant_id: number; slug: string; display_name: string; r
 export interface TeamMember { user_id: number; email: string; display_name: string; role: string; }
 export interface Invitation { id: number; tenant_id: number; email: string; role: string; status: string; team_name: string; expires_at: string; accept_url?: string; email_sent?: boolean; }
 export interface InvitationsResponse { outgoing: Invitation[]; incoming: Invitation[]; }
-export interface InvitationPreview { valid?: boolean; team_name?: string; role?: string; email?: string; }
+export interface InvitationPreview { valid?: boolean; team_name?: string; role?: string; email?: string; account_exists?: boolean; }
 export interface MembersResponse { members: TeamMember[]; my_role: string; }
 
 // ── Auth types ─────────────────────────────────────────────
@@ -978,6 +978,12 @@ export const api = {
       fetchApi<{ message: string }>("/api/auth/verify-email", {
         method: "POST",
         body: JSON.stringify({ token }),
+      }),
+
+    signupViaInvite: (token: string, password: string) =>
+      fetchApi<{ user: User }>("/api/auth/signup-via-invite", {
+        method: "POST",
+        body: JSON.stringify({ token, password }),
       }),
 
     forgotPassword: (email: string, captchaToken: string) =>
