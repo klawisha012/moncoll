@@ -21,6 +21,7 @@ import Clients from "./pages/Clients";
 import ClientDetail from "./pages/ClientDetail";
 import InviteAccept from "./pages/InviteAccept";
 import Team from "./pages/Team";
+import Notifications from "./pages/Notifications";
 
 export default function App() {
   return (
@@ -55,6 +56,7 @@ export default function App() {
           <Route path="crowdsec" component={() => (<RequireRole role="client"><CrowdSec /></RequireRole>)} />
           <Route path="tests" component={() => (<RequireRole role="client"><Tests /></RequireRole>)} />
           <Route path="team" component={() => (<RequireRole role="client"><Team /></RequireRole>)} />
+          <Route path="notifications" component={() => (<RequireRole role="client"><Notifications /></RequireRole>)} />
         </Route>
       </Route>
 

@@ -829,6 +829,24 @@ const en: TranslationDict = {
   "account.logoutAll": "Sign out of all",
   "account.addBanner": "Adding another account — your current one stays signed in.",
 
+  // Notifications center
+  "notif.title": "Notifications",
+  "notif.nav": "Notifications",
+  "notif.tab.all": "All",
+  "notif.tab.unread": "Unread",
+  "notif.tab.starred": "Starred",
+  "notif.empty": "No notifications.",
+  "notif.markAllRead": "Mark all read",
+  "notif.action.accept": "Accept",
+  "notif.action.decline": "Decline",
+  "notif.action.delete": "Delete",
+  "notif.invitation.title": "Team invitation",
+  "notif.invitation.body": "You've been invited to {team} as {role}.",
+  "notif.role.title": "Role changed",
+  "notif.role.body": "Your role is now {role}.",
+  "notif.removed.title": "Removed from team",
+  "notif.removed.body": "You were removed from the team.",
+
   // ── Landing ──
   "landing.nav.login": "Sign in",
   "landing.nav.signup": "Create account",
@@ -1680,6 +1698,24 @@ const ru: TranslationDict = {
   "account.add": "Добавить аккаунт",
   "account.logoutAll": "Выйти из всех",
   "account.addBanner": "Добавление ещё одного аккаунта — текущий останется в системе.",
+
+  // Notifications center
+  "notif.title": "Уведомления",
+  "notif.nav": "Уведомления",
+  "notif.tab.all": "Все",
+  "notif.tab.unread": "Непрочитанные",
+  "notif.tab.starred": "Помеченные",
+  "notif.empty": "Уведомлений нет.",
+  "notif.markAllRead": "Прочитать все",
+  "notif.action.accept": "Принять",
+  "notif.action.decline": "Отклонить",
+  "notif.action.delete": "Удалить",
+  "notif.invitation.title": "Приглашение в команду",
+  "notif.invitation.body": "Вас пригласили в «{team}» с ролью «{role}».",
+  "notif.role.title": "Роль изменена",
+  "notif.role.body": "Ваша роль теперь «{role}».",
+  "notif.removed.title": "Удаление из команды",
+  "notif.removed.body": "Вас удалили из команды.",
 
   // ── Landing ──
   "landing.nav.login": "Зайти",
