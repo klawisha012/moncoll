@@ -514,6 +514,26 @@ async function fetchApi<T>(url: string, options?: RequestInit): Promise<T> {
   return data;
 }
 
+// ── Notifications types ────────────────────────────────────
+
+export interface AppNotification {
+  id: string;
+  type: string;
+  title: string;
+  body: string;
+  data_json: string;
+  read: boolean;
+  starred: boolean;
+  created_at: string;
+  tenant_id?: string;
+  has_tenant_id?: boolean;
+}
+
+export interface NotificationsResponse {
+  notifications?: AppNotification[];
+  next_before_id?: string;
+}
+
 // ── Teams types ────────────────────────────────────────────
 
 export interface Team { tenant_id: number; slug: string; display_name: string; role: string; active: boolean; }
@@ -1090,6 +1110,8 @@ export const api = {
       fetchApi<InvitationPreview>(`/api/teams/invitations/preview?token=${encodeURIComponent(token)}`),
     acceptInvite: (token: string) =>
       fetchApi<void>("/api/teams/invitations/accept", { method: "POST", body: JSON.stringify({ token }) }),
+    acceptInviteById: (id: number) =>
+      fetchApi<void>("/api/teams/invitations/accept-by-id", { method: "POST", body: JSON.stringify({ id }) }),
     declineInvite: (id: number) =>
       fetchApi<void>("/api/teams/invitations/decline", { method: "POST", body: JSON.stringify({ id }) }),
     revokeInvite: (id: number) =>
@@ -1098,6 +1120,24 @@ export const api = {
       fetchApi<Invitation>("/api/teams/invitations/resend", { method: "POST", body: JSON.stringify({ id }) }),
     lookupUser: (email: string) =>
       fetchApi<UserLookup>(`/api/teams/users/lookup?email=${encodeURIComponent(email)}`),
+  },
+
+  // ── Notifications ──────────────────────────────────────
+  notifications: {
+    list: (filter: string, beforeId?: string) =>
+      fetchApi<NotificationsResponse>(
+        `/api/notifications?filter=${encodeURIComponent(filter)}${beforeId ? `&before_id=${encodeURIComponent(beforeId)}` : ""}`
+      ).then((r) => r.notifications ?? []),
+    unreadCount: () =>
+      fetchApi<{ count?: string }>("/api/notifications/unread-count").then((r) => Number(r.count ?? 0)),
+    markRead: (ids: string[]) =>
+      fetchApi<void>("/api/notifications/read", { method: "POST", body: JSON.stringify({ ids: ids.map(Number) }) }),
+    markAllRead: () =>
+      fetchApi<void>("/api/notifications/read-all", { method: "POST", body: "{}" }),
+    toggleStar: (id: string, starred: boolean) =>
+      fetchApi<AppNotification>("/api/notifications/star", { method: "POST", body: JSON.stringify({ id: Number(id), starred }) }),
+    remove: (ids: string[]) =>
+      fetchApi<void>("/api/notifications/delete", { method: "POST", body: JSON.stringify({ ids: ids.map(Number) }) }),
   },
 
   // ── Real-time (Centrifugo) ──
