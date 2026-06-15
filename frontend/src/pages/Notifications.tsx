@@ -196,7 +196,7 @@ export default function Notifications() {
         <div style="flex: 1;" />
         <button
           type="button"
-          class="btn btn-sm btn-ghost"
+          class="btn btn-sm btn-outline"
           onClick={markAllRead}
           disabled={loading()}
         >
