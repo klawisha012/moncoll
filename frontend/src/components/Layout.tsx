@@ -1,4 +1,4 @@
-import { createSignal, createEffect, Show, For, type JSX } from "solid-js";
+import { createSignal, createEffect, onMount, onCleanup, Show, For, type JSX } from "solid-js";
 import { A } from "@solidjs/router";
 import {
   LayoutDashboard,
@@ -14,9 +14,12 @@ import {
   PanelLeftClose,
   PanelLeftOpen,
   Users2,
+  Bell,
 } from "lucide-solid";
 import { useSettings } from "../context/SettingsContext";
 import { useAuth } from "../context/AuthContext";
+import { subscribe } from "../realtime/client";
+import { unreadCount, refreshUnread } from "../realtime/notifications";
 import SettingsPopover from "./SettingsPopover";
 import GlobalFilters from "./GlobalFilters";
 import TeamSwitcher from "./TeamSwitcher";
@@ -69,6 +72,12 @@ const CLIENT_NAV: NavSection[] = [
       { path: "/tests", labelKey: "nav.tests", icon: <TestTube /> },
     ],
   },
+  {
+    titleKey: "nav.account",
+    items: [
+      { path: "/notifications", labelKey: "notif.nav", icon: <Bell /> },
+    ],
+  },
 ];
 
 const NAV_MAP: Record<"admin" | "client", NavSection[]> = {
@@ -88,6 +97,14 @@ export default function Layout(props: { children?: JSX.Element }) {
     } catch {
       // ignore
     }
+  });
+
+  onMount(() => {
+    void refreshUnread();
+    const uid = auth.user?.id;
+    if (!uid) return;
+    const unsub = subscribe(`personal:#${uid}`, () => { void refreshUnread(); });
+    onCleanup(unsub);
   });
 
   const sections = () => {
@@ -151,6 +168,11 @@ export default function Layout(props: { children?: JSX.Element }) {
                     >
                       {item.icon}
                       {settings.t(item.labelKey)}
+                      <Show when={item.path === "/notifications" && unreadCount() > 0}>
+                        <span class="badge badge-primary" style="margin-left: auto; min-width: 20px; text-align: center;">
+                          {unreadCount()}
+                        </span>
+                      </Show>
                     </A>
                   )}
                 </For>

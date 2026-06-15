@@ -642,6 +642,7 @@ const en: TranslationDict = {
   // Nav — SaaS roles
   "nav.operations": "Operations",
   "nav.clients": "Clients",
+  "nav.account": "Account",
 
   // Auth — email + SaaS flows
   "auth.email": "Email",
@@ -1512,6 +1513,7 @@ const ru: TranslationDict = {
   // Nav — SaaS roles
   "nav.operations": "Операции",
   "nav.clients": "Клиенты",
+  "nav.account": "Аккаунт",
 
   // Auth — email + SaaS flows
   "auth.email": "Email",
