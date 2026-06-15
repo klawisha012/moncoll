@@ -844,6 +844,14 @@ const en: TranslationDict = {
   "notif.role.body": "Your role is now {role}.",
   "notif.removed.title": "Removed from team",
   "notif.removed.body": "You were removed from the team.",
+  "notif.conn.active.title": "Connection active",
+  "notif.conn.active.body": "Connection {name} is now active and protected.",
+  "notif.conn.error.title": "Connection error",
+  "notif.conn.error.body": "Connection {name} failed: the certificate could not be issued.",
+  "notif.cert.title": "Certificate expiring",
+  "notif.cert.body": "The certificate for {domain} expires in {days} days.",
+  "notif.ban.title": "IP banned",
+  "notif.ban.body": "IP {ip} was banned.",
 
   // ── Landing ──
   "landing.nav.login": "Sign in",
@@ -1712,6 +1720,14 @@ const ru: TranslationDict = {
   "notif.role.body": "Ваша роль теперь «{role}».",
   "notif.removed.title": "Удаление из команды",
   "notif.removed.body": "Вас удалили из команды.",
+  "notif.conn.active.title": "Подключение активно",
+  "notif.conn.active.body": "Подключение {name} активно и под защитой.",
+  "notif.conn.error.title": "Ошибка подключения",
+  "notif.conn.error.body": "Подключение {name} не удалось: сертификат не выпущен.",
+  "notif.cert.title": "Истекает сертификат",
+  "notif.cert.body": "Сертификат для {domain} истекает через {days} дн.",
+  "notif.ban.title": "IP заблокирован",
+  "notif.ban.body": "IP {ip} заблокирован.",
 
   // ── Landing ──
   "landing.nav.login": "Зайти",

@@ -90,6 +90,14 @@ export default function Notifications() {
           title: t("notif.removed.title"),
           body: t("notif.removed.body"),
         };
+      case "connection.active":
+        return { title: t("notif.conn.active.title"), body: t("notif.conn.active.body", { name: data.name ?? "" }) };
+      case "connection.error":
+        return { title: t("notif.conn.error.title"), body: t("notif.conn.error.body", { name: data.name ?? "" }) };
+      case "cert.expiring":
+        return { title: t("notif.cert.title"), body: t("notif.cert.body", { domain: data.domain ?? "", days: String(data.days ?? "") }) };
+      case "security.crowdsec_ban":
+        return { title: t("notif.ban.title"), body: t("notif.ban.body", { ip: data.ip ?? "" }) };
       default:
         // Covers team.member_joined and future types — use backend-provided strings.
         return { title: n.title, body: n.body };
