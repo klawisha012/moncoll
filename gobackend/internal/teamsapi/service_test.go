@@ -200,6 +200,13 @@ func ctxWithUser(userID int64, tenantID int64) context.Context {
 	})
 }
 
+func ctxWithAdmin(userID int64, tenantID int64) context.Context {
+	tid := tenantID
+	return auth.WithIdentity(context.Background(), &auth.Identity{
+		UserID: userID, PlatformRole: "admin", TenantID: &tid,
+	})
+}
+
 func newSvc(f *fakeStore) *Service {
 	return New(f, &fakeMailer{}, "https://waf.test", slog.New(slog.NewTextHandler(io.Discard, nil)), nil)
 }
@@ -232,4 +239,20 @@ func TestSwitchTeamRequiresMembership(t *testing.T) {
 func TestSwitchTeamValidatesArg(t *testing.T) {
 	_, err := newSvc(&fakeStore{}).SwitchTeam(ctxWithUser(1, 1), &teamsv1.SwitchTeamRequest{TenantId: 0})
 	assert.Equal(t, codes.InvalidArgument, status.Code(err))
+}
+
+// A platform admin is backfilled as an owner-member of the system tenant, so
+// GetMembership would pass — but admins have a FIXED scope (the auth
+// interceptor overrides their TenantID to the system tenant) and the
+// users_platform_tenant_consistency CHECK forbids writing users.tenant_id for
+// an admin. SwitchTeam must therefore short-circuit to a no-op success and
+// never call SetActiveTenant, instead of attempting the write that 500s.
+func TestSwitchTeamAdminIsNoOp(t *testing.T) {
+	const systemTenantID = int64(1)
+	f := &fakeStore{memberships: map[int64]string{systemTenantID: "owner"}}
+	svc := newSvc(f)
+
+	_, err := svc.SwitchTeam(ctxWithAdmin(7, systemTenantID), &teamsv1.SwitchTeamRequest{TenantId: systemTenantID})
+	require.NoError(t, err)
+	assert.Equal(t, int64(0), f.active, "admin SwitchTeam must not call SetActiveTenant")
 }

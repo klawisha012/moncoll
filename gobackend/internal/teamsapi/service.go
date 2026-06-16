@@ -138,6 +138,16 @@ func (s *Service) SwitchTeam(ctx context.Context, req *teamsv1.SwitchTeamRequest
 	if req.GetTenantId() == 0 {
 		return nil, status.Error(codes.InvalidArgument, "tenant_id required")
 	}
+	// Platform admins have a FIXED client scope: the auth interceptor overrides
+	// their TenantID to the system tenant for every per-tenant method, so the
+	// persisted users.tenant_id never affects an admin's effective scope.
+	// Writing it is also impossible — the users_platform_tenant_consistency
+	// CHECK forces tenant_id NULL for admins, so SetActiveTenant would 500.
+	// Switching is therefore a no-op success: keeps the (single, system) team
+	// in the admin's switcher clickable instead of erroring.
+	if id.PlatformRole == "admin" {
+		return &emptypb.Empty{}, nil
+	}
 	if _, err := s.store.GetMembership(ctx, id.UserID, req.GetTenantId()); err != nil {
 		var nf *store.NotFoundError
 		if errors.As(err, &nf) {
