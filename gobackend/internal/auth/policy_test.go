@@ -11,11 +11,11 @@ import (
 )
 
 type fakeStore struct {
-	users   map[int64]*store.User
+	users   map[int64]*store.AuthGateUser
 	tenants map[int64]*store.Tenant
 }
 
-func (f *fakeStore) GetUserByID(_ context.Context, id int64) (*store.User, error) {
+func (f *fakeStore) GetUserByID(_ context.Context, id int64) (*store.AuthGateUser, error) {
 	u, ok := f.users[id]
 	if !ok {
 		return nil, &store.NotFoundError{Entity: "user"}
@@ -32,18 +32,18 @@ func (f *fakeStore) GetTenantByID(_ context.Context, id int64) (*store.Tenant, e
 
 func ts(t time.Time) *time.Time { return &t }
 
-func adminUser() *store.User {
+func adminUser() *store.AuthGateUser {
 	now := time.Now()
-	return &store.User{ID: 7, PlatformRole: "admin", EmailVerifiedAt: ts(now), TotpEnabledAt: ts(now)}
+	return &store.AuthGateUser{ID: 7, PlatformRole: "admin", EmailVerifiedAt: ts(now), TotpEnabledAt: ts(now)}
 }
 
-func verifiedUser(tokenVersion int) *store.User {
+func verifiedUser(tokenVersion int) *store.AuthGateUser {
 	now := time.Now()
-	return &store.User{ID: 7, PlatformRole: "client", EmailVerifiedAt: ts(now), TokenVersion: tokenVersion}
+	return &store.AuthGateUser{ID: 7, PlatformRole: "client", EmailVerifiedAt: ts(now), TokenVersion: tokenVersion}
 }
 
-func newPolicy(u *store.User, ten *store.Tenant) *Policy {
-	fs := &fakeStore{users: map[int64]*store.User{}, tenants: map[int64]*store.Tenant{}}
+func newPolicy(u *store.AuthGateUser, ten *store.Tenant) *Policy {
+	fs := &fakeStore{users: map[int64]*store.AuthGateUser{}, tenants: map[int64]*store.Tenant{}}
 	if u != nil {
 		fs.users[u.ID] = u
 	}

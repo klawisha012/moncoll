@@ -7,13 +7,12 @@ import (
 	"time"
 )
 
-// User mirrors the full users table.  Fields required only by the auth gate
-// (ID/PlatformRole/EmailVerifiedAt/TotpEnabledAt/TenantID) are kept in their
-// original positions so GetUserByID (which SELECTs only those five columns)
-// continues to work unchanged.  The additional fields are populated by
-// GetUserByEmail and CreateUser which SELECT all columns.
+// User mirrors the full users table. It is populated by the SELECT-all helpers
+// GetUserByEmail, GetUserByIDFull, and CreateUser. Callers that need only the
+// auth-gate columns use GetUserByID, which returns the narrow AuthGateUser
+// instead (see that type for why).
 type User struct {
-	// Auth-gate fields (populated by GetUserByID).
+	// Auth-gate columns. Mirrored field-for-field by AuthGateUser.
 	ID              int64
 	PlatformRole    string
 	EmailVerifiedAt *time.Time
@@ -31,6 +30,22 @@ type User struct {
 	LastLoginAt       *time.Time
 	CreatedAt         time.Time
 	UpdatedAt         time.Time
+}
+
+// AuthGateUser is the narrow projection returned by GetUserByID: exactly the
+// six columns the auth gate reads (resolveVerified / RequireAdmin). It exists
+// to turn a past footgun into a compile error instead of a silent empty value.
+// GetUserByID SELECTs only these columns, so a caller that read e.g. Email off
+// the old *User result silently got "" — that shipped as the teamsapi "not your
+// invitation" bug (fixed in b8aa8a0). Need email/display_name/totp? Call
+// GetUserByIDFull, which returns the full *User.
+type AuthGateUser struct {
+	ID              int64
+	PlatformRole    string
+	EmailVerifiedAt *time.Time
+	TotpEnabledAt   *time.Time
+	TenantID        *int64
+	TokenVersion    int // session-revocation watermark; compared in resolveVerified
 }
 
 // UserUpdate is used by UpdateUser to apply a partial patch.
@@ -117,7 +132,7 @@ type Invitation struct {
 // Reader is the read-only surface the auth policy depends on. Implemented by
 // the pgx store and by fakes in tests.
 type Reader interface {
-	GetUserByID(ctx context.Context, id int64) (*User, error)
+	GetUserByID(ctx context.Context, id int64) (*AuthGateUser, error)
 	GetTenantByID(ctx context.Context, id int64) (*Tenant, error)
 }
 

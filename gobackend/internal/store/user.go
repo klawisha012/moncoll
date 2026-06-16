@@ -16,8 +16,8 @@ import (
 // userFullColumns is the column list shared by CreateUser (RETURNING) and
 // GetUserByEmail.  Order must match userFullScan.
 //
-// NOTE: GetUserByID intentionally selects only 5 columns; adding columns
-// here does NOT break it.
+// NOTE: GetUserByID does not use this list — it SELECTs only the six auth-gate
+// columns into AuthGateUser — so adding columns here does NOT affect it.
 const userFullColumns = `
 	id, email, display_name, password_hash, platform_role,
 	tenant_id, tenant_role, email_verified_at,
@@ -103,10 +103,10 @@ func (s *Store) GetUserByEmail(ctx context.Context, email string) (*User, error)
 }
 
 // GetUserByIDFull returns the full user row (all columns) for the given id.
-// Unlike GetUserByID (which selects only the 5 auth-gate columns), this
-// populates Email/DisplayName/TenantRole/TotpSecret/RecoveryCodesHash so the
-// auth service can build a UserPublic or read the TOTP secret. Returns
-// *NotFoundError when no row exists.
+// Unlike GetUserByID (which returns the narrow AuthGateUser — only the six
+// auth-gate columns), this populates Email/DisplayName/TenantRole/TotpSecret/
+// RecoveryCodesHash so the auth service can build a UserPublic or read the TOTP
+// secret. Returns *NotFoundError when no row exists.
 func (s *Store) GetUserByIDFull(ctx context.Context, id int64) (*User, error) {
 	const q = `SELECT ` + userFullColumns + ` FROM users WHERE id = $1`
 	u := &User{}
