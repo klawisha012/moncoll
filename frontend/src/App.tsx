@@ -49,14 +49,14 @@ export default function App() {
           <Route path="clients/:id" component={() => (<RequireRole role="admin"><ClientDetail /></RequireRole>)} />
 
           {/* Client routes */}
-          <Route path="home" component={() => (<RequireRole role="client"><Home /></RequireRole>)} />
-          <Route path="dashboard" component={() => (<RequireRole role="client"><Dashboard /></RequireRole>)} />
-          <Route path="connections" component={() => (<RequireRole role="client"><Connections /></RequireRole>)} />
-          <Route path="config" component={() => (<RequireRole role="client"><ConfigEditor /></RequireRole>)} />
-          <Route path="crowdsec" component={() => (<RequireRole role="client"><CrowdSec /></RequireRole>)} />
-          <Route path="tests" component={() => (<RequireRole role="client"><Tests /></RequireRole>)} />
-          <Route path="team" component={() => (<RequireRole role="client"><Team /></RequireRole>)} />
-          <Route path="notifications" component={() => (<RequireRole role="client"><Notifications /></RequireRole>)} />
+          <Route path="home" component={() => (<RequireRole role={["client", "admin"]}><Home /></RequireRole>)} />
+          <Route path="dashboard" component={() => (<RequireRole role={["client", "admin"]}><Dashboard /></RequireRole>)} />
+          <Route path="connections" component={() => (<RequireRole role={["client", "admin"]}><Connections /></RequireRole>)} />
+          <Route path="config" component={() => (<RequireRole role={["client", "admin"]}><ConfigEditor /></RequireRole>)} />
+          <Route path="crowdsec" component={() => (<RequireRole role={["client", "admin"]}><CrowdSec /></RequireRole>)} />
+          <Route path="tests" component={() => (<RequireRole role={["client", "admin"]}><Tests /></RequireRole>)} />
+          <Route path="team" component={() => (<RequireRole role={["client", "admin"]}><Team /></RequireRole>)} />
+          <Route path="notifications" component={() => (<RequireRole role={["client", "admin"]}><Notifications /></RequireRole>)} />
         </Route>
       </Route>
 
