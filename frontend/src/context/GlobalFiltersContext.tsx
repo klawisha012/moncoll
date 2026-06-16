@@ -98,9 +98,17 @@ export function GlobalFiltersProvider(props: { children: JSX.Element }) {
     api
       .getConnections()
       .then((cs) => {
-        if (!cancelled) {
-          setConnections(cs);
-          setFetched(true);
+        if (cancelled) return;
+        setConnections(cs);
+        setFetched(true);
+        // Drop a stale/foreign connectionId — e.g. one persisted from a
+        // ?conn=<id> link to another tenant's connection — so per-tenant pages
+        // (Tests, Config, Dashboard) don't query a connection the user can't
+        // access (404). null = "all domains" is left untouched.
+        const current = connectionId();
+        if (current != null && cs.length > 0 && !cs.some((c) => c.id === current)) {
+          const active = cs.filter((c) => c.enabled);
+          setConnectionIdState((active.length > 0 ? active[0] : cs[0]).id);
         }
       })
       .catch(() => {
