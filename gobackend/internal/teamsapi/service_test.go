@@ -63,7 +63,7 @@ func (f *fakeStore) GetUserByEmail(_ context.Context, email string) (*store.User
 	}
 	return nil, &store.NotFoundError{Entity: "user"}
 }
-func (f *fakeStore) GetUserByID(_ context.Context, id int64) (*store.User, error) {
+func (f *fakeStore) GetUserByIDFull(_ context.Context, id int64) (*store.User, error) {
 	if u, ok := f.usersByID[id]; ok {
 		return u, nil
 	}

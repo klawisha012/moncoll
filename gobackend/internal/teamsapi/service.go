@@ -22,7 +22,9 @@ type Store interface {
 	GetMembership(ctx context.Context, userID, tenantID int64) (*store.Membership, error)
 	SetActiveTenant(ctx context.Context, userID, tenantID int64) error
 
-	GetUserByID(ctx context.Context, id int64) (*store.User, error)
+	// GetUserByIDFull (not GetUserByID) so callerEmail gets a populated Email —
+	// GetUserByID selects only auth-gate columns and leaves Email empty.
+	GetUserByIDFull(ctx context.Context, id int64) (*store.User, error)
 	GetUserByEmail(ctx context.Context, email string) (*store.User, error)
 	GetTenantDisplayName(ctx context.Context, tenantID int64) (string, error)
 	CreateInvitation(ctx context.Context, inv *store.Invitation) (*store.Invitation, error)

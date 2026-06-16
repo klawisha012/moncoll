@@ -72,8 +72,13 @@ func (s *Service) inviteURL(token string) string {
 	return s.publicBaseURL + "/invite/accept?token=" + token
 }
 
+// callerEmail returns the calling user's email for the invitation email-match
+// checks below. It MUST use GetUserByIDFull, not GetUserByID: the latter selects
+// only the auth-gate columns (id, platform_role, tenant_id, ...) and leaves
+// Email empty, which silently made every check compare "" against inv.Email and
+// reject all callers with "not your invitation".
 func (s *Service) callerEmail(ctx context.Context, id *auth.Identity) string {
-	u, err := s.store.GetUserByID(ctx, id.UserID)
+	u, err := s.store.GetUserByIDFull(ctx, id.UserID)
 	if err != nil || u == nil {
 		return ""
 	}
