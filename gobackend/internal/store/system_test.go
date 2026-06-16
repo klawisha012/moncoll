@@ -71,3 +71,21 @@ func TestBackfillAdminsMembershipOnly(t *testing.T) {
 		 WHERE m.tenant_id=$1 AND u.email='client@test'`, sys.ID).Scan(&clientInSystem))
 	require.Equal(t, 0, clientInSystem)
 }
+
+func TestSystemTenantProtectedFromSuspendDelete(t *testing.T) {
+	st := authTestStore(t)
+	ctx := context.Background()
+
+	sys, err := st.EnsureSystemTenant(ctx)
+	require.NoError(t, err)
+
+	_, err = st.SuspendTenant(ctx, sys.ID)
+	require.ErrorIs(t, err, ErrSystemTenantProtected)
+	require.ErrorIs(t, st.DeleteTenant(ctx, sys.ID), ErrSystemTenantProtected)
+
+	// A normal tenant is still suspendable/deletable.
+	other, err := st.CreateTenant(ctx, "acme", "Acme")
+	require.NoError(t, err)
+	_, err = st.SuspendTenant(ctx, other.ID)
+	require.NoError(t, err)
+}
