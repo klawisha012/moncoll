@@ -12,6 +12,10 @@ import (
 // that owns the self-connection and that every platform admin belongs to.
 const systemTenantSlug = "system"
 
+// systemTenantDisplayName is the human-facing name shown for the platform's
+// own (system) tenant.
+const systemTenantDisplayName = "Moncoll"
+
 // ErrSystemTenantProtected is returned when an admin tries to suspend or delete
 // the system tenant. Suspending it would set suspended_at on the tenant every
 // admin is a member of; combined with the interceptor scope override that could
@@ -26,22 +30,12 @@ var ErrSystemTenantProtected = errors.New("the system tenant is protected")
 func (s *Store) EnsureSystemTenant(ctx context.Context) (*Tenant, error) {
 	const q = `
 		INSERT INTO tenants (name, display_name)
-		VALUES ($1, 'Moncoll')
+		VALUES ($1, $2)
 		ON CONFLICT (name) DO NOTHING`
-	if _, err := s.pool.Exec(ctx, q, systemTenantSlug); err != nil {
+	if _, err := s.pool.Exec(ctx, q, systemTenantSlug, systemTenantDisplayName); err != nil {
 		return nil, fmt.Errorf("EnsureSystemTenant insert: %w", err)
 	}
-	t := &Tenant{}
-	err := s.pool.QueryRow(ctx,
-		`SELECT id, name, suspended_at FROM tenants WHERE name=$1`, systemTenantSlug).
-		Scan(&t.ID, &t.Name, &t.SuspendedAt)
-	if errors.Is(err, pgx.ErrNoRows) {
-		return nil, &NotFoundError{Entity: "tenant"}
-	}
-	if err != nil {
-		return nil, fmt.Errorf("EnsureSystemTenant select: %w", err)
-	}
-	return t, nil
+	return s.GetTenantByName(ctx, systemTenantSlug)
 }
 
 // isSystemTenant reports whether id is the reserved system tenant. Used by the
@@ -53,7 +47,7 @@ func (s *Store) isSystemTenant(ctx context.Context, id int64) (bool, error) {
 		return false, &NotFoundError{Entity: "tenant"}
 	}
 	if err != nil {
-		return false, err
+		return false, fmt.Errorf("isSystemTenant: %w", err)
 	}
 	return name == systemTenantSlug, nil
 }
