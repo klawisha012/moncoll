@@ -79,11 +79,6 @@ const CLIENT_NAV: NavSection[] = [
   },
 ];
 
-const NAV_MAP: Record<"admin" | "client", NavSection[]> = {
-  admin: ADMIN_NAV,
-  client: CLIENT_NAV,
-};
-
 export default function Layout(props: { children?: JSX.Element }) {
   const settings = useSettings();
   const auth = useAuth();
@@ -111,7 +106,11 @@ export default function Layout(props: { children?: JSX.Element }) {
 
   const sections = () => {
     const role = auth.user?.platform_role ?? "client";
-    return NAV_MAP[role] ?? CLIENT_NAV;
+    // Platform admins also get the client (per-tenant) sections so they can see
+    // Connections / Dashboard / Globe / Tests for their own team, not just the
+    // platform ops views. The data behind those tabs still requires the admin to
+    // have a tenant + at least one connection.
+    return role === "admin" ? [...ADMIN_NAV, ...CLIENT_NAV] : CLIENT_NAV;
   };
 
   return (
