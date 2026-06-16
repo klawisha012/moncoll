@@ -64,15 +64,20 @@ export default function ConfigEditor() {
         if (cancelled) return;
         setConnections(list);
 
-        // Read URL conn parameter on mount if present
+        // Resolve the active connection: prefer a valid URL ?conn=, else the
+        // persisted selection, else the first enabled connection. A param or
+        // persisted id that isn't in the fetched list (e.g. a stale link to
+        // another tenant's connection) falls back instead of getting stuck.
+        const inList = (id: number | null) =>
+          id != null && list.some((c) => c.id === id);
         const connParam = searchParams.conn;
-        if (connParam && Number.isFinite(Number(connParam))) {
-          filters.setConnectionId(Number(connParam));
-        } else if (filters.connectionId == null && list.length > 0) {
-          // Default to the first enabled connection
+        const paramId =
+          connParam && Number.isFinite(Number(connParam)) ? Number(connParam) : null;
+        if (inList(paramId)) {
+          filters.setConnectionId(paramId);
+        } else if (!inList(filters.connectionId) && list.length > 0) {
           const activeConns = list.filter((c) => c.enabled);
-          const firstId = activeConns.length > 0 ? activeConns[0].id : list[0].id;
-          filters.setConnectionId(firstId);
+          filters.setConnectionId(activeConns.length > 0 ? activeConns[0].id : list[0].id);
         }
       } catch {
         if (!cancelled) showToast("error", settings.t("config.toast.loadFailed"));
