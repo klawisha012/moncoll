@@ -37,3 +37,12 @@ func TestDefaultTeamDisplayNameClampsTo64Runes(t *testing.T) {
 		t.Fatalf("want suffix \"'s team\", got %q", got)
 	}
 }
+
+func TestValidateTenantNameRejectsReserved(t *testing.T) {
+	if err := ValidateTenantName("system"); err == nil {
+		t.Fatal("expected 'system' to be rejected as reserved")
+	}
+	if err := ValidateTenantName("acme"); err != nil {
+		t.Fatalf("expected 'acme' to be valid, got %v", err)
+	}
+}

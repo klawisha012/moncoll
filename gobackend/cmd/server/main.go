@@ -105,6 +105,13 @@ func runCreateAdmin(log *slog.Logger, args []string) {
 	}
 
 	fmt.Printf("Created admin id=%d email=%s\n", res.ID, res.Email)
+
+	// Idempotent: ensure the system tenant exists and the new admin is an
+	// owner-member (plus the optional self-connection). Non-fatal — the admin was
+	// created, and the server re-runs this on startup.
+	if _, err := bootstrap.EnsureSystemProvisioning(ctx, log, st, bootstrap.LoadSelfSiteConfig()); err != nil {
+		fmt.Fprintf(os.Stderr, "Warning: system provisioning failed: %v\n", err)
+	}
 }
 
 // runServer instantiates and runs the Server module.
