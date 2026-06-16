@@ -34,7 +34,15 @@ var ErrInvalidTenantName = errors.New("invalid tenant name")
 // ValidateTenantName returns ErrInvalidTenantName when name does not match the
 // Python TENANT_NAME_RE. Exported so the auth service can validate a
 // user-supplied tenant_name before insertion (signup flow).
+// reservedTenantSlugs are names the platform owns; clients may not take them.
+// The system tenant (auto-provisioning, owns the self-connection) uses
+// systemTenantSlug — see system.go.
+var reservedTenantSlugs = map[string]struct{}{systemTenantSlug: {}}
+
 func ValidateTenantName(name string) error {
+	if _, ok := reservedTenantSlugs[name]; ok {
+		return ErrInvalidTenantName
+	}
 	if !tenantNameRE.MatchString(name) {
 		return ErrInvalidTenantName
 	}
