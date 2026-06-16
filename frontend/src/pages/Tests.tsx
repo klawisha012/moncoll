@@ -56,10 +56,16 @@ const getStatusIcon = (status: TestResultStatus) => {
 const extractHtmlBody = (responseRaw: string | null | undefined): string => {
   if (!responseRaw) return "<html><body style='font-family:sans-serif;padding:20px;color:#666;'><h3>No response received</h3></body></html>";
   const parts = responseRaw.split(/\r?\n\r?\n/);
-  if (parts.length > 1) {
-    return parts.slice(1).join("\n\n");
-  }
-  return responseRaw;
+  const html = parts.length > 1 ? parts.slice(1).join("\n\n") : responseRaw;
+  // The preview iframe is fully sandboxed (sandbox="", origin 'null'): it cannot
+  // run scripts and cannot fetch the page's cross-origin assets. Strip <script>
+  // and <link> tags so the preview does not flood the console with
+  // blocked-script and CORS errors (e.g. when previewing a JavaScript app like
+  // the WAF panel itself). Inline markup and inline styles are preserved.
+  return html
+    .replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, "")
+    .replace(/<script\b[^>]*\/>/gi, "")
+    .replace(/<link\b[^>]*>/gi, "");
 };
 
 export default function Tests() {
@@ -560,6 +566,9 @@ export default function Tests() {
                             margin: 0,
                           }}
                         />
+                        <div style={{ "margin-top": "8px", "font-family": "var(--font-mono)", "font-size": "10px", color: "var(--text-muted)" }}>
+                          Scripts and external stylesheets are not executed in this secured sandbox, so JavaScript apps (like the WAF panel itself) render blank here.
+                        </div>
                       </div>
                     }>
                       <div>
