@@ -31,6 +31,7 @@ import (
 	"github.com/zwarder/waf/gobackend/internal/angie"
 	"github.com/zwarder/waf/gobackend/internal/auth"
 	"github.com/zwarder/waf/gobackend/internal/authapi"
+	"github.com/zwarder/waf/gobackend/internal/bootstrap"
 	"github.com/zwarder/waf/gobackend/internal/captcha"
 	"github.com/zwarder/waf/gobackend/internal/centrifugo"
 	"github.com/zwarder/waf/gobackend/internal/certexpiry"
@@ -105,6 +106,16 @@ func (s *Server) Start(ctx context.Context) error {
 		return fmt.Errorf("postgres connect failed: %w", err)
 	}
 	s.store = st
+
+	// 2b. Idempotent system provisioning (non-fatal): ensure the system tenant,
+	// make every platform admin an owner-member of it, and — only when
+	// WAF_SELF_SITE_DOMAIN is set — ensure the self-connection row. The returned
+	// systemTenantID scopes admins' client tabs in the auth interceptor. A
+	// failure here logs and continues: the platform must still boot.
+	systemTenantID, provErr := bootstrap.EnsureSystemProvisioning(ctx, s.log, st, bootstrap.LoadSelfSiteConfig())
+	if provErr != nil {
+		s.log.Error("system provisioning failed (continuing)", "err", provErr)
+	}
 
 	// 3. Docker connection for monitoring.
 	engine, err := monitoring.NewDockerEngine()
@@ -243,7 +254,7 @@ func (s *Server) Start(ctx context.Context) error {
 		return fmt.Errorf("grpc listen failed: %w", err)
 	}
 
-	s.grpcSrv = grpc.NewServer(grpc.ChainUnaryInterceptor(auth.NewInterceptor(dec, policy, authLevels)))
+	s.grpcSrv = grpc.NewServer(grpc.ChainUnaryInterceptor(auth.NewInterceptor(dec, policy, authLevels, systemTenantID)))
 	monitoringv1.RegisterMonitoringServiceServer(s.grpcSrv, monitorSvc)
 	adminv1.RegisterAdminServiceServer(s.grpcSrv, adminSvc)
 	modsecurityv1.RegisterModSecurityServiceServer(s.grpcSrv, modsecSvc)
