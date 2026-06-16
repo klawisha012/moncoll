@@ -94,10 +94,40 @@ func slugify(raw string) string {
 	return out
 }
 
+// defaultTeamDisplayName builds the default display name for an auto-created
+// personal team from the email local-part: "zw4rder@gmail.com" -> "zw4rder's
+// team". Strips a "+tag" sub-address and clamps to display_name's 64-char
+// column. Returns "" when there is no usable local-part, so the caller falls
+// back to the slug.
+func defaultTeamDisplayName(email string) string {
+	local := email
+	if i := strings.Index(local, "@"); i >= 0 {
+		local = local[:i]
+	}
+	if i := strings.Index(local, "+"); i >= 0 {
+		local = local[:i]
+	}
+	local = strings.TrimSpace(local)
+	if local == "" {
+		return ""
+	}
+	const suffix = "'s team"
+	if r := []rune(local); len(r)+len(suffix) > 64 {
+		local = strings.TrimSpace(string(r[:64-len(suffix)]))
+		if local == "" {
+			return ""
+		}
+	}
+	return local + suffix
+}
+
 // AutoCreateTenantForUser derives a unique tenant slug from displayName or the
-// email local-part and creates the tenant, appending -2, -3, … on collision.
-// Mirrors tenants.service.auto_create_tenant_for_user.
+// email local-part, then creates the tenant (appending -2, -3, … to the slug on
+// collision). The display name is always derived from the email local-part
+// ("<local>'s team") so personal teams get a stable default that does not
+// repeat the user's full name.
 func (s *Store) AutoCreateTenantForUser(ctx context.Context, email, displayName string) (*Tenant, error) {
+	display := defaultTeamDisplayName(email)
 	base := slugify(displayName)
 	if base == "" {
 		localPart := email
@@ -140,7 +170,7 @@ func (s *Store) AutoCreateTenantForUser(ctx context.Context, email, displayName 
 		_, err := s.GetTenantByName(ctx, candidate)
 		var nf *NotFoundError
 		if errors.As(err, &nf) {
-			return s.CreateTenant(ctx, candidate, displayName)
+			return s.CreateTenant(ctx, candidate, display)
 		}
 		if err != nil {
 			return nil, err
