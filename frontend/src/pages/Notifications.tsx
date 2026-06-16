@@ -1,4 +1,4 @@
-import { createSignal, createEffect, onMount, onCleanup, For, Show } from "solid-js";
+import { createSignal, createEffect, createMemo, onCleanup, For, Show } from "solid-js";
 import { api, type AppNotification } from "../api/client";
 import { useSettings } from "../context/SettingsContext";
 import { useAuth } from "../context/AuthContext";
@@ -50,17 +50,23 @@ export default function Notifications() {
     }
   };
 
-  onMount(() => {
-    void load();
-    const uid = auth.user?.id;
-    if (uid) {
-      const unsub = subscribe(`personal:#${uid}`, () => { void load(); void refreshUnread(); });
-      onCleanup(unsub);
-    }
-  });
+  // The active account can change in-tab via the account switcher, so track it:
+  // reload the list AND re-subscribe to the new account's channel. Without this
+  // the list shows the previous account's notifications while requests use the
+  // new session — accepting an invite then fails with "not your invitation".
+  const userId = createMemo(() => auth.user?.id);
+
   createEffect(() => {
-    filter(); // track
+    filter();    // track filter
+    userId();    // track active account
     void load();
+  });
+
+  createEffect(() => {
+    const uid = userId();
+    if (!uid) return;
+    const unsub = subscribe(`personal:#${uid}`, () => { void load(); void refreshUnread(); });
+    onCleanup(unsub);
   });
 
   // Localized render helper: derive title + body from notification type + data_json.

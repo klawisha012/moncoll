@@ -1,4 +1,4 @@
-import { createSignal, createEffect, onMount, onCleanup, Show, For, type JSX } from "solid-js";
+import { createSignal, createEffect, createMemo, onCleanup, Show, For, type JSX } from "solid-js";
 import { A } from "@solidjs/router";
 import {
   LayoutDashboard,
@@ -99,10 +99,13 @@ export default function Layout(props: { children?: JSX.Element }) {
     }
   });
 
-  onMount(() => {
-    void refreshUnread();
-    const uid = auth.user?.id;
+  // Track the active account (it can switch in-tab): refresh the unread count and
+  // re-subscribe to the new account's personal channel on every change.
+  const notifUserId = createMemo(() => auth.user?.id);
+  createEffect(() => {
+    const uid = notifUserId();
     if (!uid) return;
+    void refreshUnread();
     const unsub = subscribe(`personal:#${uid}`, () => { void refreshUnread(); });
     onCleanup(unsub);
   });
