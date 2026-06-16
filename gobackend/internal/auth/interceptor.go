@@ -37,7 +37,10 @@ type AuthorizableService interface {
 // NewInterceptor builds a unary interceptor. levels maps a gRPC full method
 // name (e.g. "/modsecurity.v1.ModSecurityService/GetConfig") to its required
 // Level. Methods absent from the map default to LevelAdmin (fail closed).
-func NewInterceptor(dec *Decoder, policy *Policy, levels map[string]Level) grpc.UnaryServerInterceptor {
+// systemTenantID is the id of the platform system tenant: for platform admins
+// calling per-tenant (LevelVerified) methods, the interceptor scopes the
+// Identity to it (admin self-view). Pass 0 to disable the override.
+func NewInterceptor(dec *Decoder, policy *Policy, levels map[string]Level, systemTenantID int64) grpc.UnaryServerInterceptor {
 	return func(ctx context.Context, req any, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (any, error) {
 		// LevelPublic methods (login/signup/me/totp/...) skip the interceptor's
 		// authentication entirely: they have no session yet, or they validate
@@ -62,6 +65,20 @@ func NewInterceptor(dec *Decoder, policy *Policy, levels map[string]Level) grpc.
 		}
 		if err != nil {
 			return nil, toStatus(err)
+		}
+		// Admin self-view: a platform admin has no tenant of their own
+		// (users_platform_tenant_consistency forces tenant_id NULL for admins).
+		// For per-tenant client methods (LevelVerified) we transparently scope
+		// the admin to the single system tenant so the client tabs
+		// (Connections/Dashboard/Globe/Tests) render the platform's own
+		// self-connection. LevelAdmin methods keep platform scope (TenantID stays
+		// nil). The scope is FIXED — there is no per-request tenant parameter — so
+		// an admin cannot reach another tenant's data. systemTenantID == 0 means
+		// provisioning resolved no system tenant; skip the override (fail safe to
+		// empty client tabs rather than a wrong scope).
+		if systemTenantID != 0 && id.PlatformRole == "admin" && levels[info.FullMethod] == LevelVerified {
+			tid := systemTenantID
+			id.TenantID = &tid
 		}
 		return handler(WithIdentity(ctx, id), req)
 	}
