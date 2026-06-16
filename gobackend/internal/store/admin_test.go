@@ -23,6 +23,8 @@ func seedSchema(t *testing.T, st *Store, ctx context.Context) {
 		    last_login_at TIMESTAMPTZ, email_verified_at TIMESTAMPTZ, totp_enabled_at TIMESTAMPTZ, tenant_id BIGINT);
 		CREATE TABLE IF NOT EXISTS connections (id BIGINT PRIMARY KEY, tenant_id BIGINT NOT NULL, name TEXT NOT NULL,
 		    domain TEXT NOT NULL, status TEXT NOT NULL);
+		CREATE TABLE IF NOT EXISTS memberships (tenant_id BIGINT NOT NULL, user_id BIGINT NOT NULL, role TEXT NOT NULL,
+		    created_at TIMESTAMPTZ NOT NULL DEFAULT now(), PRIMARY KEY (tenant_id, user_id));
 	`)
 	require.NoError(t, err)
 }
@@ -54,6 +56,7 @@ func TestAdminQueries(t *testing.T) {
 		INSERT INTO users (id,email,tenant_role,last_login_at,email_verified_at,totp_enabled_at,tenant_id) VALUES
 		  (10,'owner@acme.test','owner','2026-01-02T00:00:00Z','2026-01-01T00:00:00Z','2026-01-01T00:00:00Z',3),
 		  (11,'member@acme.test','member','2026-01-03T00:00:00Z',NULL,NULL,3);
+		INSERT INTO memberships (tenant_id,user_id,role) VALUES (3,10,'owner'),(3,11,'member');
 		INSERT INTO connections (id,tenant_id,name,domain,status) VALUES (100,3,'web','acme.test','active');
 	`)
 	require.NoError(t, err)

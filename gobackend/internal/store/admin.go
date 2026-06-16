@@ -48,12 +48,20 @@ type TenantDetail struct {
 }
 
 func (s *Store) ListTenantSummaries(ctx context.Context) ([]TenantSummary, error) {
+	// User-facing count/owner/last-activity come from memberships (the source of
+	// truth for who belongs to a team), NOT users.tenant_id which only tracks a
+	// user's CURRENTLY ACTIVE team — a member who switched their active team
+	// elsewhere would otherwise drop out of the count/owner/last-activity.
+	// connection_count stays on connections.tenant_id (connections are owned by
+	// the tenant directly).
 	const q = `
 SELECT t.id, t.name, t.display_name, t.created_at, t.suspended_at,
-       (SELECT count(*) FROM users u WHERE u.tenant_id = t.id) AS user_count,
+       (SELECT count(*) FROM memberships m WHERE m.tenant_id = t.id) AS user_count,
        (SELECT count(*) FROM connections c WHERE c.tenant_id = t.id) AS connection_count,
-       (SELECT max(u.last_login_at) FROM users u WHERE u.tenant_id = t.id) AS last_activity,
-       (SELECT u.email FROM users u WHERE u.tenant_id = t.id AND u.tenant_role = 'owner' LIMIT 1) AS owner_email
+       (SELECT max(u.last_login_at) FROM memberships m JOIN users u ON u.id = m.user_id
+          WHERE m.tenant_id = t.id) AS last_activity,
+       (SELECT u.email FROM memberships m JOIN users u ON u.id = m.user_id
+          WHERE m.tenant_id = t.id AND m.role = 'owner' ORDER BY m.created_at LIMIT 1) AS owner_email
 FROM tenants t
 ORDER BY t.id`
 	rows, err := s.pool.Query(ctx, q)
@@ -122,10 +130,12 @@ func (s *Store) GetTenantDetail(ctx context.Context, id int64) (*TenantDetail, e
 		return nil, err
 	}
 
+	// Members come from memberships (with their per-team role), not users.tenant_id.
 	urows, err := s.pool.Query(ctx,
-		`SELECT id, email, tenant_role, last_login_at,
-		        (email_verified_at IS NOT NULL), (totp_enabled_at IS NOT NULL)
-		 FROM users WHERE tenant_id=$1 ORDER BY id`, id)
+		`SELECT u.id, u.email, m.role, u.last_login_at,
+		        (u.email_verified_at IS NOT NULL), (u.totp_enabled_at IS NOT NULL)
+		 FROM memberships m JOIN users u ON u.id = m.user_id
+		 WHERE m.tenant_id=$1 ORDER BY u.id`, id)
 	if err != nil {
 		return nil, err
 	}

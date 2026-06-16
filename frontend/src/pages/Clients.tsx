@@ -181,7 +181,7 @@ const styles = `
 .cl-table th {
   font-family: 'Oswald', sans-serif; font-weight: 700;
   font-size: 11px; letter-spacing: 0.22em; text-transform: uppercase;
-  color: var(--ink); border-bottom: 3px solid var(--ink);
+  color: var(--cream); border-bottom: 3px solid var(--ink);
   padding: 10px 12px; text-align: left; white-space: nowrap;
 }
 .cl-table td {
