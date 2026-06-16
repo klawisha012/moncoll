@@ -91,7 +91,9 @@ func buildSelfConnection(systemTenantID int64, cfg SelfSiteConfig) *store.Connec
 		Domain:               cfg.Domain,
 		OriginHosts:          []string{cfg.OriginHost},
 		OriginPort:           cfg.OriginPort,
-		OriginTLSMode:        "strict",
+		// The self-connection's origin is the WAF's own frontend, which speaks
+		// plain HTTP on :3000 — proxy without TLS (origin_tls_mode "off").
+		OriginTLSMode:        "off",
 		VerifyToken:          randomToken(),
 		VerifiedAt:           &now,
 		Status:               "pending_dns",

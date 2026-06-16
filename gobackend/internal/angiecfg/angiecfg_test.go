@@ -37,6 +37,39 @@ func mapKeys(m map[string]string) []string {
 	return keys
 }
 
+// ── Test: origin_tls_mode "off" → plain-HTTP origin proxy ───────────────────
+
+func TestRender_OriginTLSOff_PlainHTTP(t *testing.T) {
+	cfg := angiecfg.ConnConfig{
+		ID:             10,
+		TenantID:       7,
+		Name:           "WAF site",
+		Domain:         "app.example.com",
+		OriginHosts:    []string{"frontend"},
+		OriginPort:     3000,
+		Status:         "pending_dns",
+		OriginTLSMode:  "off",
+		HTTPVersions:   "h1,h2",
+		Compression:    "auto",
+		ModsecState:    "detection_only",
+		CrowdsecActive: true,
+	}
+
+	conf := confContent(t, requireRender(t, cfg), cfg.ID)
+
+	// Plain-HTTP origin proxy — NOT https, and NO proxy_ssl_* directives.
+	assert.Contains(t, conf, "        proxy_pass                       http://conn_10_origin;")
+	assert.NotContains(t, conf, "proxy_pass                       https://conn_10_origin;")
+	assert.NotContains(t, conf, "proxy_ssl_verify")
+	assert.NotContains(t, conf, "proxy_ssl_server_name")
+	assert.NotContains(t, conf, "proxy_ssl_name")
+	assert.NotContains(t, conf, "proxy_ssl_trusted_certificate")
+	// tls=off recorded in the header comment.
+	assert.Contains(t, conf, "## origin=frontend:3000 | tls=off")
+	// WebSocket upgrade still wired (centrifugo / socket.io need it).
+	assert.Contains(t, conf, "        proxy_set_header Connection      $connection_upgrade;")
+}
+
 // ── Test 1: pre-active (no cert), strict TLS, modsec=detection_only ─────────
 
 func TestRender_PreActive_Strict_DetectionOnly(t *testing.T) {

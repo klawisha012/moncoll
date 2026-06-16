@@ -537,20 +537,30 @@ func emitUpstream(connID int64, originHosts []string, originPort int) []string {
 }
 
 // emitProxyBlock mirrors _emit_proxy_block in angie_config.py.
-// Always uses HTTPS to origin; verify depends on tls_mode.
+// Uses HTTPS to origin (verify depends on tls_mode) for "strict"/"lenient";
+// tls_mode "off" proxies over plain HTTP (no TLS to origin) — used when the
+// origin speaks HTTP, e.g. the WAF's own frontend.
 func emitProxyBlock(connID int64, domain string, tlsMode string) []string {
-	verify := "off"
-	if tlsMode == "strict" {
-		verify = "on"
-	}
-	lines := []string{
-		fmt.Sprintf("        proxy_pass                       https://conn_%d_origin;", connID),
-		"        proxy_ssl_server_name            on;",
-		fmt.Sprintf("        proxy_ssl_name                   %s;", domain),
-		fmt.Sprintf("        proxy_ssl_verify                 %s;", verify),
-	}
-	if tlsMode == "strict" {
-		lines = append(lines, fmt.Sprintf("        proxy_ssl_trusted_certificate    %s;", acmeTrustedCA))
+	var lines []string
+	if tlsMode == "off" {
+		// Plain-HTTP origin: no proxy_ssl_* directives.
+		lines = []string{
+			fmt.Sprintf("        proxy_pass                       http://conn_%d_origin;", connID),
+		}
+	} else {
+		verify := "off"
+		if tlsMode == "strict" {
+			verify = "on"
+		}
+		lines = []string{
+			fmt.Sprintf("        proxy_pass                       https://conn_%d_origin;", connID),
+			"        proxy_ssl_server_name            on;",
+			fmt.Sprintf("        proxy_ssl_name                   %s;", domain),
+			fmt.Sprintf("        proxy_ssl_verify                 %s;", verify),
+		}
+		if tlsMode == "strict" {
+			lines = append(lines, fmt.Sprintf("        proxy_ssl_trusted_certificate    %s;", acmeTrustedCA))
+		}
 	}
 	lines = append(lines,
 		fmt.Sprintf("        proxy_set_header Host            %s;", domain),
