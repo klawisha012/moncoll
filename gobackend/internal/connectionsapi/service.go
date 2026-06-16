@@ -147,10 +147,10 @@ func (s *Service) AuthLevels() map[string]auth.Level {
 		connectionsv1.ConnectionsService_GetEdgeInfo_FullMethodName:              auth.LevelVerified,
 		connectionsv1.ConnectionsService_ListConnections_FullMethodName:          auth.LevelVerified,
 		connectionsv1.ConnectionsService_GetConnection_FullMethodName:            auth.LevelVerified,
-		connectionsv1.ConnectionsService_CreateConnection_FullMethodName:          auth.LevelVerified,
-		connectionsv1.ConnectionsService_UpdateConnection_FullMethodName:          auth.LevelVerified,
-		connectionsv1.ConnectionsService_DeleteConnection_FullMethodName:          auth.LevelVerified,
-		connectionsv1.ConnectionsService_ProbeConnection_FullMethodName:           auth.LevelVerified,
+		connectionsv1.ConnectionsService_CreateConnection_FullMethodName:         auth.LevelVerified,
+		connectionsv1.ConnectionsService_UpdateConnection_FullMethodName:         auth.LevelVerified,
+		connectionsv1.ConnectionsService_DeleteConnection_FullMethodName:         auth.LevelVerified,
+		connectionsv1.ConnectionsService_ProbeConnection_FullMethodName:          auth.LevelVerified,
 		connectionsv1.ConnectionsService_ReloadConnections_FullMethodName:        auth.LevelAdmin,
 		connectionsv1.ConnectionsService_GetConnectionSecurity_FullMethodName:    auth.LevelVerified,
 		connectionsv1.ConnectionsService_UpdateConnectionSecurity_FullMethodName: auth.LevelVerified,
@@ -202,25 +202,25 @@ func dedupeHosts(hosts []string) []string {
 
 func connToProto(c *store.Connection) *connectionsv1.Connection {
 	p := &connectionsv1.Connection{
-		Id:                  c.ID,
-		TenantId:            c.TenantID,
-		Name:                c.Name,
-		Domain:              c.Domain,
-		OriginHosts:         dedupeHosts(c.OriginHosts),
-		OriginPort:          int32(c.OriginPort),
-		OriginTlsMode:       c.OriginTLSMode,
-		VerifyToken:         c.VerifyToken,
-		Status:              c.Status,
-		AcmeRetryCount:      int32(c.AcmeRetryCount),
-		DnsTtlSeconds:       int32(c.DNSTTLSeconds),
-		HttpVersions:        c.HTTPVersions,
-		CompressionAlgo:     c.CompressionAlgo,
-		Enabled:             c.Enabled,
-		ModsecState:         c.ModsecState,
+		Id:                   c.ID,
+		TenantId:             c.TenantID,
+		Name:                 c.Name,
+		Domain:               c.Domain,
+		OriginHosts:          dedupeHosts(c.OriginHosts),
+		OriginPort:           int32(c.OriginPort),
+		OriginTlsMode:        c.OriginTLSMode,
+		VerifyToken:          c.VerifyToken,
+		Status:               c.Status,
+		AcmeRetryCount:       int32(c.AcmeRetryCount),
+		DnsTtlSeconds:        int32(c.DNSTTLSeconds),
+		HttpVersions:         c.HTTPVersions,
+		CompressionAlgo:      c.CompressionAlgo,
+		Enabled:              c.Enabled,
+		ModsecState:          c.ModsecState,
 		GeoipDeniedCountries: c.GeoipDeniedCountries,
-		CrowdsecActive:      c.CrowdsecActive,
-		CreatedAt:           timestamppb.New(c.CreatedAt),
-		UpdatedAt:           timestamppb.New(c.UpdatedAt),
+		CrowdsecActive:       c.CrowdsecActive,
+		CreatedAt:            timestamppb.New(c.CreatedAt),
+		UpdatedAt:            timestamppb.New(c.UpdatedAt),
 	}
 	if c.VerifiedAt != nil {
 		p.VerifiedAt = timestamppb.New(*c.VerifiedAt)
@@ -252,26 +252,38 @@ func connToProto(c *store.Connection) *connectionsv1.Connection {
 	return p
 }
 
+// selfTenantID is the id of the platform "system" tenant whose single
+// self-connection proxies the WAF's own panel. Set once at startup via
+// SetSelfTenantID. Connections in this tenant exclude control-plane paths
+// (/api, /connection) from their dashboard metrics so the panel's own polling
+// is not counted as site traffic. Zero disables the exclusion.
+var selfTenantID int64
+
+// SetSelfTenantID records the system tenant id (see selfTenantID). Called once
+// at server startup after provisioning resolves it.
+func SetSelfTenantID(id int64) { selfTenantID = id }
+
 // connCfg builds an angiecfg.ConnConfig from a store.Connection.
 // baseDir is the per-tenant compose dir (written by the service).
 func connCfg(c *store.Connection) angiecfg.ConnConfig {
 	cfg := angiecfg.ConnConfig{
-		ID:            c.ID,
-		TenantID:      c.TenantID,
-		Name:          c.Name,
-		Domain:        c.Domain,
-		OriginHosts:   dedupeHosts(c.OriginHosts),
-		OriginPort:    c.OriginPort,
-		OriginTLSMode: c.OriginTLSMode,
-		Status:        c.Status,
-		HTTPVersions:  c.HTTPVersions,
-		Compression:   c.CompressionAlgo,
-		ModsecState:   c.ModsecState,
-		GeoipDenied:   c.GeoipDeniedCountries,
-		CrowdsecActive: c.CrowdsecActive,
-		DdosProtection: c.DdosProtection,
-		SSLCertPath:   c.SSLCertPath,
-		SSLKeyPath:    c.SSLKeyPath,
+		ID:                         c.ID,
+		TenantID:                   c.TenantID,
+		Name:                       c.Name,
+		Domain:                     c.Domain,
+		OriginHosts:                dedupeHosts(c.OriginHosts),
+		OriginPort:                 c.OriginPort,
+		OriginTLSMode:              c.OriginTLSMode,
+		Status:                     c.Status,
+		HTTPVersions:               c.HTTPVersions,
+		Compression:                c.CompressionAlgo,
+		ModsecState:                c.ModsecState,
+		GeoipDenied:                c.GeoipDeniedCountries,
+		CrowdsecActive:             c.CrowdsecActive,
+		DdosProtection:             c.DdosProtection,
+		SSLCertPath:                c.SSLCertPath,
+		SSLKeyPath:                 c.SSLKeyPath,
+		ExcludeControlPlaneMetrics: selfTenantID != 0 && c.TenantID == selfTenantID,
 	}
 	if c.StatusDetail != nil {
 		cfg.StatusDetail = c.StatusDetail

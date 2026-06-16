@@ -44,10 +44,10 @@ var validCompression = map[string]bool{"auto": true, "gzip": true, "brotli": tru
 // Angie server-block configuration. It mirrors the columns that
 // angie_config.py reads from the connection dict.
 type ConnConfig struct {
-	ID     int64
+	ID       int64
 	TenantID int64
-	Name   string
-	Domain string
+	Name     string
+	Domain   string
 
 	OriginHosts   []string
 	OriginPort    int    // default 443
@@ -63,6 +63,12 @@ type ConnConfig struct {
 	GeoipDenied    []string // ISO 3166-1 alpha-2 country codes
 	CrowdsecActive bool
 	DdosProtection bool // when true, emit limit_req/limit_conn rate-limiting
+
+	// ExcludeControlPlaneMetrics, when true, makes the geoip access_log skip
+	// control-plane paths (/api, /connection) via `if=$waf_metrics_loggable`,
+	// so the WAF's own self-connection doesn't count the panel's API/WS polling
+	// as site traffic. Set only for the system-tenant self-connection.
+	ExcludeControlPlaneMetrics bool
 
 	// Cert/key paths as Angie sees them (from inside the Angie container).
 	// If both are non-nil AND Status=="active", the TLS server block is emitted.
@@ -216,13 +222,21 @@ func renderConf(cfg ConnConfig) (string, error) {
 		writeln(&b, "")
 	}
 
+	// geoip access_log line. The self-connection skips control-plane paths
+	// (/api, /connection) so the panel's own polling doesn't inflate its
+	// dashboards; $waf_metrics_loggable is defined (path-based) in angie.conf.
+	geoipAccessLog := "    access_log /var/log/angie/geoip.log with_geoip_json;"
+	if cfg.ExcludeControlPlaneMetrics {
+		geoipAccessLog = "    access_log /var/log/angie/geoip.log with_geoip_json if=$waf_metrics_loggable;"
+	}
+
 	// ── Plain HTTP server block ──────────────────────────────────────────────
 	writeln(&b, "server {")
 	writeln(&b, "    listen 80;")
 	writeln(&b, fmt.Sprintf("    server_name %s;", domain))
 	writeln(&b, "    if ($http_x_waf_loop) { return 508; }")
 	writeln(&b, "")
-	writeln(&b, "    access_log /var/log/angie/geoip.log with_geoip_json;")
+	writeln(&b, geoipAccessLog)
 	writeln(&b, "    access_log /var/log/angie/access.log combined;")
 	writeln(&b, "")
 	if crowdsecActive {
@@ -311,7 +325,7 @@ func renderConf(cfg ConnConfig) (string, error) {
 		}
 
 		writeln(&b, "")
-		writeln(&b, "    access_log /var/log/angie/geoip.log with_geoip_json;")
+		writeln(&b, geoipAccessLog)
 		writeln(&b, "    access_log /var/log/angie/access.log combined;")
 
 		if crowdsecActive {

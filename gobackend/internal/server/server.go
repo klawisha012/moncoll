@@ -116,6 +116,9 @@ func (s *Server) Start(ctx context.Context) error {
 	if provErr != nil {
 		s.log.Error("system provisioning failed (continuing)", "err", provErr)
 	}
+	// Connections in the system tenant (the WAF's own self-connection) exclude
+	// their control-plane traffic (panel /api + realtime WS) from dashboards.
+	connectionsapi.SetSelfTenantID(systemTenantID)
 
 	// 3. Docker connection for monitoring.
 	engine, err := monitoring.NewDockerEngine()

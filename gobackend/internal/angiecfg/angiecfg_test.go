@@ -37,6 +37,32 @@ func mapKeys(m map[string]string) []string {
 	return keys
 }
 
+// ── Test: ExcludeControlPlaneMetrics → geoip access_log skips control plane ──
+
+func TestRender_ExcludeControlPlaneMetrics(t *testing.T) {
+	base := angiecfg.ConnConfig{
+		ID: 16, TenantID: 10, Name: "WAF site", Domain: "zwarder.ru",
+		OriginHosts: []string{"frontend"}, OriginPort: 3000,
+		Status: "pending_dns", OriginTLSMode: "off",
+		HTTPVersions: "h1,h2", Compression: "auto", ModsecState: "detection_only",
+	}
+
+	// Default (customer connection): geoip logging is unconditional.
+	off := base
+	off.ExcludeControlPlaneMetrics = false
+	confOff := confContent(t, requireRender(t, off), off.ID)
+	assert.Contains(t, confOff, "access_log /var/log/angie/geoip.log with_geoip_json;")
+	assert.NotContains(t, confOff, "if=$waf_metrics_loggable")
+
+	// Self-connection: geoip logging gated by $waf_metrics_loggable so /api and
+	// /connection don't count toward the panel's own dashboards.
+	on := base
+	on.ExcludeControlPlaneMetrics = true
+	confOn := confContent(t, requireRender(t, on), on.ID)
+	assert.Contains(t, confOn, "access_log /var/log/angie/geoip.log with_geoip_json if=$waf_metrics_loggable;")
+	assert.Contains(t, confOn, "access_log /var/log/angie/access.log combined;") // debug log stays
+}
+
 // ── Test: origin_tls_mode "off" → plain-HTTP origin proxy ───────────────────
 
 func TestRender_OriginTLSOff_PlainHTTP(t *testing.T) {
@@ -74,18 +100,18 @@ func TestRender_OriginTLSOff_PlainHTTP(t *testing.T) {
 
 func TestRender_PreActive_Strict_DetectionOnly(t *testing.T) {
 	cfg := angiecfg.ConnConfig{
-		ID:            42,
-		TenantID:      7,
-		Name:          "my-site",
-		Domain:        "example.com",
-		OriginHosts:   []string{"1.2.3.4"},
-		OriginPort:    443,
-		Status:        "pending_verification",
-		OriginTLSMode: "strict",
-		HTTPVersions:  "h1,h2",
-		Compression:   "auto",
-		ModsecState:   "detection_only",
-		GeoipDenied:   nil,
+		ID:             42,
+		TenantID:       7,
+		Name:           "my-site",
+		Domain:         "example.com",
+		OriginHosts:    []string{"1.2.3.4"},
+		OriginPort:     443,
+		Status:         "pending_verification",
+		OriginTLSMode:  "strict",
+		HTTPVersions:   "h1,h2",
+		Compression:    "auto",
+		ModsecState:    "detection_only",
+		GeoipDenied:    nil,
 		CrowdsecActive: true,
 		// No cert paths → pre-active mode
 		SSLCertPath: nil,
@@ -155,22 +181,22 @@ func TestRender_PreActive_Strict_DetectionOnly(t *testing.T) {
 
 func TestRender_Active_H2H3_Blocking_Geoip(t *testing.T) {
 	cfg := angiecfg.ConnConfig{
-		ID:              5,
-		TenantID:        3,
-		Name:            "prod",
-		Domain:          "secure.example.com",
-		OriginHosts:     []string{"10.0.0.1", "10.0.0.2"},
-		OriginPort:      8443,
-		Status:          "active",
-		OriginTLSMode:   "strict",
-		HTTPVersions:    "h1,h2,h3",
-		Compression:     "auto",
-		ModsecState:     "blocking",
-		GeoipDenied:     []string{"RU", "CN", "KP"},
-		CrowdsecActive:  true,
-		SSLCertPath:     ptr("/etc/angie/tenants/3/compose/conn_5/5.crt"),
-		SSLKeyPath:      ptr("/etc/angie/tenants/3/compose/conn_5/5.key"),
-		StatusDetail:    nil, // not self-signed → HSTS
+		ID:             5,
+		TenantID:       3,
+		Name:           "prod",
+		Domain:         "secure.example.com",
+		OriginHosts:    []string{"10.0.0.1", "10.0.0.2"},
+		OriginPort:     8443,
+		Status:         "active",
+		OriginTLSMode:  "strict",
+		HTTPVersions:   "h1,h2,h3",
+		Compression:    "auto",
+		ModsecState:    "blocking",
+		GeoipDenied:    []string{"RU", "CN", "KP"},
+		CrowdsecActive: true,
+		SSLCertPath:    ptr("/etc/angie/tenants/3/compose/conn_5/5.crt"),
+		SSLKeyPath:     ptr("/etc/angie/tenants/3/compose/conn_5/5.key"),
+		StatusDetail:   nil, // not self-signed → HSTS
 	}
 
 	files := requireRender(t, cfg)
@@ -371,16 +397,16 @@ func TestRender_Active_H1Only(t *testing.T) {
 
 func TestRender_EmptyOriginHosts(t *testing.T) {
 	cfg := angiecfg.ConnConfig{
-		ID:           99,
-		TenantID:     1,
-		Domain:       "broken.example.com",
-		OriginHosts:  nil,
-		OriginPort:   443,
-		Status:       "pending_verification",
+		ID:            99,
+		TenantID:      1,
+		Domain:        "broken.example.com",
+		OriginHosts:   nil,
+		OriginPort:    443,
+		Status:        "pending_verification",
 		OriginTLSMode: "strict",
-		HTTPVersions: "h1,h2",
-		Compression:  "auto",
-		ModsecState:  "detection_only",
+		HTTPVersions:  "h1,h2",
+		Compression:   "auto",
+		ModsecState:   "detection_only",
 	}
 
 	files := requireRender(t, cfg)
@@ -425,19 +451,19 @@ func TestRender_ConnectionUpgradeAlwaysPresent(t *testing.T) {
 			keyPath = ptr("/etc/angie/tenants/1/compose/conn_1/1.key")
 		}
 		cfg := angiecfg.ConnConfig{
-			ID:            1,
-			TenantID:      1,
-			Domain:        "ws.example.com",
-			OriginHosts:   []string{"10.0.0.1"},
-			OriginPort:    443,
-			Status:        status,
-			OriginTLSMode: "strict",
-			HTTPVersions:  "h1,h2",
-			Compression:   "auto",
-			ModsecState:   "detection_only",
+			ID:             1,
+			TenantID:       1,
+			Domain:         "ws.example.com",
+			OriginHosts:    []string{"10.0.0.1"},
+			OriginPort:     443,
+			Status:         status,
+			OriginTLSMode:  "strict",
+			HTTPVersions:   "h1,h2",
+			Compression:    "auto",
+			ModsecState:    "detection_only",
 			CrowdsecActive: true,
-			SSLCertPath:   certPath,
-			SSLKeyPath:    keyPath,
+			SSLCertPath:    certPath,
+			SSLKeyPath:     keyPath,
 		}
 		files, err := angiecfg.Render(cfg)
 		require.NoError(t, err)
@@ -466,8 +492,8 @@ func TestRender_DefaultHTTPVersions(t *testing.T) {
 		Status:         "active",
 		OriginTLSMode:  "strict",
 		HTTPVersions:   "", // empty → default h1,h2
-		Compression:    "",   // empty → auto
-		ModsecState:    "",   // empty → detection_only
+		Compression:    "", // empty → auto
+		ModsecState:    "", // empty → detection_only
 		CrowdsecActive: true,
 		SSLCertPath:    ptr("/etc/angie/tenants/1/compose/conn_30/30.crt"),
 		SSLKeyPath:     ptr("/etc/angie/tenants/1/compose/conn_30/30.key"),
