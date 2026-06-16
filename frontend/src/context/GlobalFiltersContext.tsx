@@ -88,7 +88,10 @@ export function GlobalFiltersProvider(props: { children: JSX.Element }) {
   createEffect(() => {
     const usr = auth.user;
     if (!usr) return;
-    if (usr.platform_role !== "client") return;
+    // Clients see their own connections; platform admins are scoped to the
+    // system tenant server-side (auth interceptor) and view its connections
+    // through the same client tabs — so fetch for both roles.
+    if (usr.platform_role !== "client" && usr.platform_role !== "admin") return;
     if (fetched()) return;
 
     let cancelled = false;

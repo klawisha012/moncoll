@@ -52,7 +52,7 @@ export default function GlobalFilters() {
   });
 
   return (
-    <Show when={auth.user?.platform_role === "client"}>
+    <Show when={auth.user?.platform_role === "client" || auth.user?.platform_role === "admin"}>
       <div class="global-filters">
         <div class="global-filters-row">
           <label class="global-filters-label">{settings.t("dashboard.ui.domain")}</label>
