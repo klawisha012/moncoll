@@ -69,8 +69,8 @@ func TestEnsureSystemProvisioning_CreatesSelfConn(t *testing.T) {
 	if len(f.createdConn.OriginHosts) != 1 || f.createdConn.OriginHosts[0] != "frontend" || f.createdConn.OriginPort != 3000 {
 		t.Errorf("self-connection wrong origin: %+v", f.createdConn)
 	}
-	if f.createdConn.OriginTLSMode != "strict" || f.createdConn.HTTPVersions != "h1,h2" {
-		t.Errorf("self-connection missing required defaults: %+v", f.createdConn)
+	if f.createdConn.OriginTLSMode != "off" || f.createdConn.HTTPVersions != "h1,h2" {
+		t.Errorf("self-connection missing required defaults (origin must be plain-HTTP 'off'): %+v", f.createdConn)
 	}
 }
 
