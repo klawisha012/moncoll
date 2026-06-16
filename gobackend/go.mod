@@ -7,6 +7,7 @@ require (
 	github.com/ClickHouse/clickhouse-go/v2 v2.46.0
 	github.com/boombuler/barcode v1.0.1-0.20190219062509-6c824513bacc
 	github.com/docker/docker v28.5.2+incompatible
+	github.com/emersion/go-msgauth v0.7.0
 	github.com/fernet/fernet-go v0.0.0-20240119011108-303da6aec611
 	github.com/golang-jwt/jwt/v5 v5.3.1
 	github.com/golang-migrate/migrate/v4 v4.19.1

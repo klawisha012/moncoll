@@ -2,6 +2,10 @@ package email
 
 import (
 	"context"
+	"crypto/rand"
+	"crypto/rsa"
+	"crypto/x509"
+	"encoding/pem"
 	"io"
 	"mime"
 	"mime/multipart"
@@ -41,12 +45,13 @@ func TestMIMEMessageParses(t *testing.T) {
 		if err != nil {
 			t.Fatalf("part read: %v", err)
 		}
+		// Go's multipart.Part transparently decodes quoted-printable, so the body
+		// read here is already decoded — the URL must survive intact (no &amp;).
 		body, _ := io.ReadAll(p)
 		mt, _, _ := mime.ParseMediaType(p.Header.Get("Content-Type"))
 		types = append(types, mt)
-		// The plain part must keep the URL intact (no &amp; escaping).
 		if mt == "text/plain" && !strings.Contains(string(body), "token=a&b=c") {
-			t.Errorf("plain part escaped the URL: %q", string(body))
+			t.Errorf("plain part escaped/garbled the URL: %q", string(body))
 		}
 	}
 	if len(types) != 2 || types[0] != "text/plain" || types[1] != "text/html" {
@@ -143,6 +148,9 @@ func TestBuildMIMEMessage(t *testing.T) {
 	if !strings.Contains(s, "\r\nMessage-ID: <") || !strings.Contains(s, "@example.com>") {
 		t.Error("missing or malformed Message-ID header (should be anchored to sender domain)")
 	}
+	if !strings.Contains(s, "Content-Transfer-Encoding: quoted-printable") {
+		t.Error("missing quoted-printable Content-Transfer-Encoding on MIME parts")
+	}
 }
 
 func TestDefaultSMTPConfig(t *testing.T) {
@@ -159,5 +167,45 @@ func TestDefaultSMTPConfig(t *testing.T) {
 	}
 	if cfg.fromName != "WAF" {
 		t.Errorf("default from_name should be WAF, got %s", cfg.fromName)
+	}
+}
+
+func TestDKIMSignNoopWhenUnset(t *testing.T) {
+	s := newSenderFromConfig(smtpConfig{host: "smtp.example.com", fromEmail: "noreply@example.com"})
+	msg := buildMIMEMessage("WAF <noreply@example.com>", "u@gmail.com", "Subj", "<p>hi</p>", "hi")
+	signed, err := s.dkimSign(msg)
+	if err != nil {
+		t.Fatalf("dkimSign: %v", err)
+	}
+	if string(signed) != string(msg) {
+		t.Error("message changed when DKIM is unconfigured; expected a no-op")
+	}
+}
+
+func TestDKIMSignAddsAlignedSignature(t *testing.T) {
+	key, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pemKey := pem.EncodeToMemory(&pem.Block{Type: "RSA PRIVATE KEY", Bytes: x509.MarshalPKCS1PrivateKey(key)})
+	s := newSenderFromConfig(smtpConfig{
+		host:           "smtp.example.com",
+		fromEmail:      "noreply@example.com",
+		dkimDomain:     "example.com",
+		dkimSelector:   "waf",
+		dkimPrivateKey: string(pemKey),
+	})
+	msg := buildMIMEMessage("WAF <noreply@example.com>", "u@gmail.com", "Subj", "<p>hi</p>", "hi")
+	signed, err := s.dkimSign(msg)
+	if err != nil {
+		t.Fatalf("dkimSign: %v", err)
+	}
+	out := string(signed)
+	if !strings.Contains(out, "DKIM-Signature:") {
+		t.Fatal("signed message missing DKIM-Signature header")
+	}
+	// d= must align with the From domain for DMARC to pass.
+	if !strings.Contains(out, "d=example.com") || !strings.Contains(out, "s=waf") {
+		t.Errorf("DKIM-Signature missing aligned d=/s=:\n%s", out)
 	}
 }

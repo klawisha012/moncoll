@@ -9,19 +9,25 @@ package email
 import (
 	"bytes"
 	"context"
+	"crypto"
 	"crypto/rand"
 	"crypto/tls"
+	"crypto/x509"
 	"encoding/hex"
+	"encoding/pem"
 	"fmt"
 	"html/template"
 	"io"
 	"log/slog"
+	"mime/quotedprintable"
 	"net"
 	"net/smtp"
 	"os"
 	"strings"
 	texttemplate "text/template"
 	"time"
+
+	"github.com/emersion/go-msgauth/dkim"
 )
 
 // smtpTimeout bounds both the TCP connect and the whole SMTP conversation, so
@@ -88,6 +94,13 @@ type smtpConfig struct {
 	fromEmail string
 	fromName  string
 	starttls  bool
+
+	// DKIM signing (optional). When dkimPrivateKey is empty, outgoing mail is
+	// not signed (no behaviour change). When set, every message gets a
+	// DKIM-Signature with d=dkimDomain s=dkimSelector.
+	dkimDomain     string
+	dkimSelector   string
+	dkimPrivateKey string
 }
 
 func loadConfig() smtpConfig {
@@ -107,14 +120,29 @@ func loadConfig() smtpConfig {
 	if fromName == "" {
 		fromName = "WAF"
 	}
+	// DKIM (optional): domain defaults to the From-address domain so the
+	// signature aligns with From — alignment is what makes DMARC pass.
+	dkimDomain := os.Getenv("WAF_SMTP_DKIM_DOMAIN")
+	if dkimDomain == "" {
+		if at := strings.LastIndex(fromEmail, "@"); at >= 0 {
+			dkimDomain = fromEmail[at+1:]
+		}
+	}
+	dkimSelector := os.Getenv("WAF_SMTP_DKIM_SELECTOR")
+	if dkimSelector == "" {
+		dkimSelector = "waf"
+	}
 	return smtpConfig{
-		host:      os.Getenv("WAF_SMTP_HOST"),
-		port:      port,
-		username:  os.Getenv("WAF_SMTP_USERNAME"),
-		password:  os.Getenv("WAF_SMTP_PASSWORD"),
-		fromEmail: fromEmail,
-		fromName:  fromName,
-		starttls:  startTLS,
+		host:           os.Getenv("WAF_SMTP_HOST"),
+		port:           port,
+		username:       os.Getenv("WAF_SMTP_USERNAME"),
+		password:       os.Getenv("WAF_SMTP_PASSWORD"),
+		fromEmail:      fromEmail,
+		fromName:       fromName,
+		starttls:       startTLS,
+		dkimDomain:     dkimDomain,
+		dkimSelector:   dkimSelector,
+		dkimPrivateKey: os.Getenv("WAF_SMTP_DKIM_PRIVATE_KEY"),
 	}
 }
 
@@ -243,6 +271,11 @@ func (s *Sender) send(_ context.Context, toEmail, subject, htmlBody, textBody st
 func (s *Sender) sendSMTP(to, subject, htmlBody, textBody string) error {
 	from := fmt.Sprintf("%s <%s>", s.cfg.fromName, s.cfg.fromEmail)
 	msg := buildMIMEMessage(from, to, subject, htmlBody, textBody)
+	signed, signErr := s.dkimSign(msg)
+	if signErr != nil {
+		return signErr
+	}
+	msg = signed
 	addr := net.JoinHostPort(s.cfg.host, s.cfg.port)
 	tlsCfg := &tls.Config{ServerName: s.cfg.host} //nolint:gosec
 	dialer := &net.Dialer{Timeout: smtpTimeout}
@@ -321,16 +354,20 @@ func buildMIMEMessage(from, to, subject, htmlBody, textBody string) []byte {
 	b.WriteString("\r\n")
 
 	// Plain-text alternative — mirrors the HTML content (same link + wording).
+	// quoted-printable so non-ASCII (e.g. Cyrillic team names) survives transit
+	// intact and the body stays byte-stable for DKIM body-hash verification.
 	b.WriteString("--" + boundary + "\r\n")
 	b.WriteString("Content-Type: text/plain; charset=utf-8\r\n")
+	b.WriteString("Content-Transfer-Encoding: quoted-printable\r\n")
 	b.WriteString("\r\n")
-	b.WriteString(textBody + "\r\n")
+	b.WriteString(qpEncode(textBody) + "\r\n")
 
 	// HTML part (mirrors email.py add_alternative(html_body, subtype="html"))
 	b.WriteString("--" + boundary + "\r\n")
 	b.WriteString("Content-Type: text/html; charset=utf-8\r\n")
+	b.WriteString("Content-Transfer-Encoding: quoted-printable\r\n")
 	b.WriteString("\r\n")
-	b.WriteString(htmlBody + "\r\n")
+	b.WriteString(qpEncode(htmlBody) + "\r\n")
 
 	b.WriteString("--" + boundary + "--\r\n")
 	return []byte(b.String())
@@ -352,4 +389,65 @@ func newMessageID(from string) string {
 		return fmt.Sprintf("<waf.%d@%s>", time.Now().UnixNano(), domain)
 	}
 	return fmt.Sprintf("<%s@%s>", hex.EncodeToString(rb[:]), domain)
+}
+
+// qpEncode quoted-printable-encodes a body so non-ASCII content (Cyrillic team
+// names) is transmitted safely and the transfer-encoded body is stable in
+// transit — important because DKIM signs the encoded body and any MTA rewrite
+// would break the signature.
+func qpEncode(s string) string {
+	var b strings.Builder
+	w := quotedprintable.NewWriter(&b)
+	_, _ = w.Write([]byte(s))
+	_ = w.Close()
+	return b.String()
+}
+
+// dkimSign prepends a DKIM-Signature header when DKIM is configured
+// (WAF_SMTP_DKIM_PRIVATE_KEY + a domain). Otherwise the message is returned
+// unchanged, so the default (unsigned) behaviour is preserved. A valid DKIM
+// signature aligned with the From domain lets DMARC pass even when the relay's
+// IP is not covered by SPF — the main lever that keeps invites out of Spam.
+func (s *Sender) dkimSign(msg []byte) ([]byte, error) {
+	if s.cfg.dkimPrivateKey == "" || s.cfg.dkimDomain == "" {
+		return msg, nil
+	}
+	signer, err := parseDKIMKey(s.cfg.dkimPrivateKey)
+	if err != nil {
+		return nil, fmt.Errorf("email: DKIM key: %w", err)
+	}
+	opts := &dkim.SignOptions{
+		Domain:                 s.cfg.dkimDomain,
+		Selector:               s.cfg.dkimSelector,
+		Signer:                 signer,
+		Hash:                   crypto.SHA256,
+		HeaderCanonicalization: dkim.CanonicalizationRelaxed,
+		BodyCanonicalization:   dkim.CanonicalizationRelaxed,
+		HeaderKeys:             []string{"From", "To", "Subject", "Date", "Message-ID", "MIME-Version", "Content-Type"},
+	}
+	var out bytes.Buffer
+	if err := dkim.Sign(&out, bytes.NewReader(msg), opts); err != nil {
+		return nil, fmt.Errorf("email: DKIM sign: %w", err)
+	}
+	return out.Bytes(), nil
+}
+
+// parseDKIMKey decodes a PEM-encoded RSA private key (PKCS#1 or PKCS#8).
+func parseDKIMKey(pemKey string) (crypto.Signer, error) {
+	block, _ := pem.Decode([]byte(pemKey))
+	if block == nil {
+		return nil, fmt.Errorf("not PEM-encoded")
+	}
+	if key, err := x509.ParsePKCS1PrivateKey(block.Bytes); err == nil {
+		return key, nil
+	}
+	keyAny, err := x509.ParsePKCS8PrivateKey(block.Bytes)
+	if err != nil {
+		return nil, fmt.Errorf("parse private key: %w", err)
+	}
+	signer, ok := keyAny.(crypto.Signer)
+	if !ok {
+		return nil, fmt.Errorf("private key is not a crypto.Signer")
+	}
+	return signer, nil
 }
