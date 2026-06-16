@@ -797,6 +797,7 @@ type ListMembersResponse struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Members       []*Member              `protobuf:"bytes,1,rep,name=members,proto3" json:"members,omitempty"`
 	MyRole        string                 `protobuf:"bytes,2,opt,name=my_role,json=myRole,proto3" json:"my_role,omitempty"`
+	TeamName      string                 `protobuf:"bytes,3,opt,name=team_name,json=teamName,proto3" json:"team_name,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -841,6 +842,13 @@ func (x *ListMembersResponse) GetMembers() []*Member {
 func (x *ListMembersResponse) GetMyRole() string {
 	if x != nil {
 		return x.MyRole
+	}
+	return ""
+}
+
+func (x *ListMembersResponse) GetTeamName() string {
+	if x != nil {
+		return x.TeamName
 	}
 	return ""
 }
@@ -941,6 +949,50 @@ func (x *ChangeRoleRequest) GetRole() string {
 	return ""
 }
 
+type RenameTeamRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	DisplayName   string                 `protobuf:"bytes,1,opt,name=display_name,json=displayName,proto3" json:"display_name,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *RenameTeamRequest) Reset() {
+	*x = RenameTeamRequest{}
+	mi := &file_teams_v1_teams_proto_msgTypes[17]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *RenameTeamRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*RenameTeamRequest) ProtoMessage() {}
+
+func (x *RenameTeamRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_teams_v1_teams_proto_msgTypes[17]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use RenameTeamRequest.ProtoReflect.Descriptor instead.
+func (*RenameTeamRequest) Descriptor() ([]byte, []int) {
+	return file_teams_v1_teams_proto_rawDescGZIP(), []int{17}
+}
+
+func (x *RenameTeamRequest) GetDisplayName() string {
+	if x != nil {
+		return x.DisplayName
+	}
+	return ""
+}
+
 type LeaveTeamRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	unknownFields protoimpl.UnknownFields
@@ -949,7 +1001,7 @@ type LeaveTeamRequest struct {
 
 func (x *LeaveTeamRequest) Reset() {
 	*x = LeaveTeamRequest{}
-	mi := &file_teams_v1_teams_proto_msgTypes[17]
+	mi := &file_teams_v1_teams_proto_msgTypes[18]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -961,7 +1013,7 @@ func (x *LeaveTeamRequest) String() string {
 func (*LeaveTeamRequest) ProtoMessage() {}
 
 func (x *LeaveTeamRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_teams_v1_teams_proto_msgTypes[17]
+	mi := &file_teams_v1_teams_proto_msgTypes[18]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -974,7 +1026,7 @@ func (x *LeaveTeamRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use LeaveTeamRequest.ProtoReflect.Descriptor instead.
 func (*LeaveTeamRequest) Descriptor() ([]byte, []int) {
-	return file_teams_v1_teams_proto_rawDescGZIP(), []int{17}
+	return file_teams_v1_teams_proto_rawDescGZIP(), []int{18}
 }
 
 type LookupUserByEmailRequest struct {
@@ -986,7 +1038,7 @@ type LookupUserByEmailRequest struct {
 
 func (x *LookupUserByEmailRequest) Reset() {
 	*x = LookupUserByEmailRequest{}
-	mi := &file_teams_v1_teams_proto_msgTypes[18]
+	mi := &file_teams_v1_teams_proto_msgTypes[19]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -998,7 +1050,7 @@ func (x *LookupUserByEmailRequest) String() string {
 func (*LookupUserByEmailRequest) ProtoMessage() {}
 
 func (x *LookupUserByEmailRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_teams_v1_teams_proto_msgTypes[18]
+	mi := &file_teams_v1_teams_proto_msgTypes[19]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1011,7 +1063,7 @@ func (x *LookupUserByEmailRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use LookupUserByEmailRequest.ProtoReflect.Descriptor instead.
 func (*LookupUserByEmailRequest) Descriptor() ([]byte, []int) {
-	return file_teams_v1_teams_proto_rawDescGZIP(), []int{18}
+	return file_teams_v1_teams_proto_rawDescGZIP(), []int{19}
 }
 
 func (x *LookupUserByEmailRequest) GetEmail() string {
@@ -1034,7 +1086,7 @@ type UserLookupResponse struct {
 
 func (x *UserLookupResponse) Reset() {
 	*x = UserLookupResponse{}
-	mi := &file_teams_v1_teams_proto_msgTypes[19]
+	mi := &file_teams_v1_teams_proto_msgTypes[20]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1046,7 +1098,7 @@ func (x *UserLookupResponse) String() string {
 func (*UserLookupResponse) ProtoMessage() {}
 
 func (x *UserLookupResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_teams_v1_teams_proto_msgTypes[19]
+	mi := &file_teams_v1_teams_proto_msgTypes[20]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1059,7 +1111,7 @@ func (x *UserLookupResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use UserLookupResponse.ProtoReflect.Descriptor instead.
 func (*UserLookupResponse) Descriptor() ([]byte, []int) {
-	return file_teams_v1_teams_proto_rawDescGZIP(), []int{19}
+	return file_teams_v1_teams_proto_rawDescGZIP(), []int{20}
 }
 
 func (x *UserLookupResponse) GetFound() bool {
@@ -1151,15 +1203,18 @@ const file_teams_v1_teams_proto_rawDesc = "" +
 	"\x05email\x18\x02 \x01(\tR\x05email\x12!\n" +
 	"\fdisplay_name\x18\x03 \x01(\tR\vdisplayName\x12\x12\n" +
 	"\x04role\x18\x04 \x01(\tR\x04role\"\x14\n" +
-	"\x12ListMembersRequest\"Z\n" +
+	"\x12ListMembersRequest\"w\n" +
 	"\x13ListMembersResponse\x12*\n" +
 	"\amembers\x18\x01 \x03(\v2\x10.teams.v1.MemberR\amembers\x12\x17\n" +
-	"\amy_role\x18\x02 \x01(\tR\x06myRole\"(\n" +
+	"\amy_role\x18\x02 \x01(\tR\x06myRole\x12\x1b\n" +
+	"\tteam_name\x18\x03 \x01(\tR\bteamName\"(\n" +
 	"\rMemberRequest\x12\x17\n" +
 	"\auser_id\x18\x01 \x01(\x03R\x06userId\"@\n" +
 	"\x11ChangeRoleRequest\x12\x17\n" +
 	"\auser_id\x18\x01 \x01(\x03R\x06userId\x12\x12\n" +
-	"\x04role\x18\x02 \x01(\tR\x04role\"\x12\n" +
+	"\x04role\x18\x02 \x01(\tR\x04role\"6\n" +
+	"\x11RenameTeamRequest\x12!\n" +
+	"\fdisplay_name\x18\x01 \x01(\tR\vdisplayName\"\x12\n" +
 	"\x10LeaveTeamRequest\"0\n" +
 	"\x18LookupUserByEmailRequest\x12\x14\n" +
 	"\x05email\x18\x01 \x01(\tR\x05email\"\xa3\x01\n" +
@@ -1168,7 +1223,7 @@ const file_teams_v1_teams_proto_rawDesc = "" +
 	"\auser_id\x18\x02 \x01(\x03R\x06userId\x12\x14\n" +
 	"\x05email\x18\x03 \x01(\tR\x05email\x12!\n" +
 	"\fdisplay_name\x18\x04 \x01(\tR\vdisplayName\x12%\n" +
-	"\x0ealready_member\x18\x05 \x01(\bR\ralreadyMember2\x98\r\n" +
+	"\x0ealready_member\x18\x05 \x01(\bR\ralreadyMember2\xf9\r\n" +
 	"\fTeamsService\x12^\n" +
 	"\vListMyTeams\x12\x1c.teams.v1.ListMyTeamsRequest\x1a\x1d.teams.v1.ListMyTeamsResponse\"\x12\x82\xd3\xe4\x93\x02\f\x12\n" +
 	"/api/teams\x12_\n" +
@@ -1185,7 +1240,9 @@ const file_teams_v1_teams_proto_rawDesc = "" +
 	"\vListMembers\x12\x1c.teams.v1.ListMembersRequest\x1a\x1d.teams.v1.ListMembersResponse\"\x1a\x82\xd3\xe4\x93\x02\x14\x12\x12/api/teams/members\x12e\n" +
 	"\fRemoveMember\x12\x17.teams.v1.MemberRequest\x1a\x16.google.protobuf.Empty\"$\x82\xd3\xe4\x93\x02\x1e:\x01*\"\x19/api/teams/members/remove\x12e\n" +
 	"\n" +
-	"ChangeRole\x12\x1b.teams.v1.ChangeRoleRequest\x1a\x16.google.protobuf.Empty\"\"\x82\xd3\xe4\x93\x02\x1c:\x01*\"\x17/api/teams/members/role\x12\\\n" +
+	"ChangeRole\x12\x1b.teams.v1.ChangeRoleRequest\x1a\x16.google.protobuf.Empty\"\"\x82\xd3\xe4\x93\x02\x1c:\x01*\"\x17/api/teams/members/role\x12_\n" +
+	"\n" +
+	"RenameTeam\x12\x1b.teams.v1.RenameTeamRequest\x1a\x16.google.protobuf.Empty\"\x1c\x82\xd3\xe4\x93\x02\x16:\x01*\"\x11/api/teams/rename\x12\\\n" +
 	"\tLeaveTeam\x12\x1a.teams.v1.LeaveTeamRequest\x1a\x16.google.protobuf.Empty\"\x1b\x82\xd3\xe4\x93\x02\x15:\x01*\"\x10/api/teams/leave\x12v\n" +
 	"\x11LookupUserByEmail\x12\".teams.v1.LookupUserByEmailRequest\x1a\x1c.teams.v1.UserLookupResponse\"\x1f\x82\xd3\xe4\x93\x02\x19\x12\x17/api/teams/users/lookupB\x92\x01\n" +
 	"\fcom.teams.v1B\n" +
@@ -1203,7 +1260,7 @@ func file_teams_v1_teams_proto_rawDescGZIP() []byte {
 	return file_teams_v1_teams_proto_rawDescData
 }
 
-var file_teams_v1_teams_proto_msgTypes = make([]protoimpl.MessageInfo, 20)
+var file_teams_v1_teams_proto_msgTypes = make([]protoimpl.MessageInfo, 21)
 var file_teams_v1_teams_proto_goTypes = []any{
 	(*ListMyTeamsRequest)(nil),       // 0: teams.v1.ListMyTeamsRequest
 	(*Team)(nil),                     // 1: teams.v1.Team
@@ -1222,10 +1279,11 @@ var file_teams_v1_teams_proto_goTypes = []any{
 	(*ListMembersResponse)(nil),      // 14: teams.v1.ListMembersResponse
 	(*MemberRequest)(nil),            // 15: teams.v1.MemberRequest
 	(*ChangeRoleRequest)(nil),        // 16: teams.v1.ChangeRoleRequest
-	(*LeaveTeamRequest)(nil),         // 17: teams.v1.LeaveTeamRequest
-	(*LookupUserByEmailRequest)(nil), // 18: teams.v1.LookupUserByEmailRequest
-	(*UserLookupResponse)(nil),       // 19: teams.v1.UserLookupResponse
-	(*emptypb.Empty)(nil),            // 20: google.protobuf.Empty
+	(*RenameTeamRequest)(nil),        // 17: teams.v1.RenameTeamRequest
+	(*LeaveTeamRequest)(nil),         // 18: teams.v1.LeaveTeamRequest
+	(*LookupUserByEmailRequest)(nil), // 19: teams.v1.LookupUserByEmailRequest
+	(*UserLookupResponse)(nil),       // 20: teams.v1.UserLookupResponse
+	(*emptypb.Empty)(nil),            // 21: google.protobuf.Empty
 }
 var file_teams_v1_teams_proto_depIdxs = []int32{
 	1,  // 0: teams.v1.ListMyTeamsResponse.teams:type_name -> teams.v1.Team
@@ -1245,25 +1303,27 @@ var file_teams_v1_teams_proto_depIdxs = []int32{
 	13, // 14: teams.v1.TeamsService.ListMembers:input_type -> teams.v1.ListMembersRequest
 	15, // 15: teams.v1.TeamsService.RemoveMember:input_type -> teams.v1.MemberRequest
 	16, // 16: teams.v1.TeamsService.ChangeRole:input_type -> teams.v1.ChangeRoleRequest
-	17, // 17: teams.v1.TeamsService.LeaveTeam:input_type -> teams.v1.LeaveTeamRequest
-	18, // 18: teams.v1.TeamsService.LookupUserByEmail:input_type -> teams.v1.LookupUserByEmailRequest
-	2,  // 19: teams.v1.TeamsService.ListMyTeams:output_type -> teams.v1.ListMyTeamsResponse
-	20, // 20: teams.v1.TeamsService.SwitchTeam:output_type -> google.protobuf.Empty
-	7,  // 21: teams.v1.TeamsService.ListInvitations:output_type -> teams.v1.ListInvitationsResponse
-	4,  // 22: teams.v1.TeamsService.CreateInvitation:output_type -> teams.v1.Invitation
-	10, // 23: teams.v1.TeamsService.PreviewInvitation:output_type -> teams.v1.InvitationPreview
-	20, // 24: teams.v1.TeamsService.AcceptInvitation:output_type -> google.protobuf.Empty
-	20, // 25: teams.v1.TeamsService.AcceptInvitationById:output_type -> google.protobuf.Empty
-	20, // 26: teams.v1.TeamsService.DeclineInvitation:output_type -> google.protobuf.Empty
-	20, // 27: teams.v1.TeamsService.RevokeInvitation:output_type -> google.protobuf.Empty
-	4,  // 28: teams.v1.TeamsService.ResendInvitation:output_type -> teams.v1.Invitation
-	14, // 29: teams.v1.TeamsService.ListMembers:output_type -> teams.v1.ListMembersResponse
-	20, // 30: teams.v1.TeamsService.RemoveMember:output_type -> google.protobuf.Empty
-	20, // 31: teams.v1.TeamsService.ChangeRole:output_type -> google.protobuf.Empty
-	20, // 32: teams.v1.TeamsService.LeaveTeam:output_type -> google.protobuf.Empty
-	19, // 33: teams.v1.TeamsService.LookupUserByEmail:output_type -> teams.v1.UserLookupResponse
-	19, // [19:34] is the sub-list for method output_type
-	4,  // [4:19] is the sub-list for method input_type
+	17, // 17: teams.v1.TeamsService.RenameTeam:input_type -> teams.v1.RenameTeamRequest
+	18, // 18: teams.v1.TeamsService.LeaveTeam:input_type -> teams.v1.LeaveTeamRequest
+	19, // 19: teams.v1.TeamsService.LookupUserByEmail:input_type -> teams.v1.LookupUserByEmailRequest
+	2,  // 20: teams.v1.TeamsService.ListMyTeams:output_type -> teams.v1.ListMyTeamsResponse
+	21, // 21: teams.v1.TeamsService.SwitchTeam:output_type -> google.protobuf.Empty
+	7,  // 22: teams.v1.TeamsService.ListInvitations:output_type -> teams.v1.ListInvitationsResponse
+	4,  // 23: teams.v1.TeamsService.CreateInvitation:output_type -> teams.v1.Invitation
+	10, // 24: teams.v1.TeamsService.PreviewInvitation:output_type -> teams.v1.InvitationPreview
+	21, // 25: teams.v1.TeamsService.AcceptInvitation:output_type -> google.protobuf.Empty
+	21, // 26: teams.v1.TeamsService.AcceptInvitationById:output_type -> google.protobuf.Empty
+	21, // 27: teams.v1.TeamsService.DeclineInvitation:output_type -> google.protobuf.Empty
+	21, // 28: teams.v1.TeamsService.RevokeInvitation:output_type -> google.protobuf.Empty
+	4,  // 29: teams.v1.TeamsService.ResendInvitation:output_type -> teams.v1.Invitation
+	14, // 30: teams.v1.TeamsService.ListMembers:output_type -> teams.v1.ListMembersResponse
+	21, // 31: teams.v1.TeamsService.RemoveMember:output_type -> google.protobuf.Empty
+	21, // 32: teams.v1.TeamsService.ChangeRole:output_type -> google.protobuf.Empty
+	21, // 33: teams.v1.TeamsService.RenameTeam:output_type -> google.protobuf.Empty
+	21, // 34: teams.v1.TeamsService.LeaveTeam:output_type -> google.protobuf.Empty
+	20, // 35: teams.v1.TeamsService.LookupUserByEmail:output_type -> teams.v1.UserLookupResponse
+	20, // [20:36] is the sub-list for method output_type
+	4,  // [4:20] is the sub-list for method input_type
 	4,  // [4:4] is the sub-list for extension type_name
 	4,  // [4:4] is the sub-list for extension extendee
 	0,  // [0:4] is the sub-list for field type_name
@@ -1280,7 +1340,7 @@ func file_teams_v1_teams_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_teams_v1_teams_proto_rawDesc), len(file_teams_v1_teams_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   20,
+			NumMessages:   21,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

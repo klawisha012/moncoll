@@ -33,6 +33,7 @@ const (
 	TeamsService_ListMembers_FullMethodName          = "/teams.v1.TeamsService/ListMembers"
 	TeamsService_RemoveMember_FullMethodName         = "/teams.v1.TeamsService/RemoveMember"
 	TeamsService_ChangeRole_FullMethodName           = "/teams.v1.TeamsService/ChangeRole"
+	TeamsService_RenameTeam_FullMethodName           = "/teams.v1.TeamsService/RenameTeam"
 	TeamsService_LeaveTeam_FullMethodName            = "/teams.v1.TeamsService/LeaveTeam"
 	TeamsService_LookupUserByEmail_FullMethodName    = "/teams.v1.TeamsService/LookupUserByEmail"
 )
@@ -60,6 +61,9 @@ type TeamsServiceClient interface {
 	ListMembers(ctx context.Context, in *ListMembersRequest, opts ...grpc.CallOption) (*ListMembersResponse, error)
 	RemoveMember(ctx context.Context, in *MemberRequest, opts ...grpc.CallOption) (*emptypb.Empty, error)
 	ChangeRole(ctx context.Context, in *ChangeRoleRequest, opts ...grpc.CallOption) (*emptypb.Empty, error)
+	// RenameTeam changes the active team's display_name (owner only). The slug
+	// (tenants.name) is identity and is never touched.
+	RenameTeam(ctx context.Context, in *RenameTeamRequest, opts ...grpc.CallOption) (*emptypb.Empty, error)
 	LeaveTeam(ctx context.Context, in *LeaveTeamRequest, opts ...grpc.CallOption) (*emptypb.Empty, error)
 	// LookupUserByEmail resolves an EXACT email to a platform user, for admins
 	// composing an invitation. Admin-only; exact match only (no enumeration).
@@ -204,6 +208,16 @@ func (c *teamsServiceClient) ChangeRole(ctx context.Context, in *ChangeRoleReque
 	return out, nil
 }
 
+func (c *teamsServiceClient) RenameTeam(ctx context.Context, in *RenameTeamRequest, opts ...grpc.CallOption) (*emptypb.Empty, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(emptypb.Empty)
+	err := c.cc.Invoke(ctx, TeamsService_RenameTeam_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (c *teamsServiceClient) LeaveTeam(ctx context.Context, in *LeaveTeamRequest, opts ...grpc.CallOption) (*emptypb.Empty, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(emptypb.Empty)
@@ -247,6 +261,9 @@ type TeamsServiceServer interface {
 	ListMembers(context.Context, *ListMembersRequest) (*ListMembersResponse, error)
 	RemoveMember(context.Context, *MemberRequest) (*emptypb.Empty, error)
 	ChangeRole(context.Context, *ChangeRoleRequest) (*emptypb.Empty, error)
+	// RenameTeam changes the active team's display_name (owner only). The slug
+	// (tenants.name) is identity and is never touched.
+	RenameTeam(context.Context, *RenameTeamRequest) (*emptypb.Empty, error)
 	LeaveTeam(context.Context, *LeaveTeamRequest) (*emptypb.Empty, error)
 	// LookupUserByEmail resolves an EXACT email to a platform user, for admins
 	// composing an invitation. Admin-only; exact match only (no enumeration).
@@ -299,6 +316,9 @@ func (UnimplementedTeamsServiceServer) RemoveMember(context.Context, *MemberRequ
 }
 func (UnimplementedTeamsServiceServer) ChangeRole(context.Context, *ChangeRoleRequest) (*emptypb.Empty, error) {
 	return nil, status.Error(codes.Unimplemented, "method ChangeRole not implemented")
+}
+func (UnimplementedTeamsServiceServer) RenameTeam(context.Context, *RenameTeamRequest) (*emptypb.Empty, error) {
+	return nil, status.Error(codes.Unimplemented, "method RenameTeam not implemented")
 }
 func (UnimplementedTeamsServiceServer) LeaveTeam(context.Context, *LeaveTeamRequest) (*emptypb.Empty, error) {
 	return nil, status.Error(codes.Unimplemented, "method LeaveTeam not implemented")
@@ -561,6 +581,24 @@ func _TeamsService_ChangeRole_Handler(srv interface{}, ctx context.Context, dec 
 	return interceptor(ctx, in, info, handler)
 }
 
+func _TeamsService_RenameTeam_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(RenameTeamRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(TeamsServiceServer).RenameTeam(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: TeamsService_RenameTeam_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(TeamsServiceServer).RenameTeam(ctx, req.(*RenameTeamRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 func _TeamsService_LeaveTeam_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(LeaveTeamRequest)
 	if err := dec(in); err != nil {
@@ -655,6 +693,10 @@ var TeamsService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "ChangeRole",
 			Handler:    _TeamsService_ChangeRole_Handler,
+		},
+		{
+			MethodName: "RenameTeam",
+			Handler:    _TeamsService_RenameTeam_Handler,
 		},
 		{
 			MethodName: "LeaveTeam",

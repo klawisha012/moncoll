@@ -748,6 +748,9 @@ const en: TranslationDict = {
 
   // Team page
   "team.title": "Team",
+  "team.name.label": "Team name",
+  "team.name.edit": "Rename",
+  "team.name.renamed": "Team renamed",
   "team.members": "Members",
   "team.invitations": "Invitations",
   "team.invite": "Invite",
@@ -1624,6 +1627,9 @@ const ru: TranslationDict = {
 
   // Team page
   "team.title": "Команда",
+  "team.name.label": "Название команды",
+  "team.name.edit": "Переименовать",
+  "team.name.renamed": "Команда переименована",
   "team.members": "Участники",
   "team.invitations": "Приглашения",
   "team.invite": "Пригласить",

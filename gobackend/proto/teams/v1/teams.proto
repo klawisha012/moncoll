@@ -57,6 +57,11 @@ service TeamsService {
   rpc ChangeRole(ChangeRoleRequest) returns (google.protobuf.Empty) {
     option (google.api.http) = {post: "/api/teams/members/role" body: "*"};
   }
+  // RenameTeam changes the active team's display_name (owner only). The slug
+  // (tenants.name) is identity and is never touched.
+  rpc RenameTeam(RenameTeamRequest) returns (google.protobuf.Empty) {
+    option (google.api.http) = {post: "/api/teams/rename" body: "*"};
+  }
   rpc LeaveTeam(LeaveTeamRequest) returns (google.protobuf.Empty) {
     option (google.api.http) = {post: "/api/teams/leave" body: "*"};
   }
@@ -143,6 +148,7 @@ message ListMembersRequest {}
 message ListMembersResponse {
   repeated Member members = 1;
   string my_role = 2;
+  string team_name = 3;
 }
 message MemberRequest {
   int64 user_id = 1;
@@ -150,6 +156,9 @@ message MemberRequest {
 message ChangeRoleRequest {
   int64 user_id = 1;
   string role = 2;
+}
+message RenameTeamRequest {
+  string display_name = 1;
 }
 message LeaveTeamRequest {}
 

@@ -21,6 +21,10 @@ export default function Team() {
 
   const [members, setMembers] = createSignal<TeamMember[]>([]);
   const [myRole, setMyRole] = createSignal("member");
+  const [teamName, setTeamName] = createSignal("");
+  const [editingName, setEditingName] = createSignal(false);
+  const [nameDraft, setNameDraft] = createSignal("");
+  const [savingName, setSavingName] = createSignal(false);
   const [outgoing, setOutgoing] = createSignal<Invitation[]>([]);
   const [email, setEmail] = createSignal("");
   const [role, setRole] = createSignal("member");
@@ -44,6 +48,7 @@ export default function Team() {
       const m = await api.teams.members();
       setMembers(m.members ?? []);
       setMyRole(m.my_role);
+      setTeamName(m.team_name ?? "");
       const inv = await api.teams.invitations();
       setOutgoing(inv.outgoing);
     } catch (e) {
@@ -59,6 +64,22 @@ export default function Team() {
       void load();
     } catch (e) {
       showToast("error", errMsg(e));
+    }
+  };
+
+  // Owner-only team rename. Reloads on success so the title and the team
+  // switcher pick up the new name everywhere.
+  const saveName = async () => {
+    const name = nameDraft().trim();
+    if (!name || name === teamName() || savingName()) return;
+    setSavingName(true);
+    try {
+      await api.teams.rename(name);
+      showToast("success", t("team.name.renamed"));
+      setTimeout(() => window.location.reload(), 700);
+    } catch (e) {
+      showToast("error", errMsg(e));
+      setSavingName(false);
     }
   };
 
@@ -153,6 +174,46 @@ export default function Team() {
       </Show>
 
       <h1 class="page-title">{t("team.title")}</h1>
+
+      {/* ── Team name editor (owner only) ─────────────────────── */}
+      <Show when={myRole() === "owner"}>
+        <div style="display: flex; align-items: center; gap: 14px; flex-wrap: wrap; padding: 14px 18px; margin-bottom: 24px; background: var(--cream-2); border: 3px solid var(--line); box-shadow: var(--shadow-offset-sm);">
+          <span style="font-family: var(--font-cond); font-size: 12px; font-weight: 700; letter-spacing: 0.18em; text-transform: uppercase; color: var(--ink); flex-shrink: 0;">
+            {t("team.name.label")}
+          </span>
+          <Show
+            when={editingName()}
+            fallback={
+              <>
+                <span style="font-family: var(--font-cond); font-size: 15px; font-weight: 600; color: var(--ink); margin-right: auto;">{teamName() || "—"}</span>
+                <button type="button" class="btn btn-sm btn-outline" onClick={() => { setNameDraft(teamName()); setEditingName(true); }}>
+                  {t("team.name.edit")}
+                </button>
+              </>
+            }
+          >
+            <input
+              class="input"
+              style="flex: 1 1 220px; min-width: 180px;"
+              maxlength="64"
+              value={nameDraft()}
+              onInput={(e) => setNameDraft(e.currentTarget.value)}
+              onKeyDown={(e) => { if (e.key === "Enter") saveName(); if (e.key === "Escape") setEditingName(false); }}
+            />
+            <button
+              type="button"
+              class="btn btn-sm btn-primary"
+              disabled={savingName() || !nameDraft().trim() || nameDraft().trim() === teamName()}
+              onClick={saveName}
+            >
+              {t("general.save")}
+            </button>
+            <button type="button" class="btn btn-sm btn-ghost" onClick={() => setEditingName(false)}>
+              {t("general.cancel")}
+            </button>
+          </Show>
+        </div>
+      </Show>
 
       {/* ── Active-team switcher (only when in 2+ teams) ──────── */}
       <TeamSwitcher />

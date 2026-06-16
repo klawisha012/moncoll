@@ -541,7 +541,7 @@ export interface TeamMember { user_id: number; email: string; display_name: stri
 export interface Invitation { id: number; tenant_id: number; email: string; role: string; status: string; team_name: string; expires_at: string; accept_url?: string; email_sent?: boolean; }
 export interface InvitationsResponse { outgoing: Invitation[]; incoming: Invitation[]; }
 export interface InvitationPreview { valid?: boolean; team_name?: string; role?: string; email?: string; account_exists?: boolean; }
-export interface MembersResponse { members: TeamMember[]; my_role: string; }
+export interface MembersResponse { members: TeamMember[]; my_role: string; team_name?: string; }
 export interface UserLookup { found?: boolean; user_id?: string; email?: string; display_name?: string; already_member?: boolean; }
 
 // ── Auth types ─────────────────────────────────────────────
@@ -1101,6 +1101,8 @@ export const api = {
       fetchApi<void>("/api/teams/members/remove", { method: "POST", body: JSON.stringify({ user_id: userId }) }),
     changeRole: (userId: number, role: string) =>
       fetchApi<void>("/api/teams/members/role", { method: "POST", body: JSON.stringify({ user_id: userId, role }) }),
+    rename: (displayName: string) =>
+      fetchApi<void>("/api/teams/rename", { method: "POST", body: JSON.stringify({ display_name: displayName }) }),
     leave: () => fetchApi<void>("/api/teams/leave", { method: "POST", body: "{}" }),
     invitations: () =>
       fetchApi<InvitationsResponse>("/api/teams/invitations").then((r) => ({ outgoing: r.outgoing ?? [], incoming: r.incoming ?? [] })),

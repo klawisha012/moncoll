@@ -27,6 +27,7 @@ type Store interface {
 	GetUserByIDFull(ctx context.Context, id int64) (*store.User, error)
 	GetUserByEmail(ctx context.Context, email string) (*store.User, error)
 	GetTenantDisplayName(ctx context.Context, tenantID int64) (string, error)
+	SetTenantDisplayName(ctx context.Context, tenantID int64, displayName string) error
 	CreateInvitation(ctx context.Context, inv *store.Invitation) (*store.Invitation, error)
 	GetPendingInvitationForEmail(ctx context.Context, tenantID int64, email string) (*store.Invitation, error)
 	GetInvitationByTokenHash(ctx context.Context, tokenHash string) (*store.Invitation, error)
@@ -88,6 +89,7 @@ func (s *Service) AuthLevels() map[string]auth.Level {
 		teamsv1.TeamsService_ListMembers_FullMethodName:          auth.LevelVerified,
 		teamsv1.TeamsService_RemoveMember_FullMethodName:         auth.LevelVerified,
 		teamsv1.TeamsService_ChangeRole_FullMethodName:           auth.LevelVerified,
+		teamsv1.TeamsService_RenameTeam_FullMethodName:           auth.LevelVerified,
 		teamsv1.TeamsService_LeaveTeam_FullMethodName:            auth.LevelVerified,
 		teamsv1.TeamsService_LookupUserByEmail_FullMethodName:    auth.LevelVerified,
 	}

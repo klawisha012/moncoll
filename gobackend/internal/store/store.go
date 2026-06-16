@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"errors"
+	"fmt"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -64,4 +65,18 @@ func (s *Store) GetTenantByID(ctx context.Context, id int64) (*Tenant, error) {
 		return nil, err
 	}
 	return &t, nil
+}
+
+// SetTenantDisplayName updates a tenant's human-readable name. The slug
+// (tenants.name) is identity and is deliberately never touched here.
+func (s *Store) SetTenantDisplayName(ctx context.Context, tenantID int64, displayName string) error {
+	const q = `UPDATE tenants SET display_name = $2, updated_at = now() WHERE id = $1`
+	ct, err := s.pool.Exec(ctx, q, tenantID, displayName)
+	if err != nil {
+		return fmt.Errorf("SetTenantDisplayName: %w", err)
+	}
+	if ct.RowsAffected() == 0 {
+		return &NotFoundError{Entity: "tenant"}
+	}
+	return nil
 }

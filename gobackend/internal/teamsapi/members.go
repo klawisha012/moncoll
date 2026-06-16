@@ -2,6 +2,7 @@ package teamsapi
 
 import (
 	"context"
+	"strings"
 
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -40,7 +41,11 @@ func (s *Service) ListMembers(ctx context.Context, _ *teamsv1.ListMembersRequest
 	for _, r := range rows {
 		out = append(out, &teamsv1.Member{UserId: r.UserID, Email: r.Email, DisplayName: r.DisplayName, Role: r.Role})
 	}
-	return &teamsv1.ListMembersResponse{Members: out, MyRole: myRole}, nil
+	// team_name lets the Team page show/edit the current name without an extra
+	// round-trip. Best-effort: a lookup failure leaves it empty rather than
+	// breaking the members list.
+	name, _ := s.store.GetTenantDisplayName(ctx, *id.TenantID)
+	return &teamsv1.ListMembersResponse{Members: out, MyRole: myRole, TeamName: name}, nil
 }
 
 func (s *Service) RemoveMember(ctx context.Context, req *teamsv1.MemberRequest) (*emptypb.Empty, error) {
@@ -125,6 +130,44 @@ func (s *Service) LeaveTeam(ctx context.Context, _ *teamsv1.LeaveTeamRequest) (*
 		}
 	}
 	if err := s.store.DeleteMembership(ctx, *id.TenantID, id.UserID); err != nil {
+		return nil, status.Error(codes.Internal, "internal error")
+	}
+	return &emptypb.Empty{}, nil
+}
+
+// maxTeamNameLen matches tenants.display_name VARCHAR(64).
+const maxTeamNameLen = 64
+
+// RenameTeam lets the owner change the active team's display name. The slug
+// (tenants.name) is never touched. Rejects a name the caller already uses for
+// another of their own teams so the team switcher stays unambiguous.
+func (s *Service) RenameTeam(ctx context.Context, req *teamsv1.RenameTeamRequest) (*emptypb.Empty, error) {
+	id, myRole, err := s.activeMembership(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if myRole != "owner" {
+		return nil, status.Error(codes.PermissionDenied, "only the owner can rename the team")
+	}
+	name := strings.TrimSpace(req.GetDisplayName())
+	if name == "" {
+		return nil, status.Error(codes.InvalidArgument, "team name must not be empty")
+	}
+	if len([]rune(name)) > maxTeamNameLen {
+		return nil, status.Error(codes.InvalidArgument, "team name too long (max 64 characters)")
+	}
+	teams, err := s.store.ListMyTeams(ctx, id.UserID)
+	if err != nil {
+		s.log.Error("RenameTeam list teams", "err", err)
+		return nil, status.Error(codes.Internal, "internal error")
+	}
+	for _, t := range teams {
+		if t.TenantID != *id.TenantID && strings.EqualFold(strings.TrimSpace(t.DisplayName), name) {
+			return nil, status.Error(codes.AlreadyExists, "you already have a team with this name")
+		}
+	}
+	if err := s.store.SetTenantDisplayName(ctx, *id.TenantID, name); err != nil {
+		s.log.Error("RenameTeam set name", "err", err)
 		return nil, status.Error(codes.Internal, "internal error")
 	}
 	return &emptypb.Empty{}, nil

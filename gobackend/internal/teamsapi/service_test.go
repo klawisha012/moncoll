@@ -72,6 +72,13 @@ func (f *fakeStore) GetUserByIDFull(_ context.Context, id int64) (*store.User, e
 func (f *fakeStore) GetTenantDisplayName(_ context.Context, id int64) (string, error) {
 	return f.tenantNames[id], nil
 }
+func (f *fakeStore) SetTenantDisplayName(_ context.Context, id int64, name string) error {
+	if f.tenantNames == nil {
+		f.tenantNames = map[int64]string{}
+	}
+	f.tenantNames[id] = name
+	return nil
+}
 func (f *fakeStore) CreateInvitation(_ context.Context, inv *store.Invitation) (*store.Invitation, error) {
 	for _, e := range f.invites {
 		if e.TenantID == inv.TenantID && e.Email == inv.Email && e.Status == "pending" {

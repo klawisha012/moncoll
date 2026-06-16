@@ -3,6 +3,7 @@ package teamsapi
 import (
 	"io"
 	"log/slog"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -11,6 +12,7 @@ import (
 	"google.golang.org/grpc/status"
 
 	teamsv1 "github.com/zwarder/waf/gobackend/gen/teams/v1"
+	"github.com/zwarder/waf/gobackend/internal/store"
 )
 
 func newSvcWithNotifier(f *fakeStore, n *fakeNotifier) *Service {
@@ -146,4 +148,57 @@ func TestRemoveMember_EmitsNotification(t *testing.T) {
 	call, ok := n.findType("team.member_removed")
 	require.True(t, ok, "expected team.member_removed notification")
 	assert.Equal(t, targetID, call.userID)
+}
+
+// ── RenameTeam ───────────────────────────────────────────────────────────────
+
+// TestRenameTeam_OwnerOk: owner renames; name is trimmed and persisted.
+func TestRenameTeam_OwnerOk(t *testing.T) {
+	f := &fakeStore{
+		memberRoles: map[int64]string{callerID: "owner"},
+		teams: []store.MyTeam{
+			{TenantID: tenantID, Slug: "acme", DisplayName: "Acme", Role: "owner"},
+		},
+		tenantNames: map[int64]string{tenantID: "Acme"},
+	}
+	ctx := ctxWithUser(callerID, tenantID)
+	_, err := newSvc(f).RenameTeam(ctx, &teamsv1.RenameTeamRequest{DisplayName: "  Acme Corp  "})
+	require.NoError(t, err)
+	assert.Equal(t, "Acme Corp", f.tenantNames[tenantID])
+}
+
+// TestRenameTeam_NonOwnerDenied: a non-owner cannot rename.
+func TestRenameTeam_NonOwnerDenied(t *testing.T) {
+	f := &fakeStore{memberRoles: map[int64]string{callerID: "admin"}}
+	_, err := newSvc(f).RenameTeam(ctxWithUser(callerID, tenantID), &teamsv1.RenameTeamRequest{DisplayName: "X"})
+	assert.Equal(t, codes.PermissionDenied, status.Code(err))
+}
+
+// TestRenameTeam_ValidatesName: empty/whitespace and >64 chars are rejected.
+func TestRenameTeam_ValidatesName(t *testing.T) {
+	f := &fakeStore{memberRoles: map[int64]string{callerID: "owner"}}
+	ctx := ctxWithUser(callerID, tenantID)
+
+	_, err := newSvc(f).RenameTeam(ctx, &teamsv1.RenameTeamRequest{DisplayName: "   "})
+	assert.Equal(t, codes.InvalidArgument, status.Code(err))
+
+	_, err = newSvc(f).RenameTeam(ctx, &teamsv1.RenameTeamRequest{DisplayName: strings.Repeat("a", 65)})
+	assert.Equal(t, codes.InvalidArgument, status.Code(err))
+}
+
+// TestRenameTeam_RejectsDuplicateAmongMyTeams: renaming to a name the caller
+// already uses for another of their teams is rejected (case-insensitive).
+func TestRenameTeam_RejectsDuplicateAmongMyTeams(t *testing.T) {
+	f := &fakeStore{
+		memberRoles: map[int64]string{callerID: "owner"},
+		teams: []store.MyTeam{
+			{TenantID: tenantID, Slug: "acme", DisplayName: "Acme", Role: "owner"},
+			{TenantID: 2, Slug: "beta", DisplayName: "Beta", Role: "member"},
+		},
+		tenantNames: map[int64]string{tenantID: "Acme"},
+	}
+	ctx := ctxWithUser(callerID, tenantID)
+	_, err := newSvc(f).RenameTeam(ctx, &teamsv1.RenameTeamRequest{DisplayName: "beta"})
+	assert.Equal(t, codes.AlreadyExists, status.Code(err))
+	assert.Equal(t, "Acme", f.tenantNames[tenantID])
 }
