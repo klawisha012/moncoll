@@ -77,7 +77,11 @@ func TestEnsureSystemProvisioning_CreatesSelfConn(t *testing.T) {
 func TestEnsureSystemProvisioning_SelfConnIdempotentOnConflict(t *testing.T) {
 	f := &fakeProvisioner{systemTenantID: 42, createErr: &store.ConflictError{Detail: "domain taken"}}
 	cfg := SelfSiteConfig{Domain: "zwarder.ru", OriginHost: "frontend", OriginPort: 3000}
-	if _, err := EnsureSystemProvisioning(context.Background(), newLog(), f, cfg); err != nil {
+	id, err := EnsureSystemProvisioning(context.Background(), newLog(), f, cfg)
+	if err != nil {
 		t.Fatalf("ConflictError should be treated as already-provisioned, got %v", err)
+	}
+	if id != 42 {
+		t.Errorf("expected returned systemTenantID 42 on conflict path, got %d", id)
 	}
 }
