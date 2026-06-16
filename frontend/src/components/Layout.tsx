@@ -22,7 +22,6 @@ import { subscribe } from "../realtime/client";
 import { unreadCount, refreshUnread } from "../realtime/notifications";
 import SettingsPopover from "./SettingsPopover";
 import GlobalFilters from "./GlobalFilters";
-import TeamSwitcher from "./TeamSwitcher";
 import AccountSwitcher from "./AccountSwitcher";
 import Logo from "./Logo";
 
@@ -153,7 +152,6 @@ export default function Layout(props: { children?: JSX.Element }) {
 
         <Show when={!collapsed()}>
           <GlobalFilters />
-          <TeamSwitcher />
         </Show>
 
         <nav class="sidebar-nav">

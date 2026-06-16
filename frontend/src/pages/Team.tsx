@@ -2,6 +2,7 @@ import { createSignal, onMount, For, Show } from "solid-js";
 import { api, type TeamMember, type Invitation, type UserLookup } from "../api/client";
 import { useSettings } from "../context/SettingsContext";
 import { useAuth } from "../context/AuthContext";
+import TeamSwitcher from "../components/TeamSwitcher";
 
 type ToastKind = "success" | "error" | "info";
 type LinkPanel = { url: string; email: string; sent: boolean };
@@ -152,6 +153,9 @@ export default function Team() {
       </Show>
 
       <h1 class="page-title">{t("team.title")}</h1>
+
+      {/* ── Active-team switcher (only when in 2+ teams) ──────── */}
+      <TeamSwitcher />
 
       {/* ── Members ───────────────────────────────────────────── */}
       <div class="card" style="margin-bottom: 24px;">
