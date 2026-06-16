@@ -82,11 +82,6 @@ ORDER BY t.id`
 }
 
 func (s *Store) SuspendTenant(ctx context.Context, id int64) (*Tenant, error) {
-	if sys, err := s.isSystemTenant(ctx, id); err != nil {
-		return nil, err
-	} else if sys {
-		return nil, ErrSystemTenantProtected
-	}
 	const q = `UPDATE tenants SET suspended_at = now() WHERE id=$1 RETURNING id, name, suspended_at`
 	var t Tenant
 	err := s.pool.QueryRow(ctx, q, id).Scan(&t.ID, &t.Name, &t.SuspendedAt)
@@ -113,11 +108,6 @@ func (s *Store) UnsuspendTenant(ctx context.Context, id int64) (*Tenant, error) 
 }
 
 func (s *Store) DeleteTenant(ctx context.Context, id int64) error {
-	if sys, err := s.isSystemTenant(ctx, id); err != nil {
-		return err
-	} else if sys {
-		return ErrSystemTenantProtected
-	}
 	tag, err := s.pool.Exec(ctx, `DELETE FROM tenants WHERE id=$1`, id)
 	if err != nil {
 		return err

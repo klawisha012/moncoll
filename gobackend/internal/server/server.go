@@ -31,7 +31,6 @@ import (
 	"github.com/zwarder/waf/gobackend/internal/angie"
 	"github.com/zwarder/waf/gobackend/internal/auth"
 	"github.com/zwarder/waf/gobackend/internal/authapi"
-	"github.com/zwarder/waf/gobackend/internal/bootstrap"
 	"github.com/zwarder/waf/gobackend/internal/captcha"
 	"github.com/zwarder/waf/gobackend/internal/centrifugo"
 	"github.com/zwarder/waf/gobackend/internal/certexpiry"
@@ -106,13 +105,6 @@ func (s *Server) Start(ctx context.Context) error {
 		return fmt.Errorf("postgres connect failed: %w", err)
 	}
 	s.store = st
-
-	// 2b. Idempotent system provisioning: ensure the system tenant exists, every
-	// platform admin belongs to it, and (when WAF_SELF_SITE_DOMAIN is set) the
-	// self-connection row exists. No-op without the env; safe to run every boot.
-	if err := bootstrap.EnsureSystemProvisioning(ctx, s.log, st, bootstrap.LoadSelfSiteConfig()); err != nil {
-		return fmt.Errorf("system provisioning failed: %w", err)
-	}
 
 	// 3. Docker connection for monitoring.
 	engine, err := monitoring.NewDockerEngine()
