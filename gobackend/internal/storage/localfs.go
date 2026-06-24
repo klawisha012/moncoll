@@ -16,17 +16,28 @@ import (
 // directory (a bind-mounted volume). Default backend; zero behaviour change for
 // single-node deploys (FR backward-compat).
 type localStore struct {
-	root  string
-	scope string
-	mu    sync.Mutex // serialises manifest CAS within a process
+	root   string
+	scope  string
+	layout *LocalLayout // when set, keys map to live Angie paths (WAF local mode)
+	mu     sync.Mutex   // serialises manifest CAS within a process
 }
 
-// NewLocalFS returns a Store rooted at dir.
+// NewLocalFS returns a Store rooted at dir (generic; keys join under root).
 func NewLocalFS(dir, scope string) Store {
 	return &localStore{root: dir, scope: scope}
 }
 
+// NewLocalFSMapped returns a Store that writes canonical keys to the live local
+// paths defined by layout — preserving the single-node volume layout so Angie
+// reads exactly as before (FR backward-compat).
+func NewLocalFSMapped(layout LocalLayout, scope string) Store {
+	return &localStore{layout: &layout, scope: scope}
+}
+
 func (l *localStore) path(key string) string {
+	if l.layout != nil {
+		return l.layout.Path(key)
+	}
 	return filepath.Join(l.root, filepath.FromSlash(key))
 }
 
@@ -75,6 +86,11 @@ func (l *localStore) Delete(_ context.Context, key string) error {
 }
 
 func (l *localStore) List(_ context.Context, prefix string) ([]ObjectInfo, error) {
+	if l.layout != nil {
+		// Local (single-node) mode writes through to live paths and never
+		// enumerates; the sidecar (s3 mode) is the only List caller.
+		return nil, errors.New("storage: List unsupported on mapped localFS")
+	}
 	base := l.path(prefix)
 	var out []ObjectInfo
 	err := filepath.WalkDir(base, func(p string, d os.DirEntry, err error) error {
