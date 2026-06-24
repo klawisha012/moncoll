@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"sort"
+	"strings"
 	"time"
 )
 
@@ -19,10 +20,11 @@ func NewPublisher(s Store) *Publisher { return &Publisher{store: s} }
 
 // ChangeSet describes one atomic update to the source of truth.
 type ChangeSet struct {
-	Changed       []ObjectInfo // objects written this change set
-	Removed       []string     // object keys deleted this change set
-	SuspendAdd    []int64      // tenants to mark suspended (FR-011)
-	SuspendRemove []int64      // tenants to unsuspend
+	Changed         []ObjectInfo // objects written this change set
+	Removed         []string     // exact object keys deleted this change set
+	RemovedPrefixes []string     // remove all manifest entries under these prefixes
+	SuspendAdd      []int64      // tenants to mark suspended (FR-011)
+	SuspendRemove   []int64      // tenants to unsuspend
 }
 
 const publishMaxAttempts = 8
@@ -46,6 +48,13 @@ func (p *Publisher) Publish(ctx context.Context, cs ChangeSet) error {
 		}
 		for _, k := range cs.Removed {
 			delete(m.Entries, k)
+		}
+		for _, prefix := range cs.RemovedPrefixes {
+			for k := range m.Entries {
+				if strings.HasPrefix(k, prefix) {
+					delete(m.Entries, k)
+				}
+			}
 		}
 		m.SuspendedTenants = applySuspend(m.SuspendedTenants, cs.SuspendAdd, cs.SuspendRemove)
 

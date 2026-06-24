@@ -231,7 +231,7 @@ type fakeCfgWriter struct {
 	writeErr error
 }
 
-func (f *fakeCfgWriter) Write(_ string, cfg angiecfg.ConnConfig) error {
+func (f *fakeCfgWriter) Write(_ context.Context, cfg angiecfg.ConnConfig) error {
 	if f.writeErr != nil {
 		return f.writeErr
 	}
@@ -239,7 +239,7 @@ func (f *fakeCfgWriter) Write(_ string, cfg angiecfg.ConnConfig) error {
 	return nil
 }
 
-func (f *fakeCfgWriter) Delete(_ string, connID int64) error {
+func (f *fakeCfgWriter) Delete(_ context.Context, _, connID int64) error {
 	f.deleted = append(f.deleted, connID)
 	return nil
 }

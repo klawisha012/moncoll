@@ -86,6 +86,16 @@ func TestStoreContract(t *testing.T) {
 				t.Fatalf("List(state/) = %d items, want >=2", len(lst))
 			}
 
+			// 4b. DeletePrefix removes a whole subtree.
+			_, _ = s.Put(ctx, "tenants/9/conn_1/1.conf", bytes.NewReader([]byte("a")), PutOptions{})
+			_, _ = s.Put(ctx, "tenants/9/conn_1/blocked_ips.conf", bytes.NewReader([]byte("b")), PutOptions{})
+			if err := s.DeletePrefix(ctx, "tenants/9/conn_1/"); err != nil {
+				t.Fatalf("DeletePrefix: %v", err)
+			}
+			if _, _, err := s.Get(ctx, "tenants/9/conn_1/1.conf"); !errors.Is(err, ErrNotFound) {
+				t.Fatalf("Get after DeletePrefix = %v, want ErrNotFound", err)
+			}
+
 			// 5. Manifest CAS: correct ifMatch succeeds, stale ifMatch → ErrConflict.
 			m, etag, err := s.ReadManifest(ctx)
 			if err != nil {

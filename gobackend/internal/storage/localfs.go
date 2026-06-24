@@ -85,6 +85,14 @@ func (l *localStore) Delete(_ context.Context, key string) error {
 	return err
 }
 
+func (l *localStore) DeletePrefix(_ context.Context, prefix string) error {
+	err := os.RemoveAll(l.path(prefix))
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	return err
+}
+
 func (l *localStore) List(_ context.Context, prefix string) ([]ObjectInfo, error) {
 	if l.layout != nil {
 		// Local (single-node) mode writes through to live paths and never

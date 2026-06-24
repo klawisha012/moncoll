@@ -93,6 +93,19 @@ func (s *s3Store) Delete(ctx context.Context, key string) error {
 	return s.client.RemoveObject(ctx, s.bucket, key, minio.RemoveObjectOptions{})
 }
 
+func (s *s3Store) DeletePrefix(ctx context.Context, prefix string) error {
+	objs, err := s.List(ctx, prefix)
+	if err != nil {
+		return err
+	}
+	for _, o := range objs {
+		if err := s.client.RemoveObject(ctx, s.bucket, o.Key, minio.RemoveObjectOptions{}); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func (s *s3Store) List(ctx context.Context, prefix string) ([]ObjectInfo, error) {
 	var out []ObjectInfo
 	for obj := range s.client.ListObjects(ctx, s.bucket, minio.ListObjectsOptions{Prefix: prefix, Recursive: true}) {

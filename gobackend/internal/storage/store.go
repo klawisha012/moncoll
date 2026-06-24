@@ -62,6 +62,8 @@ type Store interface {
 	Put(ctx context.Context, key string, r io.Reader, opts PutOptions) (ObjectInfo, error)
 	Get(ctx context.Context, key string) (io.ReadCloser, ObjectInfo, error)
 	Delete(ctx context.Context, key string) error
+	// DeletePrefix removes every object under prefix (whole-subtree delete).
+	DeletePrefix(ctx context.Context, prefix string) error
 	List(ctx context.Context, prefix string) ([]ObjectInfo, error)
 	Stat(ctx context.Context, key string) (ObjectInfo, error)
 

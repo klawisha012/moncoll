@@ -12,12 +12,13 @@
 package angiecfg
 
 import (
+	"context"
 	"fmt"
-	"os"
-	"path/filepath"
 	"sort"
 	"strings"
 	"time"
+
+	"github.com/zwarder/waf/gobackend/internal/storage"
 )
 
 // acmeTrustedCA is the system CA bundle path inside the Angie container.
@@ -102,50 +103,50 @@ func Render(cfg ConnConfig) (map[string]string, error) {
 	return files, nil
 }
 
-// Write renders the config and writes all files into baseDir/conn_<id>/.
-// It also creates the ACME webroot skeleton (site/) and writes
-// blocked_ips.conf only if it does not already exist (so live banlists are
-// not wiped on config reload).
-func Write(baseDir string, cfg ConnConfig) error {
-	connDir := filepath.Join(baseDir, fmt.Sprintf("conn_%d", cfg.ID))
-	if err := os.MkdirAll(connDir, 0o755); err != nil {
-		return fmt.Errorf("angiecfg: mkdir conn dir: %w", err)
-	}
-
-	// ACME webroot
-	acmeDir := filepath.Join(connDir, "site")
-	if err := os.MkdirAll(acmeDir, 0o755); err != nil {
-		return fmt.Errorf("angiecfg: mkdir acme dir: %w", err)
-	}
-
+// Write renders cfg and stores the per-connection files via the shared store,
+// then publishes a new manifest generation. blocked_ips.conf is preserved if it
+// already exists (live banlists are not wiped on config reload). The ACME
+// webroot (site/) is created by the cert flow on issuance; Angie's try_files
+// handles its absence until then.
+func Write(ctx context.Context, st storage.Store, pub *storage.Publisher, cfg ConnConfig) error {
 	files, err := Render(cfg)
 	if err != nil {
 		return err
 	}
-
+	var changed []storage.ObjectInfo
 	for name, content := range files {
-		dest := filepath.Join(connDir, name)
+		key := connKey(cfg.TenantID, cfg.ID, name)
 		if name == "blocked_ips.conf" {
-			// Only write if it does not exist — preserve live banlists.
-			if _, statErr := os.Stat(dest); statErr == nil {
+			// Only write if absent — preserve live banlists.
+			if _, statErr := st.Stat(ctx, key); statErr == nil {
 				continue
 			}
 		}
-		if err := os.WriteFile(dest, []byte(content), 0o644); err != nil {
-			return fmt.Errorf("angiecfg: write %s: %w", name, err)
+		oi, err := st.Put(ctx, key, strings.NewReader(content), storage.PutOptions{})
+		if err != nil {
+			return fmt.Errorf("angiecfg: put %s: %w", name, err)
 		}
+		changed = append(changed, oi)
 	}
-	return nil
-}
-
-// Delete removes the conn_<id> directory tree (best-effort, ignores not-exist).
-func Delete(baseDir string, connID int64) error {
-	connDir := filepath.Join(baseDir, fmt.Sprintf("conn_%d", connID))
-	err := os.RemoveAll(connDir)
-	if os.IsNotExist(err) {
+	if len(changed) == 0 {
 		return nil
 	}
-	return err
+	return pub.Publish(ctx, storage.ChangeSet{Changed: changed})
+}
+
+// Delete removes the whole per-connection subtree from the store and publishes
+// the removal (best-effort).
+func Delete(ctx context.Context, st storage.Store, pub *storage.Publisher, tenantID, connID int64) error {
+	prefix := fmt.Sprintf("tenants/%d/conn_%d/", tenantID, connID)
+	if err := st.DeletePrefix(ctx, prefix); err != nil {
+		return err
+	}
+	return pub.Publish(ctx, storage.ChangeSet{RemovedPrefixes: []string{prefix}})
+}
+
+// connKey is the canonical object key for a per-connection file.
+func connKey(tenantID, connID int64, name string) string {
+	return fmt.Sprintf("tenants/%d/conn_%d/%s", tenantID, connID, name)
 }
 
 // ConnDir returns the backend-side path to the per-connection directory.

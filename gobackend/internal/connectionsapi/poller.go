@@ -203,7 +203,7 @@ func (p *Poller) processOne(ctx context.Context, row *store.Connection) {
 		p.log.Info("poller: status changed",
 			"conn", row.ID, "from", prevStatus, "to", updated.Status)
 		cfg := connCfg(updated)
-		if wErr := p.cfg.Write(tenantBaseDir(updated.TenantID), cfg); wErr != nil {
+		if wErr := p.cfg.Write(ctx, cfg); wErr != nil {
 			p.log.Warn("poller: failed to write Angie config", "conn", row.ID, "err", wErr)
 		} else {
 			p.reloader.Reload(ctx)
@@ -392,5 +392,5 @@ func (p *Poller) writeCertConfig(ctx context.Context, row *store.Connection, ps 
 		SSLKeyPath:                 tmp.SSLKeyPath,
 		ExcludeControlPlaneMetrics: selfTenantID != 0 && tmp.TenantID == selfTenantID,
 	}
-	return p.cfg.Write(tenantBaseDir(tmp.TenantID), cfg)
+	return p.cfg.Write(ctx, cfg)
 }

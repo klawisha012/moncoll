@@ -58,10 +58,10 @@ type Store interface {
 	GetTenantByID(ctx context.Context, id int64) (*store.Tenant, error)
 }
 
-// CfgWriter abstracts angiecfg.Write for tests.
+// CfgWriter abstracts angiecfg writes for tests.
 type CfgWriter interface {
-	Write(baseDir string, cfg angiecfg.ConnConfig) error
-	Delete(baseDir string, connID int64) error
+	Write(ctx context.Context, cfg angiecfg.ConnConfig) error
+	Delete(ctx context.Context, tenantID, connID int64) error
 }
 
 // CertManager abstracts certs.Manager for tests.
@@ -292,22 +292,17 @@ func connCfg(c *store.Connection) angiecfg.ConnConfig {
 }
 
 // tenantBaseDir returns the per-tenant compose directory (backend-side path).
-// Mirrors angie_config.py _conn_dir: /var/lib/waf/tenants/<tid>/compose
-func tenantBaseDir(tenantID int64) string {
-	return fmt.Sprintf("/var/lib/waf/tenants/%d/compose", tenantID)
-}
-
 // writeConfig writes the per-connection Angie config. Best-effort: logs on
 // error, does not propagate (matches Python's except: logger.exception …).
 func (s *Service) writeConfig(ctx context.Context, c *store.Connection) {
-	if err := s.cfg.Write(tenantBaseDir(c.TenantID), connCfg(c)); err != nil {
+	if err := s.cfg.Write(ctx, connCfg(c)); err != nil {
 		s.log.Warn("failed to write Angie config", "conn", c.ID, "tenant", c.TenantID, "err", err)
 	}
 }
 
-// deleteConfig removes the per-connection Angie config dir. Best-effort.
-func (s *Service) deleteConfig(tenantID, connID int64) {
-	if err := s.cfg.Delete(tenantBaseDir(tenantID), connID); err != nil {
+// deleteConfig removes the per-connection Angie config subtree. Best-effort.
+func (s *Service) deleteConfig(ctx context.Context, tenantID, connID int64) {
+	if err := s.cfg.Delete(ctx, tenantID, connID); err != nil {
 		s.log.Warn("failed to delete Angie config", "conn", connID, "tenant", tenantID, "err", err)
 	}
 }
@@ -588,7 +583,7 @@ func (s *Service) UpdateConnection(ctx context.Context, req *connectionsv1.Updat
 	if conn.Enabled {
 		s.writeConfig(ctx, conn)
 	} else {
-		s.deleteConfig(conn.TenantID, conn.ID)
+		s.deleteConfig(ctx, conn.TenantID, conn.ID)
 	}
 	s.reload(ctx)
 
@@ -621,7 +616,7 @@ func (s *Service) DeleteConnection(ctx context.Context, req *connectionsv1.Delet
 		return nil, status.Error(codes.Internal, "internal error")
 	}
 
-	s.deleteConfig(conn.TenantID, req.Id)
+	s.deleteConfig(ctx, conn.TenantID, req.Id)
 	s.reload(ctx)
 
 	return &emptypb.Empty{}, nil
