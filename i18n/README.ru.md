@@ -65,3 +65,51 @@ docker compose up -d --build
     *   **Google:** Задайте `WAF_OAUTH_GOOGLE_CLIENT_ID` и `WAF_OAUTH_GOOGLE_CLIENT_SECRET`.
     *   **GitHub:** Задайте `WAF_OAUTH_GITHUB_CLIENT_ID` и `WAF_OAUTH_GITHUB_CLIENT_SECRET`.
     *   *Структура callback URL:* `${WAF_PUBLIC_BASE_URL}/api/auth/oauth/[provider]/callback`.
+
+---
+
+## 📈 Горизонтальное масштабирование (режим S3)
+
+По умолчанию (`WAF_STORAGE_BACKEND=local`) backend пишет per-tenant конфиги, TLS и
+состояние банов/реестра на локальный том и перезагружает единственный Angie через
+`docker exec` — **поведение одного узла остаётся байт-в-байт прежним**.
+
+Чтобы запускать несколько реплик backend и несколько edge-узлов (Angie),
+переключите общий источник истины на S3-совместимое хранилище (в dev — MinIO):
+
+```bash
+# Сильные креды пишет scripts/setup/generate-env.sh; в .env:
+#   WAF_STORAGE_BACKEND=s3
+#   WAF_S3_ENDPOINT=minio:9000  WAF_S3_BUCKET=waf-state
+#   WAF_S3_ACCESS_KEY=...  WAF_S3_SECRET_KEY=...           # backend RW
+#   WAF_S3_EDGE_ACCESS_KEY=...  WAF_S3_EDGE_SECRET_KEY=... # edge RO
+docker compose --profile s3 up -d
+```
+
+**Как это работает.** Каждая реплика backend пишет объекты в S3 и публикует
+**манифест поколения** — единственную точку атомарного коммита. На каждом
+edge-узле сайдкар `edge-sync` опрашивает манифест (`WAF_EDGE_SYNC_INTERVAL`,
+по умолчанию 10 c), материализует изменённые объекты в локальное дерево Angie,
+валидирует через `angie -t` и перезагружает свой Angie. Изменение тенанта
+сходится на всех edge за ~30 c.
+
+*   **Атомарность:** edge применяет только полностью скачанное поколение —
+    полу-записанный набор никогда не обслуживается.
+*   **Согласованность:** конкурентные публикации backend разрешаются compare-and-set
+    по манифесту (advisory-lock в Postgres снижает contention); потерь записей нет.
+*   **Отказоустойчивость:** при недоступности S3 edge держит **last-known-good**;
+    свежий узел холодно синкается с нуля без вмешательства оператора.
+*   **Безопасность:** скоупленные пользователи MinIO (backend RW, edge RO); объекты
+    TLS-ключей пишутся `sensitive` (SSE at rest). Для прода включите TLS на MinIO и
+    `WAF_S3_USE_TLS=true`, чтобы креды/ключи не шли по сети открытым текстом.
+
+**Наблюдаемость.** Backend отдаёт `state_published_generation`; каждый сайдкар —
+`edge_sync_applied_generation`, `edge_sync_lag_seconds`, `edge_sync_errors_total`
+на `:9101`. Отставание узла = `published − applied`; алерты Prometheus
+(`EdgeConvergenceLag`, `EdgeSyncErrors`) и дашборд Grafana лежат в
+`docker/prometheus/rules/` и `docker/grafana/provisioning/`.
+
+**Масштаб.** Для настоящего multi-node 1:1 edge↔sidecar используйте Kubernetes
+(`k8s/angie.yaml`, сайдкар в Pod Angie). В docker-compose сайдкар работает с
+`waf-angie-1` при scale=1 (Compose не выражает pod-пейринг); для демо нескольких
+edge берите k8s.

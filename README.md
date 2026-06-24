@@ -66,3 +66,50 @@ docker compose up -d --build
     *   **GitHub:** Configure `WAF_OAUTH_GITHUB_CLIENT_ID` and `WAF_OAUTH_GITHUB_CLIENT_SECRET`.
     *   *Callback URL structure:* `${WAF_PUBLIC_BASE_URL}/api/auth/oauth/[provider]/callback`.
 
+---
+
+## 📈 Horizontal Scaling (S3 mode)
+
+By default (`WAF_STORAGE_BACKEND=local`) the backend writes per-tenant config, TLS
+material and ban/registry state to a local volume and reloads a single Angie via
+`docker exec` — **single-node behaviour is byte-for-byte unchanged**.
+
+To run multiple backend replicas and multiple edge (Angie) nodes, switch the
+shared source of truth to S3-compatible object storage (MinIO in dev):
+
+```bash
+# Strong creds are written by scripts/setup/generate-env.sh; set in .env:
+#   WAF_STORAGE_BACKEND=s3
+#   WAF_S3_ENDPOINT=minio:9000  WAF_S3_BUCKET=waf-state
+#   WAF_S3_ACCESS_KEY=...  WAF_S3_SECRET_KEY=...           # backend RW
+#   WAF_S3_EDGE_ACCESS_KEY=...  WAF_S3_EDGE_SECRET_KEY=... # edge RO
+docker compose --profile s3 up -d
+```
+
+**How it works.** Every backend replica writes objects to S3 and then publishes a
+**generation manifest** — the single atomic commit point. Each edge node runs an
+`edge-sync` sidecar that polls the manifest (`WAF_EDGE_SYNC_INTERVAL`, default 10s),
+materialises changed objects to the local Angie tree, validates with `angie -t`,
+and reloads its own Angie. A tenant change converges on all edges within ~30s.
+
+*   **Atomicity:** edges only apply a fully-downloaded generation; a half-written
+    set is never served.
+*   **Consistency:** concurrent backend publishes are resolved by a compare-and-set
+    on the manifest (a Postgres advisory lock reduces contention); no lost updates.
+*   **Resilience:** if S3 is unreachable the edge holds **last-known-good**; a fresh
+    node cold-syncs from generation 0 with no operator action.
+*   **Security:** scoped MinIO users (backend read-write, edge read-only); TLS key
+    objects are written `sensitive` (SSE at rest). For prod, enable MinIO TLS and
+    set `WAF_S3_USE_TLS=true` so credentials/keys never cross the wire in clear.
+
+**Observability.** The backend exposes `state_published_generation`; each sidecar
+exposes `edge_sync_applied_generation`, `edge_sync_lag_seconds`,
+`edge_sync_errors_total` on `:9101`. Node lag = `published − applied`; Prometheus
+alerts (`EdgeConvergenceLag`, `EdgeSyncErrors`) and a Grafana convergence dashboard
+ship under `docker/prometheus/rules/` and `docker/grafana/provisioning/`.
+
+**Scaling out.** For real multi-node 1:1 edge↔sidecar pairing use the Kubernetes
+manifest (`k8s/angie.yaml`, sidecar in the Angie pod). In docker-compose the
+sidecar pairs with `waf-angie-1` at scale=1 (Compose can't express pod-style
+pairing); use k8s for a multi-edge demo.
+

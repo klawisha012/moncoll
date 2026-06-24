@@ -2,6 +2,10 @@ global:
   scrape_interval: 15s
   evaluation_interval: 15s
 
+# Horizontal-scaling convergence alerts (published − applied per edge), T031.
+rule_files:
+  - "/etc/prometheus/rules/*.yml"
+
 scrape_configs:
   - job_name: "prometheus"
     static_configs:
@@ -20,3 +24,11 @@ scrape_configs:
   - job_name: "gobackend"
     static_configs:
       - targets: ["gobackend:9100"]
+
+  # Edge-sync sidecar metrics (profile s3). Each edge serves
+  # edge_sync_applied_generation/lag_seconds/errors_total on :9101. With
+  # --scale edge-sync>1 the DNS name round-robins; for per-node visibility
+  # under scale, switch to dns_sd_config or one target per replica.
+  - job_name: "edge-sync"
+    static_configs:
+      - targets: ["edge-sync:9101"]

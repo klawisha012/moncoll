@@ -1,0 +1,33 @@
+# Horizontal-scaling convergence rules (specs/001-horizontal-scaling, T031).
+# Node lag = state_published_generation (backend) − edge_sync_applied_generation
+# (per edge). The recording rule powers the Grafana panel; the alerts fire when a
+# node falls behind the published generation longer than the convergence budget,
+# or when a sidecar is persistently failing (S3 down / angie -t failing).
+groups:
+  - name: edge-sync-convergence
+    rules:
+      # Per-node generations behind the latest published manifest (SC-007).
+      - record: edge_sync:lag_generations
+        expr: scalar(max(state_published_generation)) - edge_sync_applied_generation
+
+      # A node stuck behind the published generation for >2m (≫ ~30s budget,
+      # FR-003/SC-002) — it is not serving the latest tenant config/cert.
+      - alert: EdgeConvergenceLag
+        expr: edge_sync:lag_generations > 0
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Edge {{ $labels.instance }} is {{ $value }} generations behind"
+          description: "edge_sync_applied_generation has trailed state_published_generation for >2m — node not converged (specs/001-horizontal-scaling)."
+
+      # Sidecar persistently erroring (S3 unreachable, validation/reload failing).
+      # The node holds last-known-good but stops converging — needs an operator.
+      - alert: EdgeSyncErrors
+        expr: rate(edge_sync_errors_total[5m]) > 0
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Edge {{ $labels.instance }} edge-sync failing"
+          description: "edge_sync_errors_total rising for >10m — read/validate/reload failures; node on last-known-good."

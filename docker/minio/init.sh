@@ -2,6 +2,11 @@
 # Initialise the MinIO source-of-truth bucket for horizontal scaling (S3 mode).
 # Creates the bucket + two scoped users: backend (read-write) and edge-sync
 # sidecar (read-only) — least privilege per FR-010. Idempotent.
+#
+# Transport (FR-010): in dev, backend/edge talk to MinIO over the in-cluster
+# network (http://minio:9000). For prod, terminate TLS on MinIO and set
+# WAF_S3_USE_TLS=true on the backend + edge-sync so credentials/keys never cross
+# the wire in clear — see README "Horizontal scaling (S3 mode)".
 set -eu
 
 # Wait for MinIO to accept connections (mc retries internally too).
@@ -11,8 +16,9 @@ done
 
 mc mb --ignore-existing "local/$WAF_S3_BUCKET"
 
-# SSE at rest (FR-010). Requires a KMS; in dev without KES this is a no-op —
-# prod hardening (tasks T032) wires MINIO_KMS_* / KES. Don't fail dev on it.
+# SSE at rest (FR-010): default-encrypt the bucket so TLS key objects (written
+# sensitive=true) are encrypted server-side. Requires a KMS; in dev without KES
+# this is a no-op — for prod wire MINIO_KMS_* / KES (README). Don't fail dev.
 mc encrypt set sse-s3 "local/$WAF_S3_BUCKET" 2>/dev/null || echo "SSE skipped (no KMS configured)"
 
 # Backend: full read-write on the bucket.

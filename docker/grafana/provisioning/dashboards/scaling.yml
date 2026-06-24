@@ -1,0 +1,13 @@
+# Provisions the horizontal-scaling convergence dashboard (T031). Grafana loads
+# every *.json in the path below as a dashboard; the convergence JSON sits here.
+apiVersion: 1
+providers:
+  - name: waf-scaling
+    orgId: 1
+    folder: "WAF Scaling"
+    type: file
+    disableDeletion: false
+    updateIntervalSeconds: 30
+    options:
+      path: /etc/grafana/provisioning/dashboards
+      foldersFromFilesStructure: false
