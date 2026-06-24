@@ -72,15 +72,15 @@ type fakeFS struct {
 	log          *[]string
 }
 
-func (f *fakeFS) Suspend(_ int64) error {
+func (f *fakeFS) Suspend(_ context.Context, _ int64) error {
 	*f.log = append(*f.log, "fs.Suspend")
 	return f.suspendErr
 }
-func (f *fakeFS) Unsuspend(_ int64) error {
+func (f *fakeFS) Unsuspend(_ context.Context, _ int64) error {
 	*f.log = append(*f.log, "fs.Unsuspend")
 	return f.unsuspendErr
 }
-func (f *fakeFS) Delete(_ int64) error {
+func (f *fakeFS) Delete(_ context.Context, _ int64) error {
 	*f.log = append(*f.log, "fs.Delete")
 	return f.deleteErr
 }

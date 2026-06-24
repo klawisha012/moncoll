@@ -156,7 +156,11 @@ func (s *Server) Start(ctx context.Context) error {
 	statePublisher := storage.NewPublisher(storageStore)
 	s.log.Info("storage backend selected", "mode", s.cfg.Storage.Backend)
 
-	tfs := tenantfs.New(getenvOr("WAF_TENANTS_DIR", "/var/lib/waf/tenants"))
+	tenantLocalBase := ""
+	if s.cfg.Storage.Backend != "s3" {
+		tenantLocalBase = getenvOr("WAF_TENANTS_DIR", "/var/lib/waf/tenants")
+	}
+	tfs := tenantfs.New(storageStore, statePublisher, tenantLocalBase)
 	adminSvc := admin.NewService(st, tfs, angie.Reloader{Log: s.log})
 	msCfg := modsec.New(storageStore, statePublisher)
 	modsecSvc := modsecurity.NewService(msCfg, angie.Reloader{Log: s.log})

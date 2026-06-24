@@ -28,11 +28,11 @@ type Reader interface {
 	DeleteTenant(ctx context.Context, id int64) error
 }
 
-// FSOps manipulates the per-tenant compose tree on disk.
+// FSOps manipulates the per-tenant compose tree (and shared-store manifest).
 type FSOps interface {
-	Suspend(id int64) error
-	Unsuspend(id int64) error
-	Delete(id int64) error
+	Suspend(ctx context.Context, id int64) error
+	Unsuspend(ctx context.Context, id int64) error
+	Delete(ctx context.Context, id int64) error
 }
 
 // Reloader triggers an Angie config reload (best-effort; never returns an error).
@@ -143,7 +143,7 @@ func (s *Service) GetTenant(ctx context.Context, req *adminv1.GetTenantRequest) 
 
 // SuspendTenant mirrors Python order: fs rename → reload → DB update.
 func (s *Service) SuspendTenant(ctx context.Context, req *adminv1.TenantIdRequest) (*adminv1.SuspendResponse, error) {
-	if err := s.fs.Suspend(req.TenantId); err != nil {
+	if err := s.fs.Suspend(ctx, req.TenantId); err != nil {
 		return nil, status.Error(codes.Internal, err.Error())
 	}
 	s.reloader.Reload(ctx)
@@ -161,7 +161,7 @@ func (s *Service) SuspendTenant(ctx context.Context, req *adminv1.TenantIdReques
 
 // UnsuspendTenant mirrors Python order: fs rename → reload → DB update.
 func (s *Service) UnsuspendTenant(ctx context.Context, req *adminv1.TenantIdRequest) (*adminv1.SuspendResponse, error) {
-	if err := s.fs.Unsuspend(req.TenantId); err != nil {
+	if err := s.fs.Unsuspend(ctx, req.TenantId); err != nil {
 		return nil, status.Error(codes.Internal, err.Error())
 	}
 	s.reloader.Reload(ctx)
@@ -191,7 +191,7 @@ func (s *Service) DeleteTenant(ctx context.Context, req *adminv1.DeleteTenantReq
 		return nil, status.Error(codes.InvalidArgument, "confirm value must equal tenant name")
 	}
 
-	if err := s.fs.Delete(req.TenantId); err != nil {
+	if err := s.fs.Delete(ctx, req.TenantId); err != nil {
 		return nil, status.Error(codes.Internal, err.Error())
 	}
 	s.reloader.Reload(ctx)
