@@ -104,6 +104,11 @@ data:
         resolver 10.96.0.10 valid=30s ipv6=off; # K8s DNS Resolver (CoreDNS)
 
         include /etc/angie/http.d/*.conf;
+        # Dynamic per-tenant state materialised by the edge-sync sidecar into a
+        # shared emptyDir at /edge (object-layout.md). Kept separate from the
+        # static configmap mounts in /etc/angie/http.d to avoid subPath clashes.
+        include /edge/httpd/conn_*/*.conf;
+        include /edge/tenants/*/compose/conn_*/*.conf;
     }
 ---
 apiVersion: v1
@@ -212,6 +217,9 @@ spec:
       labels:
         app: angie-waf
     spec:
+      # Shared PID namespace lets the edge-sync sidecar signal the Angie master
+      # (kill -HUP via the shared pidfile) to reload after materialising state.
+      shareProcessNamespace: true
       containers:
       - name: angie
         image: localhost:5000/angie-modsec-crs:3.3.5
@@ -241,6 +249,13 @@ spec:
         - name: modsec-rules-vol
           mountPath: /etc/angie/modsecurity/rules.conf
           subPath: rules.conf
+        # Dynamic per-tenant state from the edge-sync sidecar (read-only), and
+        # the shared run dir so the sidecar can read the master pidfile.
+        - name: edge-state
+          mountPath: /edge
+          readOnly: true
+        - name: angie-run
+          mountPath: /run/angie
         resources:
           limits:
             cpu: "1"
@@ -267,6 +282,63 @@ spec:
           requests:
             cpu: "100m"
             memory: 64Mi
+      # Edge-sync pull sidecar: materialises manifest generations from S3/MinIO
+      # into the shared /edge emptyDir, then reloads Angie by signalling the
+      # master (shared PID namespace). S3 creds come from the edge-s3-creds
+      # Secret (operator-created; RO scoped user). `angie -t` is skipped here —
+      # the sidecar image has no angie binary and the backend writes
+      # pre-validated config; set WAF_ANGIE_TEST_CMD if co-locating a validator.
+      - name: edge-sync
+        image: localhost:5000/edge-sync:latest
+        imagePullPolicy: IfNotPresent
+        env:
+        - name: WAF_S3_ENDPOINT
+          value: "minio:9000"
+        - name: WAF_S3_BUCKET
+          value: "waf-state"
+        - name: WAF_S3_USE_TLS
+          value: "false"
+        - name: WAF_S3_ACCESS_KEY
+          valueFrom:
+            secretKeyRef:
+              name: edge-s3-creds
+              key: access-key
+        - name: WAF_S3_SECRET_KEY
+          valueFrom:
+            secretKeyRef:
+              name: edge-s3-creds
+              key: secret-key
+        - name: WAF_EDGE_SYNC_INTERVAL
+          value: "10"
+        - name: WAF_TENANTS_DIR
+          value: "/edge/tenants"
+        - name: WAF_HTTPD_DIR
+          value: "/edge/httpd"
+        - name: WAF_STATE_DIR
+          value: "/edge/state"
+        - name: WAF_MODSEC_DIR
+          value: "/edge/modsec"
+        - name: WAF_EDGE_METRICS_ADDR
+          value: ":9101"
+        - name: WAF_ANGIE_TEST_CMD
+          value: ""
+        - name: WAF_ANGIE_RELOAD_CMD
+          value: "kill -HUP $(cat /run/angie/angie.pid)"
+        ports:
+        - containerPort: 9101
+          name: edge-metrics
+        volumeMounts:
+        - name: edge-state
+          mountPath: /edge
+        - name: angie-run
+          mountPath: /run/angie
+        resources:
+          limits:
+            cpu: "250m"
+            memory: 128Mi
+          requests:
+            cpu: "50m"
+            memory: 32Mi
       volumes:
       - name: shared-logs
         emptyDir: {}
@@ -295,6 +367,12 @@ spec:
       - name: vector-conf-vol
         configMap:
           name: vector-config
+      # Dynamic state materialised by edge-sync, shared read-only into Angie.
+      - name: edge-state
+        emptyDir: {}
+      # Shared run dir carrying the Angie master pidfile for sidecar reload.
+      - name: angie-run
+        emptyDir: {}
 ---
 apiVersion: v1
 kind: Service

@@ -440,6 +440,45 @@ services:
       - ./docker/minio/init.sh:/init.sh:ro
     restart: "no"
 
+  # Edge-sync pull sidecar: materialises manifest generations from MinIO onto the
+  # same volumes Angie reads, then reloads Angie via `docker exec`. Profile s3.
+  # ponytail: one sidecar against waf-angie-1 (docker-compose can't express true
+  # 1:1 pod pairing under --scale). Multi-node 1:1 pairing is k8s's job — see
+  # k8s/angie.yaml. For a 2-node demo, run a second compose project or use k8s.
+  edge-sync:
+    build:
+      context: ./gobackend
+      dockerfile: Dockerfile.edge-sync
+    profiles: ["s3"]
+    environment:
+      # Edge reads with the RO scoped MinIO user (init.sh provisions it).
+      WAF_S3_ENDPOINT: minio:9000
+      WAF_S3_BUCKET: ${WAF_S3_BUCKET:-waf-state}
+      WAF_S3_ACCESS_KEY: ${WAF_S3_EDGE_ACCESS_KEY:-edge-ro}
+      WAF_S3_SECRET_KEY: ${WAF_S3_EDGE_SECRET_KEY:-changeme-edge-dev}
+      WAF_S3_USE_TLS: "false"
+      WAF_EDGE_SYNC_INTERVAL: ${WAF_EDGE_SYNC_INTERVAL:-10}
+      # Live tree roots — must match the volume targets below (which Angie reads).
+      WAF_TENANTS_DIR: /var/lib/waf/tenants
+      WAF_HTTPD_DIR: /var/lib/angie/http.d
+      WAF_STATE_DIR: /var/lib/angie/data
+      WAF_MODSEC_DIR: /var/lib/angie/modsecurity
+      WAF_EDGE_METRICS_ADDR: ":9101"
+      # Reload this host's Angie. docker-exec works at scale=1 (see note above).
+      WAF_ANGIE_TEST_CMD: docker exec ${WAF_ANGIE_CONTAINER:-waf-angie-1} angie -t
+      WAF_ANGIE_RELOAD_CMD: docker exec ${WAF_ANGIE_CONTAINER:-waf-angie-1} angie -s reload
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - waf-tenants:/var/lib/waf/tenants
+      - ./docker/angie/http.d/:/var/lib/angie/http.d/
+      - ./docker/angie/modsecurity/:/var/lib/angie/modsecurity/
+      - backend-data:/var/lib/angie/data
+    depends_on:
+      - minio
+      - minio-init
+      - angie
+    restart: unless-stopped
+
 volumes:
   minio-data:
   clickhouse:

@@ -1,0 +1,16 @@
+# syntax=docker/dockerfile:1
+# Edge-sync pull sidecar (specs/001-horizontal-scaling). One per edge node: it
+# materialises manifest generations from S3 to the local Angie tree and reloads
+# Angie. Final image is docker:cli so the compose deployment can reload via
+# `docker exec`, and k8s (shareProcessNamespace) can `kill -HUP` the master —
+# both reach Angie without baking the full server image.
+FROM golang:1.26-alpine AS build
+WORKDIR /src
+COPY go.mod go.sum ./
+RUN go mod download
+COPY . .
+RUN CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags="-s -w" -o /out/edge-sync ./cmd/edge-sync
+
+FROM docker:27-cli
+COPY --from=build /out/edge-sync /usr/local/bin/edge-sync
+ENTRYPOINT ["/usr/local/bin/edge-sync"]
