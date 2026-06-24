@@ -9,49 +9,45 @@
 //	 routed to one connection by _resolve_ip_connections lands only in that
 //	 connection's file and never leaks onto other domains."
 //
-// The public surface used by later tasks:
-//   - Syncer.SyncBlockedIPsConf(ctx) — the full sync (decisions list →
-//     route IPs → write per-connection files → reload Angie).
-//   - Syncer.WriteConnectionsRegistry(conns) — materialise the DB snapshot
-//     that the sync uses.
-//   - Syncer.LoadBlockedIPsMapping / SaveBlockedIPsMapping — manual-block state.
+// State and per-connection ban files are written through the shared store
+// (storage.Store) so every edge node converges to the same bans (horizontal
+// scaling); blocked_ips.conf writes publish a manifest generation.
 package crowdsec
 
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"os"
 	"path/filepath"
 	"sort"
 	"strings"
 
+	"github.com/zwarder/waf/gobackend/internal/storage"
 	"github.com/zwarder/waf/gobackend/internal/store"
 )
 
 // ── Interfaces (keep Syncer testable without Docker) ──────────────────────────
 
 // CSCLIRunner is the interface the Syncer depends on for cscli execution.
-// *cscli.Runner satisfies it; tests use fakeRunner.
 type CSCLIRunner interface {
 	RunJSON(ctx context.Context, args ...string) (json.RawMessage, error)
 }
 
 // AngieReloader is called after blocked_ips.conf files are updated.
-// Pass angie.Reload (a function value adaptor) or a no-op for tests.
 type AngieReloader interface {
 	Reload(ctx context.Context)
 }
 
 // ConnectionSource provides the live connection list.
-// *store.Store satisfies it; tests use fakeConnSource.
 type ConnectionSource interface {
 	ListConnections(ctx context.Context) ([]Connection, error)
 }
 
 // Connection is the crowdsec-package view of a connection row.
-// Exactly the fields that the Python registry / sync functions use.
 type Connection struct {
 	ID       int64
 	TenantID int64
@@ -61,54 +57,74 @@ type Connection struct {
 	Status   string
 }
 
+// ── Canonical object keys ─────────────────────────────────────────────────────
+
+const (
+	connectionsKey = "state/connections.json"
+	mappingKey     = "state/blocked_ips_mapping.json"
+)
+
+func connBlockedKey(tenantID, connID int64) string {
+	return fmt.Sprintf("tenants/%d/conn_%d/blocked_ips.conf", tenantID, connID)
+}
+
 // ── Syncer ────────────────────────────────────────────────────────────────────
 
 // Syncer holds the configuration for the blocked-IPs sync logic.
 type Syncer struct {
-	runner  CSCLIRunner
+	runner   CSCLIRunner
 	reloader AngieReloader
-	src     ConnectionSource
+	src      ConnectionSource
+	store    storage.Store
+	pub      *storage.Publisher
 
-	// stateDir is the backend-writable dir for JSON state files.
-	// Matches Python _STATE_DIR = "/var/lib/angie/data".
+	// stateDir is used only by the path helpers (tests); writes go via the store.
 	stateDir string
 
-	// tenantsBase is the host-side path to the waf-tenants volume.
-	// Matches Python TENANTS_BASE = "/var/lib/waf/tenants".
-	tenantsBase string
+	// guardBase is the local tenants base for the dir-existence guard in
+	// SyncBlockedIPsConf. Non-empty in local mode; "" in s3 mode (no skip).
+	guardBase string
 }
 
-// NewSyncer constructs a Syncer with production defaults.
-func NewSyncer(runner CSCLIRunner, reloader AngieReloader, src ConnectionSource) *Syncer {
+// NewSyncer constructs a Syncer with production defaults. localTenantsBase is
+// the live tenants dir for the dir-existence guard ("" in s3 mode).
+func NewSyncer(runner CSCLIRunner, reloader AngieReloader, src ConnectionSource, st storage.Store, pub *storage.Publisher, localTenantsBase string) *Syncer {
 	stateDir := os.Getenv("WAF_STATE_DIR")
 	if stateDir == "" {
 		stateDir = "/var/lib/angie/data"
 	}
-	tenantsBase := os.Getenv("WAF_TENANTS_DIR")
-	if tenantsBase == "" {
-		tenantsBase = "/var/lib/waf/tenants"
-	}
 	return &Syncer{
-		runner:      runner,
-		reloader:    reloader,
-		src:         src,
-		stateDir:    stateDir,
-		tenantsBase: tenantsBase,
+		runner:    runner,
+		reloader:  reloader,
+		src:       src,
+		store:     st,
+		pub:       pub,
+		stateDir:  stateDir,
+		guardBase: localTenantsBase,
 	}
 }
 
-// NewSyncerWithDirs constructs a Syncer with explicit directories (useful in tests).
+// NewSyncerWithDirs constructs a Syncer backed by a local-mapped store so writes
+// land at the given dirs (used in tests).
 func NewSyncerWithDirs(runner CSCLIRunner, reloader AngieReloader, src ConnectionSource, stateDir, tenantsBase string) *Syncer {
+	st := storage.NewLocalFSMapped(storage.LocalLayout{
+		State:   stateDir,
+		Tenants: tenantsBase,
+		HTTPD:   filepath.Join(stateDir, "httpd"),
+		Modsec:  filepath.Join(stateDir, "modsec"),
+	}, "test")
 	return &Syncer{
-		runner:      runner,
-		reloader:    reloader,
-		src:         src,
-		stateDir:    stateDir,
-		tenantsBase: tenantsBase,
+		runner:    runner,
+		reloader:  reloader,
+		src:       src,
+		store:     st,
+		pub:       storage.NewPublisher(st),
+		stateDir:  stateDir,
+		guardBase: tenantsBase,
 	}
 }
 
-// ── State file paths ──────────────────────────────────────────────────────────
+// ── State file paths (path helpers used by tests) ─────────────────────────────
 
 func (s *Syncer) connectionsJSON() string {
 	return filepath.Join(s.stateDir, "connections.json")
@@ -118,16 +134,28 @@ func (s *Syncer) blockedIPsMappingPath() string {
 	return filepath.Join(s.stateDir, "blocked_ips_mapping.json")
 }
 
-// connComposeDir returns the per-connection directory Angie reads config from.
-// Mirrors Python _conn_compose_dir(tenant_id, conn_id).
+// connComposeDir returns the per-connection directory Angie reads config from
+// (local mode only; used by the dir-existence guard).
 func (s *Syncer) connComposeDir(tenantID, connID int64) string {
-	return filepath.Join(s.tenantsBase, fmt.Sprintf("%d", tenantID), "compose", fmt.Sprintf("conn_%d", connID))
+	return filepath.Join(s.guardBase, fmt.Sprintf("%d", tenantID), "compose", fmt.Sprintf("conn_%d", connID))
+}
+
+// readObject reads an object's bytes; maps a missing object to ErrNotFound.
+func (s *Syncer) readObject(key string) ([]byte, error) {
+	rc, _, err := s.store.Get(context.Background(), key)
+	if err != nil {
+		return nil, err
+	}
+	defer rc.Close()
+	return io.ReadAll(rc)
+}
+
+func (s *Syncer) putObject(ctx context.Context, key string, data []byte) (storage.ObjectInfo, error) {
+	return s.store.Put(ctx, key, strings.NewReader(string(data)), storage.PutOptions{})
 }
 
 // ── Connection registry ───────────────────────────────────────────────────────
 
-// registryEntry is the JSON shape written to connections.json.
-// Mirrors the payload list in Python _write_connections_registry.
 type registryEntry struct {
 	ID       int64  `json:"id"`
 	TenantID int64  `json:"tenant_id"`
@@ -138,8 +166,8 @@ type registryEntry struct {
 }
 
 // WriteConnectionsRegistry materialises the live connection set into the
-// connections.json cache file (atomic rename, mirrors Python _write_connections_registry).
-// Called by the periodic sync loop before SyncBlockedIPsConf.
+// connections.json object. Backend-internal state (not edge-consumed) — no
+// manifest publish.
 func (s *Syncer) WriteConnectionsRegistry(conns []Connection) error {
 	entries := make([]registryEntry, 0, len(conns))
 	for _, c := range conns {
@@ -152,27 +180,19 @@ func (s *Syncer) WriteConnectionsRegistry(conns []Connection) error {
 			Status:   c.Status,
 		})
 	}
-	if err := os.MkdirAll(s.stateDir, 0o755); err != nil {
-		return fmt.Errorf("crowdsec: create state dir: %w", err)
-	}
 	data, err := json.Marshal(entries)
 	if err != nil {
 		return err
 	}
-	dst := s.connectionsJSON()
-	tmp := dst + ".tmp"
-	if err := os.WriteFile(tmp, data, 0o644); err != nil {
-		return err
-	}
-	return os.Rename(tmp, dst)
+	_, err = s.putObject(context.Background(), connectionsKey, data)
+	return err
 }
 
 // loadConnections reads connections.json and returns all entries.
-// Mirrors Python _load_connections.
 func (s *Syncer) loadConnections() []registryEntry {
-	data, err := os.ReadFile(s.connectionsJSON())
+	data, err := s.readObject(connectionsKey)
 	if err != nil {
-		if !os.IsNotExist(err) {
+		if !errors.Is(err, storage.ErrNotFound) {
 			slog.Warn("crowdsec: failed to read connections.json", "err", err)
 		}
 		return nil
@@ -186,7 +206,6 @@ func (s *Syncer) loadConnections() []registryEntry {
 }
 
 // loadConnectionIDs returns IDs of enabled connections.
-// Mirrors Python _load_connection_ids.
 func (s *Syncer) loadConnectionIDs() []int64 {
 	entries := s.loadConnections()
 	out := make([]int64, 0, len(entries))
@@ -200,12 +219,6 @@ func (s *Syncer) loadConnectionIDs() []int64 {
 
 // ── Domain helpers ────────────────────────────────────────────────────────────
 
-// connDomains returns all domains for a registry entry.
-// In the Python registry format the single domain is stored in "domain"; the
-// Python _conn_domains also checks a "domains" list key but WriteConnectionsRegistry
-// only writes the single "domain" field. For faithful port we just return the
-// single Domain field (which is already the canonical domain).
-// Mirrors Python _conn_domains.
 func connDomains(e registryEntry) []string {
 	if e.Domain == "" {
 		return nil
@@ -214,7 +227,6 @@ func connDomains(e registryEntry) []string {
 }
 
 // buildDomainToConnMap builds domain→connectionID (first match wins, enabled only).
-// Mirrors Python _build_domain_to_conn_map.
 func (s *Syncer) buildDomainToConnMap() map[string]int64 {
 	m := make(map[string]int64)
 	for _, e := range s.loadConnections() {
@@ -235,7 +247,6 @@ func (s *Syncer) buildDomainToConnMap() map[string]int64 {
 }
 
 // buildConnTenantMap builds connectionID→tenantID.
-// Mirrors Python _build_conn_tenant_map.
 func (s *Syncer) buildConnTenantMap() map[int64]int64 {
 	m := make(map[int64]int64)
 	for _, e := range s.loadConnections() {
@@ -246,12 +257,11 @@ func (s *Syncer) buildConnTenantMap() map[int64]int64 {
 
 // ── Blocked IPs mapping (manual block state) ──────────────────────────────────
 
-// LoadBlockedIPsMapping loads the IP→connectionIDs manual mapping from disk.
-// Mirrors Python _load_blocked_ips_mapping.
+// LoadBlockedIPsMapping loads the IP→connectionIDs manual mapping.
 func (s *Syncer) LoadBlockedIPsMapping() map[string][]int64 {
-	data, err := os.ReadFile(s.blockedIPsMappingPath())
+	data, err := s.readObject(mappingKey)
 	if err != nil {
-		if !os.IsNotExist(err) {
+		if !errors.Is(err, storage.ErrNotFound) {
 			slog.Warn("crowdsec: failed to read blocked_ips_mapping.json", "err", err)
 		}
 		return make(map[string][]int64)
@@ -264,23 +274,19 @@ func (s *Syncer) LoadBlockedIPsMapping() map[string][]int64 {
 	return m
 }
 
-// SaveBlockedIPsMapping persists the IP→connectionIDs mapping to disk.
-// Mirrors Python _save_blocked_ips_mapping (note: Python uses indent=2).
+// SaveBlockedIPsMapping persists the IP→connectionIDs mapping (indent=2, mirrors
+// Python). Backend-internal state — no manifest publish.
 func (s *Syncer) SaveBlockedIPsMapping(mapping map[string][]int64) error {
-	if err := os.MkdirAll(s.stateDir, 0o755); err != nil {
-		return fmt.Errorf("crowdsec: create state dir: %w", err)
-	}
 	data, err := json.MarshalIndent(mapping, "", "  ")
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(s.blockedIPsMappingPath(), data, 0o644)
+	_, err = s.putObject(context.Background(), mappingKey, data)
+	return err
 }
 
 // ── CrowdSec alert/decision parsing ──────────────────────────────────────────
 
-// Alert is the JSON shape of one element from `cscli decisions list -o json`.
-// cscli returns a list of alert objects, each with a source and nested decisions.
 type Alert struct {
 	ID        json.RawMessage `json:"id"`
 	Scenario  string          `json:"scenario"`
@@ -309,7 +315,6 @@ type MetaItem struct {
 
 // ExtractTargetHosts parses CrowdSec alert meta for target_host / http_host
 // entries, returning ip_value → set of hostnames.
-// Mirrors Python _extract_target_hosts_from_alerts.
 func ExtractTargetHosts(alerts []Alert) map[string]map[string]struct{} {
 	result := make(map[string]map[string]struct{})
 	for _, alert := range alerts {
@@ -353,12 +358,10 @@ func ResolveIPConnections(
 	domainToConn map[string]int64,
 	allConnIDs []int64,
 ) []int64 {
-	// 1. Manual mapping
 	if ids, ok := manualMapping[ipValue]; ok {
 		return ids
 	}
 
-	// 2. Automatic: resolve via target_host
 	ipHosts := targetHosts[ipValue]
 	connIDSet := make(map[int64]struct{})
 	for host := range ipHosts {
@@ -375,7 +378,6 @@ func ResolveIPConnections(
 		return ids
 	}
 
-	// 3. Fallback: all connections
 	return allConnIDs
 }
 
@@ -386,20 +388,11 @@ const blockedIPsHeader = "# Auto-generated by WAF backend — do not edit manual
 
 // SyncBlockedIPsConf is the faithful Go port of Python _sync_blocked_ips_conf.
 //
-// Algorithm:
-//  1. `cscli decisions list` → collect all banned IPs from "ban" decisions.
-//  2. Load the connection registry + manual IP mapping + domain map.
-//  3. Route each banned IP to its target connection(s) via resolveIPConnections.
-//  4. For each enabled connection whose compose dir exists, write (or overwrite)
-//     blocked_ips.conf with the appropriate deny lines.
-//  5. Reload Angie.
-//
 // Security invariant: an IP is only written to the blocked_ips.conf of the
 // connection(s) it is routed to — never to all connections unless it has no
-// target_host meta AND is not in the manual mapping, in which case fallback to
-// all connections is the correct Python behaviour.
+// target_host meta AND is not in the manual mapping (fallback-to-all, the
+// correct Python behaviour).
 func (s *Syncer) SyncBlockedIPsConf(ctx context.Context) error {
-	// 1. Fetch decisions from CrowdSec.
 	raw, err := s.runner.RunJSON(ctx, "decisions", "list")
 	if err != nil {
 		return fmt.Errorf("crowdsec: cscli decisions list: %w", err)
@@ -408,13 +401,11 @@ func (s *Syncer) SyncBlockedIPsConf(ctx context.Context) error {
 	var alerts []Alert
 	if raw != nil {
 		if err := json.Unmarshal(raw, &alerts); err != nil {
-			// Non-list response (e.g. null or {}): treat as empty.
 			slog.Warn("crowdsec: decisions list returned non-array JSON", "err", err)
 			alerts = nil
 		}
 	}
 
-	// Collect all unique banned IPs.
 	bannedIPs := make(map[string]struct{})
 	for _, alert := range alerts {
 		for _, dec := range alert.Decisions {
@@ -424,15 +415,12 @@ func (s *Syncer) SyncBlockedIPsConf(ctx context.Context) error {
 		}
 	}
 
-	// 2. Load supporting maps.
 	allConnIDs := s.loadConnectionIDs()
 	manualMapping := s.LoadBlockedIPsMapping()
 	targetHosts := ExtractTargetHosts(alerts)
 	domainToConn := s.buildDomainToConnMap()
 	connTenant := s.buildConnTenantMap()
 
-	// 3. Route each IP to connection(s).
-	// connIPs[connID] = set of IPs to deny in that connection's file.
 	connIPs := make(map[int64]map[string]struct{}, len(allConnIDs))
 	for _, cid := range allConnIDs {
 		connIPs[cid] = make(map[string]struct{})
@@ -446,23 +434,24 @@ func (s *Syncer) SyncBlockedIPsConf(ctx context.Context) error {
 		}
 	}
 
-	// 4. Write per-connection blocked_ips.conf files.
 	written := 0
+	var changed []storage.ObjectInfo
 	for _, connID := range allConnIDs {
 		tenantID, ok := connTenant[connID]
 		if !ok {
 			continue
 		}
-		connDir := s.connComposeDir(tenantID, connID)
-		// Skip connections whose config tree isn't materialised yet —
-		// writing there would create an orphan dir Angie never includes
-		// (same guard as Python).
-		info, statErr := os.Stat(connDir)
-		if statErr != nil || !info.IsDir() {
-			continue
+		// Local-mode dir guard: skip connections whose compose tree isn't
+		// materialised yet (writing there would create an orphan dir). In s3
+		// mode (guardBase=="") we write for all enabled conns; angiecfg's
+		// skip-if-exists preserves the banlist.
+		if s.guardBase != "" {
+			info, statErr := os.Stat(s.connComposeDir(tenantID, connID))
+			if statErr != nil || !info.IsDir() {
+				continue
+			}
 		}
 
-		// Sort IPs for deterministic output.
 		ips := connIPs[connID]
 		sortedIPs := make([]string, 0, len(ips))
 		for ip := range ips {
@@ -478,16 +467,21 @@ func (s *Syncer) SyncBlockedIPsConf(ctx context.Context) error {
 			sb.WriteString(";\n")
 		}
 
-		confPath := filepath.Join(connDir, "blocked_ips.conf")
-		if err := os.WriteFile(confPath, []byte(sb.String()), 0o644); err != nil {
-			slog.Warn("crowdsec: failed to write blocked_ips.conf",
-				"conn", connID, "path", confPath, "err", err)
+		oi, err := s.store.Put(ctx, connBlockedKey(tenantID, connID), strings.NewReader(sb.String()), storage.PutOptions{})
+		if err != nil {
+			slog.Warn("crowdsec: failed to write blocked_ips.conf", "conn", connID, "err", err)
 			continue
 		}
+		changed = append(changed, oi)
 		written++
 	}
 
-	// 5. Reload Angie.
+	if len(changed) > 0 {
+		if err := s.pub.Publish(ctx, storage.ChangeSet{Changed: changed}); err != nil {
+			slog.Warn("crowdsec: failed to publish manifest", "err", err)
+		}
+	}
+
 	s.reloader.Reload(ctx)
 
 	slog.Info("crowdsec: synced banned IPs",
@@ -520,4 +514,3 @@ func (a StoreConnSource) ListConnections(ctx context.Context) ([]Connection, err
 	}
 	return out, nil
 }
-

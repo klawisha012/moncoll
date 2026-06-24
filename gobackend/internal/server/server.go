@@ -57,8 +57,8 @@ import (
 	"github.com/zwarder/waf/gobackend/internal/realtime"
 	"github.com/zwarder/waf/gobackend/internal/realtimeapi"
 	"github.com/zwarder/waf/gobackend/internal/sslapi"
-	"github.com/zwarder/waf/gobackend/internal/store"
 	"github.com/zwarder/waf/gobackend/internal/storage"
+	"github.com/zwarder/waf/gobackend/internal/store"
 	"github.com/zwarder/waf/gobackend/internal/teamsapi"
 	"github.com/zwarder/waf/gobackend/internal/tenantfs"
 	"github.com/zwarder/waf/gobackend/internal/testsapi"
@@ -140,11 +140,6 @@ func (s *Server) Start(ctx context.Context) error {
 		csCliRunner = csRunner
 	}
 
-	syncer := crowdsec.NewSyncer(csCliRunner, angie.Reloader{Log: s.log}, crowdsec.StoreConnSource{Store: st})
-
-	// 5. Initialize services.
-	monitorSvc := monitoring.NewService(engine)
-
 	// Storage seam for shared file state (FR-001, specs/001-horizontal-scaling).
 	// local (default) maps canonical keys to live Angie paths (behaviour
 	// unchanged); s3 enables horizontal scaling. Publisher records each change
@@ -156,11 +151,18 @@ func (s *Server) Start(ctx context.Context) error {
 	statePublisher := storage.NewPublisher(storageStore)
 	s.log.Info("storage backend selected", "mode", s.cfg.Storage.Backend)
 
-	tenantLocalBase := ""
+	// Local tenants base for filesystem-coupled guards/renames (empty in s3 mode).
+	localTenantsBase := ""
 	if s.cfg.Storage.Backend != "s3" {
-		tenantLocalBase = getenvOr("WAF_TENANTS_DIR", "/var/lib/waf/tenants")
+		localTenantsBase = getenvOr("WAF_TENANTS_DIR", "/var/lib/waf/tenants")
 	}
-	tfs := tenantfs.New(storageStore, statePublisher, tenantLocalBase)
+
+	syncer := crowdsec.NewSyncer(csCliRunner, angie.Reloader{Log: s.log}, crowdsec.StoreConnSource{Store: st}, storageStore, statePublisher, localTenantsBase)
+
+	// 5. Initialize services.
+	monitorSvc := monitoring.NewService(engine)
+
+	tfs := tenantfs.New(storageStore, statePublisher, localTenantsBase)
 	adminSvc := admin.NewService(st, tfs, angie.Reloader{Log: s.log})
 	msCfg := modsec.New(storageStore, statePublisher)
 	modsecSvc := modsecurity.NewService(msCfg, angie.Reloader{Log: s.log})
