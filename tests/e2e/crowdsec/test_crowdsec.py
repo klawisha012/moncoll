@@ -342,7 +342,7 @@ def test_crowdsec_blocks_ip_after_404_scan(clean_decisions):
 def test_blocked_ips_conf_exists():
     """Verify blocked_ips.list file exists."""
     import os
-    path = "configs/angie/http.d/blocked_ips.list"
+    path = "docker/angie/http.d/blocked_ips.list"
     if not os.path.exists(path):
         pytest.skip(f"{path} does not exist yet")
     with open(path, "r") as f:

@@ -193,7 +193,7 @@ data:
     Include /var/lib/angie/modsecurity/coreruleset/rules/*.conf
     # Catch-all `@rx .*` + auditlog rule removed: it logged every request and
     # flooded the dashboard. Real detections are captured via RelevantOnly +
-    # the anomaly-score rules below. Keep in sync with configs/angie/modsecurity/rules.conf.
+    # the anomaly-score rules below. Keep in sync with docker/angie/modsecurity/rules.conf.
     SecRule TX:anomaly_score "@gt 0" "id:200010,phase:2,t:none,nolog,pass,ctl:auditEngine=On"
     SecRule TX:anomaly_score "@gt 0" "id:200011,phase:5,t:none,nolog,pass,ctl:auditEngine=On"
 ---
@@ -272,7 +272,7 @@ spec:
         emptyDir: {}
       - name: geop2-vol
         hostPath:
-          path: /workspace/configs/angie/geoip2
+          path: /workspace/docker/angie/geoip2
           type: Directory
       - name: angie-conf-vol
         configMap:

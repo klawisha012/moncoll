@@ -20,6 +20,8 @@ description = "WAF per-connection runtime TLS keys (dev/self-signed)"
 paths = [
     '''^configs/angie/http\.d/.*\.key$''',
     '''^configs/angie/acme/.*\.key$''',
+    '''^docker/angie/http\.d/.*\.key$''',
+    '''^docker/angie/acme/.*\.key$''',
 ]
 
 # ── 2. Dev session cookie jar ──────────────────────────────────────────

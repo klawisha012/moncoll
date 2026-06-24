@@ -4,7 +4,7 @@ services:
     volumes:
       - ./var/log/angie:/var/log/angie
       - ./var/log/crowdsec:/var/log/crowdsec
-      - ./configs/crowdsec:/etc/crowdsec
+      - ./docker/crowdsec:/etc/crowdsec
       - crowdsec-db:/var/lib/crowdsec/data
     environment:
       - GID=1000
@@ -13,7 +13,7 @@ services:
       - .env
 
   angie:
-    build: configs/angie
+    build: docker/angie
     ports:
       - target: 80
         published: 80
@@ -41,11 +41,11 @@ services:
       net.ipv4.ip_local_port_range: "1024 65535"
     volumes:
       - ./var/log/angie:/var/log/angie
-      - ./configs/angie/angie.conf:/etc/angie/angie.conf
-      - ./configs/angie/http.d/:/etc/angie/http.d/
-      - ./configs/angie/modsecurity/:/etc/angie/modsecurity/
-      - ./configs/angie/geoip2/:/etc/angie/geoip2/
-      - ./configs/angie/bouncers/:/etc/crowdsec/bouncers/
+      - ./docker/angie/angie.conf:/etc/angie/angie.conf
+      - ./docker/angie/http.d/:/etc/angie/http.d/
+      - ./docker/angie/modsecurity/:/etc/angie/modsecurity/
+      - ./docker/angie/geoip2/:/etc/angie/geoip2/
+      - ./docker/angie/bouncers/:/etc/crowdsec/bouncers/
       # Per-tenant connection configs written by the backend (Phase 13).
       # Mounted read-only so the glob include /etc/angie/tenants/*/compose/...
       # in angie.conf picks up active tenant configs. Suspended tenants have
@@ -77,7 +77,7 @@ services:
     image: timberio/vector:0.36.0-debian
     volumes:
       - ./var/log:/var/log
-      - ./configs/vector/vector.yaml:/etc/vector/vector.yaml
+      - ./docker/vector/vector.yaml:/etc/vector/vector.yaml
     depends_on:
       - clickhouse
     restart: unless-stopped
@@ -90,9 +90,9 @@ services:
       - "127.0.0.1:8123:8123"
       - "127.0.0.1:9000:9000"
     volumes:
-      - ./configs/clickhouse/init.sql:/docker-entrypoint-initdb.d/init.sql
-      - ./configs/clickhouse/config.d:/etc/clickhouse-server/config.d
-      - ./configs/clickhouse/users.d/default-user.xml:/etc/clickhouse-server/users.d/default-user.xml
+      - ./docker/clickhouse/init.sql:/docker-entrypoint-initdb.d/init.sql
+      - ./docker/clickhouse/config.d:/etc/clickhouse-server/config.d
+      - ./docker/clickhouse/users.d/default-user.xml:/etc/clickhouse-server/users.d/default-user.xml
       - clickhouse:/var/lib/clickhouse
     env_file:
       - .env
@@ -133,7 +133,7 @@ services:
     ports:
       - "8001:8000"
     volumes:
-      - ./configs/centrifugo/config.json:/centrifugo/config.json:ro
+      - ./docker/centrifugo/config.json:/centrifugo/config.json:ro
     environment:
       # Env-var override: Centrifugo maps each config key path to
       # CENTRIFUGO_<UPPER_KEY_PATH> by joining with `_`. JSON has the
@@ -278,11 +278,11 @@ services:
       # (Python backend also writes here; both share the same named volume.)
       - backend-data:/var/lib/angie/data
       - waf-tenants:/var/lib/waf/tenants
-      - ./configs/angie/modsecurity/:/app/etc/angie/modsecurity/
+      - ./docker/angie/modsecurity/:/app/etc/angie/modsecurity/
       # SSL: Let's Encrypt cert store (shared with backend for ACME issuance).
       - letsencrypt:/etc/letsencrypt
       # SSL: http.d bind-mount for non-tenant cert file writes (same path as backend).
-      - ./configs/angie/http.d/:/var/lib/angie/http.d/
+      - ./docker/angie/http.d/:/var/lib/angie/http.d/
     depends_on:
       # Migrations run on startup against postgres → must be healthy first.
       postgres:
@@ -313,7 +313,7 @@ services:
     ports:
       - "127.0.0.1:9090:9090"
     volumes:
-      - ./configs/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml
+      - ./docker/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml
       - prometheus-storage:/prometheus
     command:
       - "--config.file=/etc/prometheus/prometheus.yml"
@@ -394,7 +394,7 @@ services:
         source: ./var/log/crowdsec
         target: /var/log/crowdsec
       - type: bind
-        source: ./configs/crowdsec
+        source: ./docker/crowdsec
         target: /etc/crowdsec
         read_only: true
     working_dir: /app

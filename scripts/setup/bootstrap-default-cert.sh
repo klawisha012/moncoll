@@ -20,10 +20,11 @@
 
 set -eu
 
-# Run from project root so the host-side `./configs/...` path resolves
-# regardless of where the caller `cd`'d to.
+# Run from project root so the host-side `./docker/...` path resolves
+# regardless of where the caller `cd`'d to. This script lives in
+# scripts/setup/, so root is two levels up.
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-cd "$SCRIPT_DIR/.."
+cd "$SCRIPT_DIR/../.."
 
 DOMAIN="${1:-${WAF_DEFAULT_DOMAIN:-}}"
 EMAIL="${2:-${ACME_EMAIL:-}}"
@@ -47,7 +48,7 @@ ANGIE_CERT="/etc/angie/http.d/_default/default.crt"
 ANGIE_KEY="/etc/angie/http.d/_default/default.key"
 
 # Host-side path for the TLS server block.
-HOST_TLS_CONF="./configs/angie/http.d/_default-tls.conf"
+HOST_TLS_CONF="./docker/angie/http.d/_default-tls.conf"
 
 echo "==> Ensuring Angie is up so it can serve the ACME challenge on :80..."
 docker compose up -d angie backend >/dev/null

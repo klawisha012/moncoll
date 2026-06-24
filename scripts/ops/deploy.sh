@@ -3,7 +3,7 @@ set -euo pipefail
 
 STACK_NAME="waf"
 REGISTRY="${REGISTRY:-localhost:5000}"
-COMPOSE_FILE="containers/docker/docker-compose.swarm.yaml"
+COMPOSE_FILE="docker/docker-compose.swarm.yaml"
 IMAGE_TAG="3.3.5"
 
 # Цвета для вывода
@@ -69,11 +69,11 @@ create_or_update_config() {
     fi
 }
 
-create_or_update_config "angie_conf"        "./configs/angie/angie.conf"
-create_or_update_config "angie_default"     "./configs/angie/http.d/_default.conf"
-create_or_update_config "modsecurity_conf"  "./configs/angie/modsecurity/modsecurity.conf"
-create_or_update_config "modsecurity_rules" "./configs/angie/modsecurity/rules.conf"
-create_or_update_config "vector_yaml"       "./configs/vector/vector.yaml"
+create_or_update_config "angie_conf"        "./docker/angie/angie.conf"
+create_or_update_config "angie_default"     "./docker/angie/http.d/_default.conf"
+create_or_update_config "modsecurity_conf"  "./docker/angie/modsecurity/modsecurity.conf"
+create_or_update_config "modsecurity_rules" "./docker/angie/modsecurity/rules.conf"
+create_or_update_config "vector_yaml"       "./docker/vector/vector.yaml"
 
 # Пока что заглушка для crowdsec, поскольку не настроен.
 echo "# crowdsec disabled" > /tmp/crowdsec_empty.conf
@@ -81,7 +81,7 @@ create_or_update_config "crowdsec_conf"     "/tmp/crowdsec_empty.conf"
 
 # --- 6. Сборка образа Angie ---
 info "Сборка angie-modsec-crs:${IMAGE_TAG}..."
-docker build -t "${REGISTRY}/angie-modsec-crs:${IMAGE_TAG}" -f ./configs/angie/Dockerfile .
+docker build -t "${REGISTRY}/angie-modsec-crs:${IMAGE_TAG}" -f ./docker/angie/Dockerfile .
 
 # Push если реестр не локальный
 if [ "${REGISTRY}" != "localhost:5000" ]; then
@@ -105,7 +105,7 @@ CLICKHOUSE_PASSWORD=$(grep '^CLICKHOUSE_PASSWORD=' .env | cut -d'=' -f2)
 
 sed 's/TTL timestamp + INTERVAL/TTL toDateTime(timestamp) + INTERVAL/g;
      s/TTL time_local + INTERVAL/TTL toDateTime(time_local) + INTERVAL/g' \
-  configs/clickhouse/init.sql | \
+  docker/clickhouse/init.sql | \
   docker exec -i $(docker ps -q -f name=waf_clickhouse) \
     clickhouse-client \
     --user "$CLICKHOUSE_USER" \

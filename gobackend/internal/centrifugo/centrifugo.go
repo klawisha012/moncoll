@@ -134,7 +134,7 @@ func (p *Publisher) Publish(ctx context.Context, channel string, data any) (bool
 //	exp — Unix timestamp of expiry
 //
 // Signed with HS256 using CENTRIFUGO_TOKEN_HMAC_SECRET. This must match
-// client_token_hmac_secret_key in configs/centrifugo/config.json (or its env
+// client_token_hmac_secret_key in docker/centrifugo/config.json (or its env
 // override CENTRIFUGO_CLIENT_TOKEN_HMAC_SECRET_KEY).
 //
 // Mirrors publisher.py make_connection_token exactly — same header/payload

@@ -10,11 +10,11 @@ secrets:
 # ==============================================================================
 # CONFIGS
 # Создать перед деплоем:
-#   docker config create angie_conf        ./configs/angie/angie.conf
-#   docker config create angie_default     ./configs/angie/http.d/default.conf
-#   docker config create modsecurity_conf  ./configs/angie/modsecurity/modsecurity.conf
-#   docker config create modsecurity_rules ./configs/angie/modsecurity/rules.conf
-#   docker config create vector_yaml       ./configs/vector/vector.yaml
+#   docker config create angie_conf        ./docker/angie/angie.conf
+#   docker config create angie_default     ./docker/angie/http.d/default.conf
+#   docker config create modsecurity_conf  ./docker/angie/modsecurity/modsecurity.conf
+#   docker config create modsecurity_rules ./docker/angie/modsecurity/rules.conf
+#   docker config create vector_yaml       ./docker/vector/vector.yaml
 # ==============================================================================
 configs:
   angie_conf:
@@ -63,7 +63,7 @@ services:
     volumes:
       - angie_logs:/var/log/angie
       - type: bind
-        source: ../../configs/angie/geoip2
+        source: ./angie/geoip2
         target: /etc/angie/geoip2
     configs:
       - source: angie_conf
@@ -85,7 +85,7 @@ services:
     networks:
       - waf_net
     env_file:
-      - ../../envs/angie.env
+      - ../envs/angie.env
     deploy:
       replicas: 1
       restart_policy:
@@ -126,7 +126,7 @@ services:
     networks:
       - waf_net
     env_file:
-      - ../../envs/vector.env
+      - ../envs/vector.env
     environment:
       - CLICKHOUSE_PASSWORD_FILE=/run/secrets/clickhouse_password
     deploy:
@@ -167,7 +167,7 @@ services:
     volumes:
       - clickhouse_data:/var/lib/clickhouse
       - type: bind
-        source: ../../configs/clickhouse/init.sql
+        source: ./clickhouse/init.sql
         target: /docker-entrypoint-initdb.d/init.sql
         read_only: true
     secrets:
@@ -175,7 +175,7 @@ services:
     networks:
       - waf_net
     env_file:
-      - ../../envs/clickhouse.env
+      - ../envs/clickhouse.env
     environment:
       - CLICKHOUSE_PASSWORD_FILE=/run/secrets/clickhouse_password
     deploy:

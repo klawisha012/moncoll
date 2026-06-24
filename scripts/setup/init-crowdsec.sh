@@ -38,6 +38,6 @@ docker exec crowdsec cscli bouncers delete angie-bouncer >/dev/null 2>&1 || true
 echo "Registering angie-bouncer with key from .env..."
 docker exec crowdsec cscli bouncers add angie-bouncer --key "$CROWDSEC_BOUNCER_KEY" >/dev/null
 
-echo "Done. The Angie bouncer config (configs/angie/bouncers/crowdsec-nginx-bouncer.conf)"
+echo "Done. The Angie bouncer config (docker/angie/bouncers/crowdsec-nginx-bouncer.conf)"
 echo "already carries this key — restart Angie to pick it up:"
 echo "  docker compose restart angie"
