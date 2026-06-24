@@ -40,6 +40,14 @@ if [ -z "$DOCKER_GID" ] || [ "$DOCKER_GID" = "0" ]; then
   DOCKER_GID=999
 fi
 
+# Compose project name = the prefix Docker gives every container (<project>-svc-1).
+# Defaults to the repo directory basename. The backend runs cscli/angie via
+# `docker exec <project>-crowdsec-1` / `<project>-angie-1`, so these names MUST
+# match the running containers — otherwise every exec hits a 409 (or a stale
+# container from a differently-named past run). Override by exporting
+# COMPOSE_PROJECT_NAME before running this script.
+COMPOSE_PROJECT="${COMPOSE_PROJECT_NAME:-$(basename "$PWD")}"
+
 cat > .env << EOF
 # Angie
 ANGIE_BINARY=angie
@@ -83,6 +91,13 @@ POSTGRES_DB=waf
 # Docker GID - backend container joins this host group to use docker.sock
 # without running as root.
 DOCKER_GID=$DOCKER_GID
+
+# Container names for the backend's docker-exec targets (cscli → crowdsec,
+# angie -t / -s reload). Derived from the compose project so they match the
+# running ${COMPOSE_PROJECT}-*-1 containers instead of the waf-* defaults baked
+# into docker-compose.yaml. Mismatch = every exec 409s (see error-span spike).
+WAF_CROWDSEC_CONTAINER=${COMPOSE_PROJECT}-crowdsec-1
+WAF_ANGIE_CONTAINER=${COMPOSE_PROJECT}-angie-1
 
 # Backend JWT signing key (HS256). Stable across restarts so sessions survive.
 WAF_JWT_SECRET=$WAF_JWT_SECRET
