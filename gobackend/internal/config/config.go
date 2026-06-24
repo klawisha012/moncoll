@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"os"
+	"strconv"
 )
 
 // defaultKeyFile matches PASETO_KEY_FILE in backend/src/auth/security.py.
@@ -17,6 +18,34 @@ type Config struct {
 	GRPCAddr    string // host:port for the gateway/REST listener
 	MetricsAddr string // host:port for /metrics
 	Timeouts    Timeouts
+	Storage     StorageConfig
+}
+
+// StorageConfig selects the source-of-truth backend (FR-001). Default "local"
+// preserves single-node behaviour byte-for-byte; "s3" enables the shared store
+// for horizontal scaling. See specs/001-horizontal-scaling/.
+type StorageConfig struct {
+	Backend          string // "local" (default) | "s3"
+	S3Endpoint       string
+	S3Bucket         string
+	S3AccessKey      string
+	S3SecretKey      string
+	S3Region         string
+	S3UseTLS         bool
+	EdgeSyncInterval int // seconds; edge sidecar poll (default 10) → ≤30s converge (FR-003)
+}
+
+func loadStorage() StorageConfig {
+	return StorageConfig{
+		Backend:          getenv("WAF_STORAGE_BACKEND", "local"),
+		S3Endpoint:       os.Getenv("WAF_S3_ENDPOINT"),
+		S3Bucket:         getenv("WAF_S3_BUCKET", "waf-state"),
+		S3AccessKey:      os.Getenv("WAF_S3_ACCESS_KEY"),
+		S3SecretKey:      os.Getenv("WAF_S3_SECRET_KEY"),
+		S3Region:         os.Getenv("WAF_S3_REGION"),
+		S3UseTLS:         getenv("WAF_S3_USE_TLS", "false") == "true",
+		EdgeSyncInterval: getenvInt("WAF_EDGE_SYNC_INTERVAL", 10),
+	}
 }
 
 func Load() (*Config, error) {
@@ -34,6 +63,7 @@ func Load() (*Config, error) {
 		GRPCAddr:    getenv("WAF_GO_HTTP_ADDR", ":8080"),
 		MetricsAddr: getenv("WAF_GO_METRICS_ADDR", ":9100"),
 		Timeouts:    LoadTimeouts(),
+		Storage:     loadStorage(),
 	}
 	return cfg, nil
 }
@@ -69,6 +99,15 @@ func loadPasetoKey() ([]byte, error) {
 func getenv(k, def string) string {
 	if v := os.Getenv(k); v != "" {
 		return v
+	}
+	return def
+}
+
+func getenvInt(k string, def int) int {
+	if v := os.Getenv(k); v != "" {
+		if n, err := strconv.Atoi(v); err == nil {
+			return n
+		}
 	}
 	return def
 }

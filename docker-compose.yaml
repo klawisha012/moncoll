@@ -399,7 +399,49 @@ services:
         read_only: true
     working_dir: /app
 
+  # ── S3 source of truth for horizontal scaling (profile: s3) ───────────────
+  # MinIO is the shared state store when WAF_STORAGE_BACKEND=s3: backend writes
+  # per-tenant config/certs/bans here, each edge-sync sidecar pulls from here.
+  # Off by default — only starts with `docker compose --profile s3 up`.
+  # ponytail: pin a dated RELEASE tag in prod hardening (tasks T032).
+  minio:
+    image: minio/minio:latest
+    profiles: ["s3"]
+    command: server /data --console-address ":9001"
+    ports:
+      - "127.0.0.1:9000:9000"
+      - "127.0.0.1:9001:9001"
+    environment:
+      # Dev defaults; scripts/setup/generate-env.sh writes strong creds.
+      # MinIO is profile-gated + loopback-bound, so blast radius is small — but
+      # NEVER ship these defaults to prod (set WAF_S3_ROOT_* in .env).
+      MINIO_ROOT_USER: ${WAF_S3_ROOT_USER:-waf-minio}
+      MINIO_ROOT_PASSWORD: ${WAF_S3_ROOT_PASSWORD:-changeme-dev-only}
+    volumes:
+      - minio-data:/data
+    restart: unless-stopped
+
+  # One-shot: bucket + scoped users (backend RW, edge-sync RO). Exits 0.
+  minio-init:
+    image: minio/mc:latest
+    profiles: ["s3"]
+    depends_on:
+      - minio
+    entrypoint: ["/bin/sh", "/init.sh"]
+    environment:
+      WAF_S3_BUCKET: ${WAF_S3_BUCKET:-waf-state}
+      WAF_S3_ROOT_USER: ${WAF_S3_ROOT_USER:-waf-minio}
+      WAF_S3_ROOT_PASSWORD: ${WAF_S3_ROOT_PASSWORD:-changeme-dev-only}
+      WAF_S3_ACCESS_KEY: ${WAF_S3_ACCESS_KEY:-waf-backend}
+      WAF_S3_SECRET_KEY: ${WAF_S3_SECRET_KEY:-changeme-backend-dev}
+      WAF_S3_EDGE_ACCESS_KEY: ${WAF_S3_EDGE_ACCESS_KEY:-edge-ro}
+      WAF_S3_EDGE_SECRET_KEY: ${WAF_S3_EDGE_SECRET_KEY:-changeme-edge-dev}
+    volumes:
+      - ./docker/minio/init.sh:/init.sh:ro
+    restart: "no"
+
 volumes:
+  minio-data:
   clickhouse:
   crowdsec-db:
   prometheus-storage:
