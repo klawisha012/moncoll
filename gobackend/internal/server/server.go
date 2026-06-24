@@ -149,23 +149,25 @@ func (s *Server) Start(ctx context.Context) error {
 		return fmt.Errorf("storage backend init failed: %w", err)
 	}
 	statePublisher := storage.NewPublisher(storageStore)
+	statePublisher.OnPublish = s.metrics.SetPublishedGeneration // SC-007 convergence gauge
 	s.log.Info("storage backend selected", "mode", s.cfg.Storage.Backend)
 
 	// Local tenants base for filesystem-coupled guards/renames (empty in s3 mode).
+	s3Mode := s.cfg.Storage.Backend == "s3"
 	localTenantsBase := ""
-	if s.cfg.Storage.Backend != "s3" {
+	if !s3Mode {
 		localTenantsBase = getenvOr("WAF_TENANTS_DIR", "/var/lib/waf/tenants")
 	}
 
-	syncer := crowdsec.NewSyncer(csCliRunner, angie.Reloader{Log: s.log}, crowdsec.StoreConnSource{Store: st}, storageStore, statePublisher, localTenantsBase)
+	syncer := crowdsec.NewSyncer(csCliRunner, angie.Reloader{Log: s.log, S3Mode: s3Mode}, crowdsec.StoreConnSource{Store: st}, storageStore, statePublisher, localTenantsBase)
 
 	// 5. Initialize services.
 	monitorSvc := monitoring.NewService(engine)
 
 	tfs := tenantfs.New(storageStore, statePublisher, localTenantsBase)
-	adminSvc := admin.NewService(st, tfs, angie.Reloader{Log: s.log})
+	adminSvc := admin.NewService(st, tfs, angie.Reloader{Log: s.log, S3Mode: s3Mode})
 	msCfg := modsec.New(storageStore, statePublisher)
-	modsecSvc := modsecurity.NewService(msCfg, angie.Reloader{Log: s.log})
+	modsecSvc := modsecurity.NewService(msCfg, angie.Reloader{Log: s.log, S3Mode: s3Mode})
 
 	centPub := centrifugo.NewPublisher()
 	teamsNotifier := notify.New(st, centPub, s.log)
@@ -196,7 +198,7 @@ func (s *Server) Start(ctx context.Context) error {
 		edgeResolver,
 		connectionsapi.AngiecfgAdapter{Store: storageStore, Pub: statePublisher},
 		connectionsapi.CertsManagerAdapter{M: certManager},
-		angie.Reloader{Log: s.log},
+		angie.Reloader{Log: s.log, S3Mode: s3Mode},
 		s.log,
 	)
 
@@ -304,7 +306,7 @@ func (s *Server) Start(ctx context.Context) error {
 		edgeResolver,
 		connectionsapi.AngiecfgAdapter{Store: storageStore, Pub: statePublisher},
 		connectionsapi.CertsManagerAdapter{M: certManager},
-		angie.Reloader{Log: s.log},
+		angie.Reloader{Log: s.log, S3Mode: s3Mode},
 		s.log,
 		teamsNotifier,
 	)

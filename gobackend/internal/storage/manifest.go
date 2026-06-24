@@ -41,3 +41,10 @@ func defaultMode(sensitive bool) uint32 {
 func NewManifest(scope string) Manifest {
 	return Manifest{Entries: map[string]Entry{}, Scope: scope}
 }
+
+// MarshalManifest / UnmarshalManifest expose the manifest JSON codec to the
+// edge-sync sidecar, which persists the last applied manifest locally.
+func MarshalManifest(m Manifest) ([]byte, error) { return marshalManifest(m) }
+
+// UnmarshalManifest parses a manifest the sidecar previously persisted.
+func UnmarshalManifest(b []byte) (Manifest, error) { return unmarshalManifest(b) }

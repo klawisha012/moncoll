@@ -22,6 +22,7 @@ type Metrics struct {
 	dbDuration   *prometheus.HistogramVec
 	dbErrors     *prometheus.CounterVec
 	queueLength  *prometheus.GaugeVec
+	publishedGen prometheus.Gauge
 }
 
 // NewMetrics builds the collectors and registers them, along with the standard
@@ -56,14 +57,24 @@ func NewMetrics() *Metrics {
 			Name: "realtime_queue_length",
 			Help: "Current length of a realtime Redis queue (e.g. the attacks ingest list and its in-flight processing list).",
 		}, []string{"queue"}),
+		publishedGen: prometheus.NewGauge(prometheus.GaugeOpts{
+			Name: "state_published_generation",
+			Help: "Latest manifest generation this backend published to the shared store. Node lag = this − edge_sync_applied_generation (SC-007).",
+		}),
 	}
 	reg.MustRegister(
 		m.httpRequests, m.httpErrors, m.httpDuration, m.dbDuration, m.dbErrors,
-		m.queueLength,
+		m.queueLength, m.publishedGen,
 		collectors.NewGoCollector(),
 		collectors.NewProcessCollector(collectors.ProcessCollectorOpts{}),
 	)
 	return m
+}
+
+// SetPublishedGeneration records the latest manifest generation published to the
+// shared store, so the operator can compute per-node convergence lag (SC-007).
+func (m *Metrics) SetPublishedGeneration(generation int64) {
+	m.publishedGen.Set(float64(generation))
 }
 
 // SetQueueLength publishes the current length of a named realtime queue so the

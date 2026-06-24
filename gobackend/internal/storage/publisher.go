@@ -14,6 +14,10 @@ import (
 // backend replicas converge (R6 / US2: CAS is the correctness floor).
 type Publisher struct {
 	store Store
+	// OnPublish, if set, receives the new generation after each successful
+	// publish — wired to the state_published_generation gauge (SC-007). Optional
+	// so storage stays free of a metrics dependency.
+	OnPublish func(generation int64)
 }
 
 func NewPublisher(s Store) *Publisher { return &Publisher{store: s} }
@@ -63,6 +67,9 @@ func (p *Publisher) Publish(ctx context.Context, cs ChangeSet) error {
 				continue // another replica published first; rebuild and retry
 			}
 			return err
+		}
+		if p.OnPublish != nil {
+			p.OnPublish(m.Generation)
 		}
 		return nil
 	}

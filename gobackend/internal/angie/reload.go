@@ -83,15 +83,28 @@ func isNotFound(err error) bool {
 	return strings.Contains(msg, "No such container") || strings.Contains(msg, "not found")
 }
 
-// Reloader adapts Angie reload calls.
+// Reloader adapts Angie reload calls. In S3 mode the backend no longer reloads
+// a single local Angie container (R4, FR-006): each edge-sync sidecar reloads
+// its own Angie after materialising a new manifest generation. So Reload becomes
+// a no-op and ReloadVerbose reports the published-pending-converge status.
 type Reloader struct {
-	Log *slog.Logger
+	Log    *slog.Logger
+	S3Mode bool
 }
 
 func (r Reloader) Reload(ctx context.Context) {
+	if r.S3Mode {
+		if r.Log != nil {
+			r.Log.Debug("angie reload skipped (s3 mode): edge sidecars reload independently")
+		}
+		return
+	}
 	Reload(ctx, r.Log)
 }
 
 func (r Reloader) ReloadVerbose(ctx context.Context) (bool, string) {
+	if r.S3Mode {
+		return true, "Configuration published; edge nodes reload within the sync interval"
+	}
 	return ReloadVerbose(ctx)
 }
