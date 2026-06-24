@@ -13,6 +13,10 @@ import (
 	"time"
 
 	"github.com/ClickHouse/clickhouse-go/v2"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
+	"go.opentelemetry.io/otel/trace"
 )
 
 const pollInterval = 500 * time.Millisecond
@@ -49,14 +53,6 @@ func (p *CHClickHousePoller) PollMarker(ctx context.Context, marker string, time
 }
 
 func (p *CHClickHousePoller) queryMarker(ctx context.Context, marker string) (bool, string, error) {
-	conn, err := clickhouse.Open(&clickhouse.Options{
-		Addr: []string{chAddr(p.dsn)},
-	})
-	if err != nil {
-		return false, "", fmt.Errorf("testsapi: ch open: %w", err)
-	}
-	defer conn.Close()
-
 	// Mirror Python _query_marker: look up the marker in request_headers Map
 	// and return the first matching rule id.
 	query := fmt.Sprintf(
@@ -69,8 +65,30 @@ func (p *CHClickHousePoller) queryMarker(ctx context.Context, marker string) (bo
 		markerHeader, marker,
 	)
 
+	// Span over dial + query. Global tracer → non-recording when tracing is off.
+	ctx, span := otel.Tracer("testsapi").Start(ctx, "clickhouse.query",
+		trace.WithSpanKind(trace.SpanKindClient),
+		trace.WithAttributes(
+			attribute.String("db.system", "clickhouse"),
+			attribute.String("db.statement", query),
+		),
+	)
+	defer span.End()
+
+	conn, err := clickhouse.Open(&clickhouse.Options{
+		Addr: []string{chAddr(p.dsn)},
+	})
+	if err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "clickhouse open failed")
+		return false, "", fmt.Errorf("testsapi: ch open: %w", err)
+	}
+	defer conn.Close()
+
 	rows, err := conn.Query(ctx, query)
 	if err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "clickhouse query failed")
 		return false, "", fmt.Errorf("testsapi: ch query: %w", err)
 	}
 	defer rows.Close()

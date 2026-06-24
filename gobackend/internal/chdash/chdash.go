@@ -29,6 +29,10 @@ import (
 
 	clickhouse "github.com/ClickHouse/clickhouse-go/v2"
 	"github.com/redis/go-redis/v9"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
+	"go.opentelemetry.io/otel/trace"
 	"golang.org/x/sync/singleflight"
 
 	"github.com/zwarder/waf/gobackend/internal/store"
@@ -182,8 +186,23 @@ func (c *Client) Query(ctx context.Context, sql string) ([][]interface{}, error)
 		return c.ex.Query(ctx, sql)
 	}
 
+	// Span over the whole CH call (dial + query). Uses the global tracer:
+	// when no OTLP endpoint is set the provider never samples, so this is a
+	// non-recording, near-zero-cost span — same off-by-default story as the
+	// HTTP and pgx instrumentation.
+	ctx, span := otel.Tracer("chdash").Start(ctx, "clickhouse.query",
+		trace.WithSpanKind(trace.SpanKindClient),
+		trace.WithAttributes(
+			attribute.String("db.system", "clickhouse"),
+			attribute.String("db.statement", sql),
+		),
+	)
+	defer span.End()
+
 	conn, err := openClickHouse()
 	if err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "clickhouse open failed")
 		slog.Warn("chdash: clickhouse open failed", "err", err)
 		return nil, nil
 	}
@@ -195,6 +214,8 @@ func (c *Client) Query(ctx context.Context, sql string) ([][]interface{}, error)
 		c.obs.ObserveDB("clickhouse", "query", start, err)
 	}
 	if err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "clickhouse query failed")
 		slog.Warn("chdash: clickhouse query failed", "sql", sql, "err", err)
 		return nil, nil
 	}
