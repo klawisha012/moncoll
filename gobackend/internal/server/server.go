@@ -181,7 +181,7 @@ func (s *Server) Start(ctx context.Context) error {
 	chClient := chdash.NewClient(s.metrics)
 	dashSvc := dashboardapi.New(chClient, st)
 
-	certManager := certs.New()
+	certManager := certs.New(storageStore, statePublisher)
 	sslSvc := sslapi.New(st, certManager)
 
 	// One DNS resolver, shared by the edge resolver, the connections service,

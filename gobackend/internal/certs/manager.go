@@ -1,6 +1,8 @@
 package certs
 
 import (
+	"bytes"
+	"context"
 	"fmt"
 	"io"
 	"log/slog"
@@ -11,6 +13,8 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	"github.com/zwarder/waf/gobackend/internal/storage"
 )
 
 // Result mirrors the dict returned by generate_self_signed_certificate /
@@ -38,16 +42,52 @@ type StatusResult struct {
 // Mirrors the module-level helpers in service.py.
 type Manager struct {
 	acmeEmail string
+	store     storage.Store
+	pub       *storage.Publisher
 }
 
-// New reads ACME_EMAIL from the environment (fallback: "admin@localhost"),
-// identical to the Python module-level _ACME_EMAIL.
-func New() *Manager {
+// New reads ACME_EMAIL from the environment (fallback: "admin@localhost"). The
+// store + publisher propagate issued certs to the shared source of truth so
+// edge nodes converge; key objects are written sensitive (SSE-encrypted, FR-010).
+func New(store storage.Store, pub *storage.Publisher) *Manager {
 	email := os.Getenv("ACME_EMAIL")
 	if email == "" {
 		email = "admin@localhost"
 	}
-	return &Manager{acmeEmail: email}
+	return &Manager{acmeEmail: email, store: store, pub: pub}
+}
+
+// uploadCert publishes the just-written cert/key (read from their backend paths)
+// to the shared store, the key as a sensitive/SSE object. Best-effort: the cert
+// already exists locally, so a propagation failure is logged, not fatal — the
+// poller retries on its next tick.
+func (m *Manager) uploadCert(connID int64, tenantID *int64, backendCert, backendKey string) {
+	if m.store == nil || m.pub == nil {
+		return
+	}
+	certKey, keyKey := sslKeys(connID, tenantID)
+	ctx := context.Background()
+	certOI, err := m.putFile(ctx, certKey, backendCert, false)
+	if err != nil {
+		slog.Warn("certs: upload cert failed", "conn", connID, "err", err)
+		return
+	}
+	keyOI, err := m.putFile(ctx, keyKey, backendKey, true)
+	if err != nil {
+		slog.Warn("certs: upload key failed", "conn", connID, "err", err)
+		return
+	}
+	if err := m.pub.Publish(ctx, storage.ChangeSet{Changed: []storage.ObjectInfo{certOI, keyOI}}); err != nil {
+		slog.Warn("certs: publish manifest failed", "conn", connID, "err", err)
+	}
+}
+
+func (m *Manager) putFile(ctx context.Context, key, path string, sensitive bool) (storage.ObjectInfo, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return storage.ObjectInfo{}, err
+	}
+	return m.store.Put(ctx, key, bytes.NewReader(data), storage.PutOptions{Sensitive: sensitive})
 }
 
 // ensureSSLDirs mirrors _ensure_ssl_dirs: creates /var/lib/angie/http.d.
@@ -153,6 +193,7 @@ func (m *Manager) GenerateSelfSigned(connID int64, domains []string, tenantID *i
 		}
 	}
 
+	m.uploadCert(connID, tenantID, backendCert, backendKey)
 	return Result{
 		Success:         true,
 		Message:         fmt.Sprintf("Certificate generated for domains: %s", strings.Join(domains, ", ")),
@@ -267,6 +308,7 @@ func (m *Manager) TriggerACME(connID int64, domains []string, tenantID *int64) R
 			if err := os.Chmod(backendKey, 0o600); err != nil {
 				return Result{Success: false, Message: fmt.Sprintf("chmod key: %v", err)}
 			}
+			m.uploadCert(connID, tenantID, backendCert, backendKey)
 			return Result{
 				Success:         true,
 				Message:         fmt.Sprintf("Let's Encrypt certificate reused for %s", strings.Join(domains, ", ")),
@@ -291,6 +333,7 @@ func (m *Manager) TriggerACME(connID int64, domains []string, tenantID *int64) R
 			return Result{Success: false, Message: fmt.Sprintf("chmod key: %v", err)}
 		}
 		existingName := filepath.Base(existing)
+		m.uploadCert(connID, tenantID, backendCert, backendKey)
 		return Result{
 			Success:         true,
 			Message:         fmt.Sprintf("Let's Encrypt certificate reused from %s for %s", existingName, strings.Join(domains, ", ")),
@@ -362,6 +405,7 @@ func (m *Manager) TriggerACME(connID int64, domains []string, tenantID *int64) R
 		return Result{Success: false, Message: fmt.Sprintf("chmod key: %v", err)}
 	}
 
+	m.uploadCert(connID, tenantID, backendCert, backendKey)
 	return Result{
 		Success:         true,
 		Message:         fmt.Sprintf("Let's Encrypt certificate issued for %s", strings.Join(domains, ", ")),

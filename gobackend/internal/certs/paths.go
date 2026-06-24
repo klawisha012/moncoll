@@ -41,3 +41,16 @@ func AngieSSLPaths(connectionID int64, tenantID *int64) (certPath, keyPath strin
 func ConnectionSSLPaths(connectionID int64) (certPath, keyPath string) {
 	return BackendSSLPaths(connectionID, nil)
 }
+
+// sslKeys returns the canonical store object keys for a connection's cert/key
+// (object-layout.md). The key object is sensitive (SSE-encrypted, FR-010).
+func sslKeys(connectionID int64, tenantID *int64) (certKey, keyKey string) {
+	if tenantID != nil {
+		certKey = fmt.Sprintf("tenants/%d/conn_%d/%d.crt", *tenantID, connectionID, connectionID)
+		keyKey = fmt.Sprintf("tenants/%d/conn_%d/%d.key", *tenantID, connectionID, connectionID)
+	} else {
+		certKey = fmt.Sprintf("certs/conn_%d/%d.crt", connectionID, connectionID)
+		keyKey = fmt.Sprintf("certs/conn_%d/%d.key", connectionID, connectionID)
+	}
+	return
+}
