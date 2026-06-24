@@ -491,7 +491,7 @@ jobs:
         run: docker compose down -v
 
   loadtest:
-    name: 5. acceptance - k6 smoke
+    name: 5. acceptance - wrk smoke
     runs-on: ubuntu-latest
     timeout-minutes: 15
     needs: [paths, images]
@@ -517,8 +517,12 @@ jobs:
             -keyout docker/angie/http.d/_default/default.key \
             -out docker/angie/http.d/_default/default.crt \
             -subj "/CN=localhost"
-      - name: Start angie + backend + postgres
-        run: docker compose up -d --build --wait angie backend postgres
+      - name: Start angie + gobackend + postgres
+        # The Python `backend` service was removed in the strangler cutover —
+        # the sole API server is now `gobackend`. compose auto-starts their
+        # depends_on (clickhouse/redis/centrifugo/postgres), so --wait blocks
+        # until the stack is healthy.
+        run: docker compose up -d --build --wait angie gobackend postgres
         timeout-minutes: 10
       - name: Wait for WAF
         run: |
@@ -528,8 +532,11 @@ jobs:
             fi
             echo "Attempt $i/30..."; sleep 5
           done
-      - name: k6 smoke
-        run: docker compose --profile loadtest run --rm k6 run /scripts/smoke.js
+      - name: wrk smoke
+        # The loadtest tool is wrk (profile loadtest), driving the smoke.lua
+        # script mounted at /scripts. Light CI parameters — this is a smoke
+        # check that the edge serves traffic, not a throughput benchmark.
+        run: docker compose --profile loadtest run --rm wrk -t 4 -c 16 -d 10s -s /scripts/smoke.lua http://angie/
       - name: Tear down
         if: always()
         run: docker compose down -v
