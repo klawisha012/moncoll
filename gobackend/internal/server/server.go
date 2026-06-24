@@ -58,6 +58,7 @@ import (
 	"github.com/zwarder/waf/gobackend/internal/realtimeapi"
 	"github.com/zwarder/waf/gobackend/internal/sslapi"
 	"github.com/zwarder/waf/gobackend/internal/store"
+	"github.com/zwarder/waf/gobackend/internal/storage"
 	"github.com/zwarder/waf/gobackend/internal/teamsapi"
 	"github.com/zwarder/waf/gobackend/internal/tenantfs"
 	"github.com/zwarder/waf/gobackend/internal/testsapi"
@@ -143,9 +144,21 @@ func (s *Server) Start(ctx context.Context) error {
 
 	// 5. Initialize services.
 	monitorSvc := monitoring.NewService(engine)
+
+	// Storage seam for shared file state (FR-001, specs/001-horizontal-scaling).
+	// local (default) maps canonical keys to live Angie paths (behaviour
+	// unchanged); s3 enables horizontal scaling. Publisher records each change
+	// set as a manifest generation.
+	storageStore, err := buildStore(s.cfg.Storage)
+	if err != nil {
+		return fmt.Errorf("storage backend init failed: %w", err)
+	}
+	statePublisher := storage.NewPublisher(storageStore)
+	s.log.Info("storage backend selected", "mode", s.cfg.Storage.Backend)
+
 	tfs := tenantfs.New(getenvOr("WAF_TENANTS_DIR", "/var/lib/waf/tenants"))
 	adminSvc := admin.NewService(st, tfs, angie.Reloader{Log: s.log})
-	msCfg := modsec.New(getenvOr("WAF_MODSEC_DIR", "/app/etc/angie/modsecurity"))
+	msCfg := modsec.New(storageStore, statePublisher)
 	modsecSvc := modsecurity.NewService(msCfg, angie.Reloader{Log: s.log})
 
 	centPub := centrifugo.NewPublisher()
@@ -361,6 +374,30 @@ func getenvOr(k, def string) string {
 		return v
 	}
 	return def
+}
+
+// buildStore selects the source-of-truth backend (FR-001). local (default) maps
+// canonical keys onto the live Angie volume paths so single-node behaviour is
+// unchanged; s3 enables horizontal scaling.
+func buildStore(c config.StorageConfig) (storage.Store, error) {
+	if c.Backend == "s3" {
+		return storage.NewS3(storage.S3Options{
+			Endpoint:  c.S3Endpoint,
+			AccessKey: c.S3AccessKey,
+			SecretKey: c.S3SecretKey,
+			Bucket:    c.S3Bucket,
+			Region:    c.S3Region,
+			UseTLS:    c.S3UseTLS,
+			Scope:     "default",
+		})
+	}
+	layout := storage.LocalLayout{
+		Tenants: getenvOr("WAF_TENANTS_DIR", "/var/lib/waf/tenants"),
+		HTTPD:   "/var/lib/angie/http.d",
+		State:   getenvOr("WAF_STATE_DIR", "/var/lib/angie/data"),
+		Modsec:  getenvOr("WAF_MODSEC_DIR", "/app/etc/angie/modsecurity"),
+	}
+	return storage.NewLocalFSMapped(layout, "default"), nil
 }
 
 func envBool(k string, def bool) bool {

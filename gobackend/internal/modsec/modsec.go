@@ -1,30 +1,41 @@
 // Package modsec manages ModSecurity config + rule files, reproducing
-// backend/src/modsecurity/service.py.
+// backend/src/modsecurity/service.py. State is written to the shared store so
+// every edge node converges to the same WAF rules (horizontal scaling); each
+// write is published as a manifest generation.
 package modsec
 
 import (
+	"context"
 	"errors"
 	"fmt"
+	"io"
 	"os"
-	"path/filepath"
 	"regexp"
 	"strconv"
 	"strings"
+
+	"github.com/zwarder/waf/gobackend/internal/storage"
 )
 
 var ErrConfigNotFound = errors.New("config not found")
 var ErrInvalidRule = errors.New("rule must contain an id")
 
+// Canonical object keys for the global ModSecurity config (object-layout.md).
+const (
+	keyConfig = "modsec/modsecurity.conf"
+	keyRules  = "modsec/rules.conf"
+)
+
 // Package-level compiled regexes for ListRules extraction.
 // Note: idRe allows optional quotes (id:'?(\d+)'?) matching Python list_rules.
 // addIdRe does NOT allow quotes, matching Python add_rule which uses id:(\d+).
 var (
-	idRe    = regexp.MustCompile(`id:'?(\d+)'?`)
-	msgRe   = regexp.MustCompile(`msg:'([^']*)'`)
-	phaseRe = regexp.MustCompile(`phase:(\d+)`)
+	idRe     = regexp.MustCompile(`id:'?(\d+)'?`)
+	msgRe    = regexp.MustCompile(`msg:'([^']*)'`)
+	phaseRe  = regexp.MustCompile(`phase:(\d+)`)
 	actionRe = regexp.MustCompile(`(deny|pass|drop|redirect|proxy)`)
-	sevRe   = regexp.MustCompile(`severity:'?(\d+)'?`)
-	addIdRe = regexp.MustCompile(`id:(\d+)`)
+	sevRe    = regexp.MustCompile(`severity:'?(\d+)'?`)
+	addIdRe  = regexp.MustCompile(`id:(\d+)`)
 )
 
 // RuleItem mirrors the dict returned by ConfigService.list_rules() in Python.
@@ -37,57 +48,74 @@ type RuleItem struct {
 	Severity *int64
 }
 
-// Service manages a modsecurity config directory.
-type Service struct{ dir string }
+// Service manages the global ModSecurity config via the shared store.
+type Service struct {
+	store storage.Store
+	pub   *storage.Publisher
+}
 
-// New returns a Service rooted at dir (default /app/etc/angie/modsecurity).
-func New(dir string) *Service { return &Service{dir: dir} }
+// New returns a Service backed by the shared store. Writes go to the canonical
+// modsec/ keys (mapped to /app/etc/angie/modsecurity in local mode).
+func New(store storage.Store, pub *storage.Publisher) *Service {
+	return &Service{store: store, pub: pub}
+}
 
-func (s *Service) configFile() string { return filepath.Join(s.dir, "modsecurity.conf") }
-func (s *Service) rulesFile() string  { return filepath.Join(s.dir, "rules.conf") }
+// read returns the object content, mapping a missing object to os.ErrNotExist
+// so the GetConfig/GetRules ErrConfigNotFound contract is preserved.
+func (s *Service) read(key string) (string, error) {
+	rc, _, err := s.store.Get(context.Background(), key)
+	if err != nil {
+		if errors.Is(err, storage.ErrNotFound) {
+			return "", os.ErrNotExist
+		}
+		return "", err
+	}
+	defer rc.Close()
+	b, err := io.ReadAll(rc)
+	return string(b), err
+}
+
+// write stores content and publishes a new manifest generation.
+func (s *Service) write(key, content string) error {
+	oi, err := s.store.Put(context.Background(), key, strings.NewReader(content), storage.PutOptions{})
+	if err != nil {
+		return err
+	}
+	return s.pub.Publish(context.Background(), storage.ChangeSet{Changed: []storage.ObjectInfo{oi}})
+}
 
 // GetConfig reads modsecurity.conf; returns ErrConfigNotFound if missing.
 func (s *Service) GetConfig() (content string, path string, err error) {
-	p := s.configFile()
-	b, err := os.ReadFile(p)
+	c, err := s.read(keyConfig)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
-			return "", p, fmt.Errorf("modsecurity.conf not found: %w", ErrConfigNotFound)
+			return "", keyConfig, fmt.Errorf("modsecurity.conf not found: %w", ErrConfigNotFound)
 		}
-		return "", p, err
+		return "", keyConfig, err
 	}
-	return string(b), p, nil
+	return c, keyConfig, nil
 }
 
 // GetRules reads rules.conf; returns ErrConfigNotFound if missing.
 func (s *Service) GetRules() (content string, path string, err error) {
-	p := s.rulesFile()
-	b, err := os.ReadFile(p)
+	c, err := s.read(keyRules)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
-			return "", p, fmt.Errorf("rules.conf not found: %w", ErrConfigNotFound)
+			return "", keyRules, fmt.Errorf("rules.conf not found: %w", ErrConfigNotFound)
 		}
-		return "", p, err
+		return "", keyRules, err
 	}
-	return string(b), p, nil
+	return c, keyRules, nil
 }
 
-// UpdateConfig writes content to modsecurity.conf, creating parent dirs as needed.
+// UpdateConfig writes content to modsecurity.conf and publishes it.
 func (s *Service) UpdateConfig(content string) (path string, err error) {
-	p := s.configFile()
-	if err := os.MkdirAll(s.dir, 0o755); err != nil {
-		return p, err
-	}
-	return p, os.WriteFile(p, []byte(content), 0o644)
+	return keyConfig, s.write(keyConfig, content)
 }
 
-// UpdateRules writes content to rules.conf, creating parent dirs as needed.
+// UpdateRules writes content to rules.conf and publishes it.
 func (s *Service) UpdateRules(content string) (path string, err error) {
-	p := s.rulesFile()
-	if err := os.MkdirAll(s.dir, 0o755); err != nil {
-		return p, err
-	}
-	return p, os.WriteFile(p, []byte(content), 0o644)
+	return keyRules, s.write(keyRules, content)
 }
 
 // AddRule appends rule to rules.conf and returns the parsed rule id.
@@ -96,12 +124,12 @@ func (s *Service) UpdateRules(content string) (path string, err error) {
 func (s *Service) AddRule(rule string) (id int64, path string, err error) {
 	content, _, err := s.GetRules()
 	if err != nil {
-		return 0, s.rulesFile(), err
+		return 0, keyRules, err
 	}
 
 	m := addIdRe.FindStringSubmatch(rule)
 	if m == nil {
-		return 0, s.rulesFile(), ErrInvalidRule
+		return 0, keyRules, ErrInvalidRule
 	}
 	rid, _ := strconv.ParseInt(m[1], 10, 64)
 

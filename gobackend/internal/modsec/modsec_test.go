@@ -9,11 +9,13 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/zwarder/waf/gobackend/internal/modsec"
+	"github.com/zwarder/waf/gobackend/internal/storage"
 )
 
 func newSvc(t *testing.T) *modsec.Service {
 	t.Helper()
-	return modsec.New(t.TempDir())
+	st := storage.NewLocalFS(t.TempDir(), "test")
+	return modsec.New(st, storage.NewPublisher(st))
 }
 
 // --- GetConfig / GetRules missing file → ErrConfigNotFound ---
@@ -35,9 +37,8 @@ func TestGetRules_Missing(t *testing.T) {
 // --- UpdateConfig creates dir if absent, round-trip ---
 
 func TestUpdateConfig_RoundTrip(t *testing.T) {
-	// Use a subdir that doesn't exist yet to verify MkdirAll.
-	base := t.TempDir()
-	svc := modsec.New(base + "/deep/nested")
+	// The store creates parent dirs on write (localFS Put does MkdirAll).
+	svc := newSvc(t)
 
 	content := "SecRuleEngine On\n"
 	p, err := svc.UpdateConfig(content)
