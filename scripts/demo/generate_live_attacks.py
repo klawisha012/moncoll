@@ -39,10 +39,14 @@ def load_env_credentials():
         "password": os.environ.get("CLICKHOUSE_PASSWORD", ""),
         "db": os.environ.get("CLICKHOUSE_DB", "logs"),
     }
-    # Also check /app/.env if we are in Docker container
+    # Repo root is THREE levels up (scripts/demo/<this file>); also check
+    # /app/.env when running inside the container.
     env_paths = [
-        os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), ".env"),
-        "/app/.env"
+        os.path.join(
+            os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
+            ".env",
+        ),
+        "/app/.env",
     ]
     for env_path in env_paths:
         if os.path.exists(env_path):
