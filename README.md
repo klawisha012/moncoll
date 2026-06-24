@@ -108,6 +108,16 @@ exposes `edge_sync_applied_generation`, `edge_sync_lag_seconds`,
 alerts (`EdgeConvergenceLag`, `EdgeSyncErrors`) and a Grafana convergence dashboard
 ship under `docker/prometheus/rules/` and `docker/grafana/provisioning/`.
 
+**Distributed tracing (OpenTelemetry).** Каждый запрос трассируется сквозь весь
+пайплайн: браузер (`waf-frontend`) → Angie (`ngx_otel_module`, `waf-angie`) →
+backend (`waf-gobackend`, HTTP + pgx-спаны) → Postgres, по W3C `traceparent` в
+одну трассу. Все спаны уходят в **otel-collector** (`docker/otel-collector/`,
+OTLP gRPC `:4317` / HTTP `:4318`) и складываются в **ClickHouse** (БД `otel`,
+схема создаётся автоматически — то же хранилище, что и логи WAF). Смотреть —
+**Grafana** на `http://127.0.0.1:3001` (Explore → datasource ClickHouse →
+Traces). Трассировка backend включается переменной `OTEL_EXPORTER_OTLP_ENDPOINT`
+(пусто = off, `NeverSample`, без внешних зависимостей).
+
 **Scaling out.** For real multi-node 1:1 edge↔sidecar pairing use the Kubernetes
 manifest (`k8s/angie.yaml`, sidecar in the Angie pod). In docker-compose the
 sidecar pairs with `waf-angie-1` at scale=1 (Compose can't express pod-style

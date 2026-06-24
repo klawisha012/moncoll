@@ -5,9 +5,28 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/exaring/otelpgx"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
+
+// multiQueryTracer fans a pgx query trace out to several tracers. pgx allows a
+// single ConnConfig.Tracer, but we want BOTH the RED-metrics tracer and the
+// OpenTelemetry tracer on every query — so we multiplex them.
+type multiQueryTracer []pgx.QueryTracer
+
+func (m multiQueryTracer) TraceQueryStart(ctx context.Context, c *pgx.Conn, d pgx.TraceQueryStartData) context.Context {
+	for _, t := range m {
+		ctx = t.TraceQueryStart(ctx, c, d)
+	}
+	return ctx
+}
+
+func (m multiQueryTracer) TraceQueryEnd(ctx context.Context, c *pgx.Conn, d pgx.TraceQueryEndData) {
+	for _, t := range m {
+		t.TraceQueryEnd(ctx, c, d)
+	}
+}
 
 type Store struct {
 	pool *pgxpool.Pool
@@ -21,8 +40,12 @@ func New(ctx context.Context, dsn string, obs ...Observer) (*Store, error) {
 	if err != nil {
 		return nil, err
 	}
+	// Production wiring (obs passed) gets BOTH RED metrics and OTel query
+	// spans. Tests pass no obs and stay uninstrumented. otelpgx uses the global
+	// tracer provider, so when no OTLP endpoint is configured its spans are
+	// non-recording — near-zero cost, same off-by-default story as InitTracer.
 	if len(obs) > 0 && obs[0] != nil {
-		cfg.ConnConfig.Tracer = queryTracer{obs: obs[0]}
+		cfg.ConnConfig.Tracer = multiQueryTracer{queryTracer{obs: obs[0]}, otelpgx.NewTracer()}
 	}
 	pool, err := pgxpool.NewWithConfig(ctx, cfg)
 	if err != nil {

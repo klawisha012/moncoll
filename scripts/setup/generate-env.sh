@@ -28,6 +28,8 @@ CROWDSEC_BOUNCER_KEY=$(openssl rand -base64 32 | tr -dc 'a-zA-Z0-9' | head -c 48
 # publish calls (backend → Centrifugo /api/publish).
 CENTRIFUGO_TOKEN_HMAC_SECRET=$(openssl rand -base64 48 | tr -dc 'a-zA-Z0-9' | head -c 64)
 CENTRIFUGO_API_KEY=$(openssl rand -base64 32 | tr -dc 'a-zA-Z0-9' | head -c 48)
+# Grafana admin password (просмотр трасс OpenTelemetry). Не оставляем admin/admin.
+GRAFANA_ADMIN_PASSWORD=$(openssl rand -base64 24 | tr -dc 'a-zA-Z0-9' | head -c 32)
 # Host docker group GID — backend container joins this group at runtime
 # to access /var/run/docker.sock without running as root. Falls back to
 # 999 (most Linux distros) when getent isn't available (eg. macOS hosts).
@@ -147,6 +149,14 @@ WAF_OAUTH_GOOGLE_REDIRECT_URI=
 WAF_OAUTH_GITHUB_CLIENT_ID=
 WAF_OAUTH_GITHUB_CLIENT_SECRET=
 WAF_OAUTH_GITHUB_REDIRECT_URI=
+
+# ── Observability / OpenTelemetry tracing ──────────────────────────────────
+# Трассы всего пайплайна (frontend → angie → gobackend → postgres) идут в
+# otel-collector → ClickHouse (БД otel, создаётся автоматически). Просмотр —
+# Grafana на http://127.0.0.1:3001 (Explore → datasource ClickHouse → Traces).
+# Пустой endpoint выключает трассировку backend (NeverSample), без внешних зависимостей.
+OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4318
+GRAFANA_ADMIN_PASSWORD=$GRAFANA_ADMIN_PASSWORD
 
 EOF
 

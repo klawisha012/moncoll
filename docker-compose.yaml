@@ -54,6 +54,9 @@ services:
     depends_on:
       - vector
       - crowdsec
+      # OTel collector must exist before Angie boots so ngx_otel_module can
+      # reach otel-collector:4317 (module retries, but keeps startup logs clean).
+      - otel-collector
       # Angie resolves the `centrifugo`/`frontend` upstream hostnames at
       # config-parse time (literal proxy_pass targets in waf-admin.conf).
       # Without start ordering it can boot before their DNS exists and
@@ -271,6 +274,12 @@ services:
       WAF_OAUTH_GITHUB_CLIENT_ID: ${WAF_OAUTH_GITHUB_CLIENT_ID:-}
       WAF_OAUTH_GITHUB_CLIENT_SECRET: ${WAF_OAUTH_GITHUB_CLIENT_SECRET:-}
       WAF_OAUTH_GITHUB_REDIRECT_URI: ${WAF_OAUTH_GITHUB_REDIRECT_URI:-}
+      # ── OpenTelemetry tracing ───────────────────────────────────────────────
+      # Setting an endpoint TURNS ON the already-wired tracer (internal/
+      # observability): HTTP server spans + pgx query spans → otel-collector →
+      # ClickHouse. Empty endpoint = off (NeverSample), no external dependency.
+      OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-http://otel-collector:4318}
+      OTEL_SERVICE_NAME: ${OTEL_SERVICE_NAME:-waf-gobackend}
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       # backend-data is mounted read-write so the crowdsec sync loop can write
@@ -361,6 +370,52 @@ services:
     devices:
       - /dev/kmsg:/dev/kmsg
     restart: unless-stopped
+
+  # ── OpenTelemetry tracing ────────────────────────────────────────────────
+  # Collector: единая точка приёма трасс (OTLP gRPC :4317 от angie, HTTP :4318
+  # от backend и браузера). Экспорт в ClickHouse (БД otel, авто-создаётся).
+  # ponytail: :latest как у minio ниже — закрепить датированный тег при
+  # прод-хардненинге.
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:latest
+    command: ["--config=/etc/otel/config.yaml"]
+    volumes:
+      - ./docker/otel-collector/config.yaml:/etc/otel/config.yaml:ro
+    expose:
+      - "4317"   # OTLP gRPC
+      - "4318"   # OTLP HTTP
+    ports:
+      # Loopback-only, для отладки/прямой отправки трасс с хоста.
+      - "127.0.0.1:4318:4318"
+    depends_on:
+      clickhouse:
+        condition: service_started
+    restart: unless-stopped
+    env_file:
+      - .env
+
+  # Grafana — просмотр трасс (Explore → Traces, datasource ClickHouse
+  # провижинится из docker/grafana/provisioning). Анонимный Viewer включён для
+  # dev (loopback-bound); пароль admin берётся из .env или дефолт.
+  # ponytail: :latest — закрепить тег в проде; anon-viewer выключить.
+  grafana:
+    image: grafana/grafana:latest
+    ports:
+      - "127.0.0.1:3001:3000"
+    environment:
+      GF_INSTALL_PLUGINS: grafana-clickhouse-datasource
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-admin}
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Viewer
+    volumes:
+      - ./docker/grafana/provisioning:/etc/grafana/provisioning:ro
+      - grafana-data:/var/lib/grafana
+    depends_on:
+      - clickhouse
+      - otel-collector
+    restart: unless-stopped
+    env_file:
+      - .env
 
   # Инструмент нагрузочного тестирования wrk. Запускается по запросу:
   #   docker compose run --rm wrk -t 32 -c 128 -d 30s -s /scripts/smoke.lua http://angie/
@@ -481,6 +536,7 @@ services:
     restart: unless-stopped
 
 volumes:
+  grafana-data:
   minio-data:
   clickhouse:
   crowdsec-db:

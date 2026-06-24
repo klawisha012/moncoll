@@ -23,6 +23,7 @@ RUN apk add --no-cache \
     angie-module-zstd \
     angie-module-brotli \
     angie-module-lua \
+    angie-module-otel \
     curl tar lua5.1 lua5.1-cjson lua5.1-socket gettext git
 
 COPY --from=crs /crs /var/lib/angie/modsecurity/coreruleset

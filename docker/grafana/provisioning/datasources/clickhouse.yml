@@ -10,6 +10,13 @@ datasources:
       protocol: http
       username: ${CLICKHOUSE_USER}
       defaultDatabase: ${CLICKHOUSE_DB}
+      # OpenTelemetry-трассы лежат в БД otel (её создаёт otel-collector). Тот же
+      # datasource обслуживает и convergence-дашборд (logs), и Explore → Traces.
+      traces:
+        defaultDatabase: otel
+        defaultTable: otel_traces
+        otelEnabled: true
+        otelVersion: latest
     secureJsonData:
       password: ${CLICKHOUSE_PASSWORD}
     editable: true

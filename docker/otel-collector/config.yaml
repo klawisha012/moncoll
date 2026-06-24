@@ -1,0 +1,57 @@
+# OpenTelemetry Collector — единая точка приёма трасс со всего пайплайна:
+#   браузер (frontend) → angie (ngx_otel_module) → gobackend → postgres
+# Хранилище — ClickHouse (тот же сервер, что хранит логи WAF): спаны это
+# по сути широкие события, для которых колоночная OLAP-СУБД и предназначена,
+# поэтому отдельное trace-хранилище (Jaeger/Tempo+object store) не заводим.
+# Просмотр — Grafana с datasource ClickHouse (Explore → Traces).
+
+receivers:
+  otlp:
+    protocols:
+      grpc:
+        endpoint: 0.0.0.0:4317   # angie (OTLP/gRPC) + любой gRPC-источник
+      http:
+        endpoint: 0.0.0.0:4318   # gobackend (otlptracehttp) + браузер через nginx-прокси /v1/traces
+        cors:
+          # Браузер ходит сюда same-origin через nginx-прокси (/v1/traces),
+          # так что CORS обычно не задействован; "*" на случай прямой отправки.
+          allowed_origins:
+            - "*"
+
+processors:
+  # Защита от OOM при всплесках трасс — отбрасывает данные, не роняет коллектор.
+  memory_limiter:
+    check_interval: 1s
+    limit_percentage: 75
+    spike_limit_percentage: 15
+  batch:
+    timeout: 5s
+    send_batch_size: 1024
+
+exporters:
+  clickhouse:
+    endpoint: tcp://clickhouse:9000?dial_timeout=10s
+    database: otel
+    username: ${env:CLICKHOUSE_USER}
+    password: ${env:CLICKHOUSE_PASSWORD}
+    create_schema: true        # сам создаёт БД otel + таблицы otel_traces/otel_logs
+    ttl: 720h                  # 30 дней — как retention Prometheus
+    traces_table_name: otel_traces
+    logs_table_name: otel_logs
+    compress: lz4
+  # Видно в `docker compose logs otel-collector`, что трассы реально приходят.
+  debug:
+    verbosity: basic
+
+service:
+  pipelines:
+    traces:
+      receivers: [otlp]
+      processors: [memory_limiter, batch]
+      exporters: [clickhouse, debug]
+    # OTLP-логи (если источник их шлёт) — в ту же ClickHouse. Метрики оставляем
+    # Prometheus'у, здесь не дублируем.
+    logs:
+      receivers: [otlp]
+      processors: [memory_limiter, batch]
+      exporters: [clickhouse]

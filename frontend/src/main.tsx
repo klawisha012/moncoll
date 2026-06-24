@@ -1,3 +1,4 @@
+import "./otel"; // OpenTelemetry — первым, до любых fetch к /api
 import { render } from "solid-js/web";
 import { Router } from "@solidjs/router";
 import { SettingsProvider } from "./context/SettingsContext";

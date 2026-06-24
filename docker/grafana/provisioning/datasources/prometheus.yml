@@ -1,0 +1,13 @@
+# Prometheus datasource — нужен дашборду convergence (scaling-convergence.json
+# ссылается на него через переменную ${DS_PROM}). Без него панели показывали
+# «No data» и красный треугольник на селекторе datasource.
+apiVersion: 1
+
+datasources:
+  - name: Prometheus
+    type: prometheus
+    uid: prometheus
+    access: proxy
+    url: http://prometheus:9090
+    isDefault: false
+    editable: true
