@@ -12,6 +12,7 @@ import (
 
 	modsecurityv1 "github.com/zwarder/waf/gobackend/gen/modsecurity/v1"
 	"github.com/zwarder/waf/gobackend/internal/modsec"
+	"github.com/zwarder/waf/gobackend/internal/storage"
 )
 
 // ---------------------------------------------------------------------------
@@ -31,9 +32,15 @@ func (f fakeReloader) ReloadVerbose(_ context.Context) (bool, string) {
 // Helpers
 // ---------------------------------------------------------------------------
 
+func newModsec(t *testing.T) *modsec.Service {
+	t.Helper()
+	st := storage.NewLocalFS(t.TempDir(), "test")
+	return modsec.New(st, storage.NewPublisher(st))
+}
+
 func newSvc(t *testing.T, reloader Reloader) *Service {
 	t.Helper()
-	cfg := modsec.New(t.TempDir())
+	cfg := newModsec(t)
 	if reloader == nil {
 		reloader = fakeReloader{ok: true, msg: "ok"}
 	}
@@ -156,7 +163,7 @@ func TestDeleteRule_NotFound(t *testing.T) {
 
 func TestReload_AlwaysSucceeds_StatusLevel(t *testing.T) {
 	// Even when the reloader reports failure, Reload must return nil gRPC error.
-	svc := NewService(modsec.New(t.TempDir()), fakeReloader{ok: false, msg: "boom"})
+	svc := NewService(newModsec(t), fakeReloader{ok: false, msg: "boom"})
 	resp, err := svc.Reload(context.Background(), &modsecurityv1.Empty2{})
 	require.NoError(t, err, "Reload must never return a gRPC error")
 	assert.False(t, resp.Success)
