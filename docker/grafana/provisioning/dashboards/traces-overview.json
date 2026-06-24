@@ -1,0 +1,165 @@
+{
+  "annotations": { "list": [] },
+  "editable": true,
+  "schemaVersion": 39,
+  "title": "WAF — Трассировка OpenTelemetry",
+  "uid": "waf-traces-overview",
+  "tags": ["waf", "tracing", "opentelemetry"],
+  "time": { "from": "now-1h", "to": "now" },
+  "templating": { "list": [] },
+  "panels": [
+    {
+      "id": 1,
+      "title": "Спаны (всего)",
+      "type": "stat",
+      "datasource": { "type": "grafana-clickhouse-datasource", "uid": "bfbcca0459mo0f" },
+      "gridPos": { "h": 4, "w": 6, "x": 0, "y": 0 },
+      "fieldConfig": { "defaults": { "color": { "mode": "thresholds" }, "thresholds": { "steps": [{ "color": "blue", "value": null }] } }, "overrides": [] },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "grafana-clickhouse-datasource", "uid": "bfbcca0459mo0f" },
+          "editorType": "sql",
+          "queryType": "table",
+          "rawSql": "SELECT count() AS spans FROM otel.otel_traces WHERE $__timeFilter(Timestamp)"
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "title": "Трассы (уникальные)",
+      "type": "stat",
+      "datasource": { "type": "grafana-clickhouse-datasource", "uid": "bfbcca0459mo0f" },
+      "gridPos": { "h": 4, "w": 6, "x": 6, "y": 0 },
+      "fieldConfig": { "defaults": { "color": { "mode": "thresholds" }, "thresholds": { "steps": [{ "color": "green", "value": null }] } }, "overrides": [] },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "grafana-clickhouse-datasource", "uid": "bfbcca0459mo0f" },
+          "editorType": "sql",
+          "queryType": "table",
+          "rawSql": "SELECT uniqExact(TraceId) AS traces FROM otel.otel_traces WHERE $__timeFilter(Timestamp)"
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "title": "Спаны с ошибками",
+      "type": "stat",
+      "datasource": { "type": "grafana-clickhouse-datasource", "uid": "bfbcca0459mo0f" },
+      "gridPos": { "h": 4, "w": 6, "x": 12, "y": 0 },
+      "fieldConfig": { "defaults": { "color": { "mode": "thresholds" }, "thresholds": { "steps": [{ "color": "green", "value": null }, { "color": "red", "value": 1 }] } }, "overrides": [] },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "grafana-clickhouse-datasource", "uid": "bfbcca0459mo0f" },
+          "editorType": "sql",
+          "queryType": "table",
+          "rawSql": "SELECT countIf(StatusCode = 'Error') AS errors FROM otel.otel_traces WHERE $__timeFilter(Timestamp)"
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "title": "p95 задержка корневого спана",
+      "type": "stat",
+      "datasource": { "type": "grafana-clickhouse-datasource", "uid": "bfbcca0459mo0f" },
+      "gridPos": { "h": 4, "w": 6, "x": 18, "y": 0 },
+      "fieldConfig": { "defaults": { "unit": "ms", "color": { "mode": "thresholds" }, "thresholds": { "steps": [{ "color": "green", "value": null }, { "color": "yellow", "value": 200 }, { "color": "red", "value": 1000 }] } }, "overrides": [] },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "grafana-clickhouse-datasource", "uid": "bfbcca0459mo0f" },
+          "editorType": "sql",
+          "queryType": "table",
+          "rawSql": "SELECT round(quantile(0.95)(Duration) / 1e6, 1) AS p95_ms FROM otel.otel_traces WHERE $__timeFilter(Timestamp) AND ParentSpanId = ''"
+        }
+      ]
+    },
+    {
+      "id": 5,
+      "title": "Спаны/мин по сервисам",
+      "type": "timeseries",
+      "datasource": { "type": "grafana-clickhouse-datasource", "uid": "bfbcca0459mo0f" },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 4 },
+      "fieldConfig": { "defaults": { "custom": { "drawStyle": "line", "fillOpacity": 10, "showPoints": "never", "stacking": { "mode": "normal" } } }, "overrides": [] },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "grafana-clickhouse-datasource", "uid": "bfbcca0459mo0f" },
+          "editorType": "sql",
+          "queryType": "timeseries",
+          "rawSql": "SELECT toStartOfInterval(Timestamp, INTERVAL 1 MINUTE) AS time, countIf(ServiceName = 'waf-frontend') AS frontend, countIf(ServiceName = 'waf-angie') AS angie, countIf(ServiceName = 'waf-gobackend') AS gobackend FROM otel.otel_traces WHERE $__timeFilter(Timestamp) GROUP BY time ORDER BY time"
+        }
+      ]
+    },
+    {
+      "id": 6,
+      "title": "Задержка корневого спана (мс)",
+      "type": "timeseries",
+      "datasource": { "type": "grafana-clickhouse-datasource", "uid": "bfbcca0459mo0f" },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 4 },
+      "fieldConfig": { "defaults": { "unit": "ms", "custom": { "drawStyle": "line", "fillOpacity": 0, "showPoints": "never" } }, "overrides": [] },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "grafana-clickhouse-datasource", "uid": "bfbcca0459mo0f" },
+          "editorType": "sql",
+          "queryType": "timeseries",
+          "rawSql": "SELECT toStartOfInterval(Timestamp, INTERVAL 1 MINUTE) AS time, round(quantile(0.50)(Duration) / 1e6, 2) AS p50_ms, round(quantile(0.95)(Duration) / 1e6, 2) AS p95_ms, round(quantile(0.99)(Duration) / 1e6, 2) AS p99_ms FROM otel.otel_traces WHERE $__timeFilter(Timestamp) AND ParentSpanId = '' GROUP BY time ORDER BY time"
+        }
+      ]
+    },
+    {
+      "id": 7,
+      "title": "Ошибки/мин по сервисам",
+      "type": "timeseries",
+      "datasource": { "type": "grafana-clickhouse-datasource", "uid": "bfbcca0459mo0f" },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 12 },
+      "fieldConfig": { "defaults": { "custom": { "drawStyle": "bars", "fillOpacity": 60, "showPoints": "never", "stacking": { "mode": "normal" } }, "color": { "mode": "palette-classic" } }, "overrides": [] },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "grafana-clickhouse-datasource", "uid": "bfbcca0459mo0f" },
+          "editorType": "sql",
+          "queryType": "timeseries",
+          "rawSql": "SELECT toStartOfInterval(Timestamp, INTERVAL 1 MINUTE) AS time, countIf(ServiceName = 'waf-frontend' AND StatusCode = 'Error') AS frontend, countIf(ServiceName = 'waf-angie' AND StatusCode = 'Error') AS angie, countIf(ServiceName = 'waf-gobackend' AND StatusCode = 'Error') AS gobackend FROM otel.otel_traces WHERE $__timeFilter(Timestamp) GROUP BY time ORDER BY time"
+        }
+      ]
+    },
+    {
+      "id": 8,
+      "title": "Самые медленные операции (p95)",
+      "type": "table",
+      "datasource": { "type": "grafana-clickhouse-datasource", "uid": "bfbcca0459mo0f" },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 12 },
+      "fieldConfig": { "defaults": {}, "overrides": [{ "matcher": { "id": "byRegexp", "options": ".*_ms" }, "properties": [{ "id": "unit", "value": "ms" }] }] },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "grafana-clickhouse-datasource", "uid": "bfbcca0459mo0f" },
+          "editorType": "sql",
+          "queryType": "table",
+          "rawSql": "SELECT ServiceName AS service, SpanName AS operation, count() AS spans, round(quantile(0.95)(Duration) / 1e6, 2) AS p95_ms, round(max(Duration) / 1e6, 2) AS max_ms FROM otel.otel_traces WHERE $__timeFilter(Timestamp) GROUP BY service, operation ORDER BY p95_ms DESC LIMIT 20"
+        }
+      ]
+    },
+    {
+      "id": 9,
+      "title": "Последние трассы (корневые спаны) — скопируйте TraceId в Explore → ClickHouse → тип запроса Traces для водопада",
+      "type": "table",
+      "datasource": { "type": "grafana-clickhouse-datasource", "uid": "bfbcca0459mo0f" },
+      "gridPos": { "h": 9, "w": 24, "x": 0, "y": 20 },
+      "fieldConfig": { "defaults": {}, "overrides": [{ "matcher": { "id": "byName", "options": "duration_ms" }, "properties": [{ "id": "unit", "value": "ms" }] }] },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "grafana-clickhouse-datasource", "uid": "bfbcca0459mo0f" },
+          "editorType": "sql",
+          "queryType": "table",
+          "rawSql": "SELECT formatDateTime(Timestamp, '%Y-%m-%d %H:%M:%S') AS ts, ServiceName AS service, SpanName AS operation, round(Duration / 1e6, 2) AS duration_ms, StatusCode AS status, TraceId AS trace_id FROM otel.otel_traces WHERE $__timeFilter(Timestamp) AND ParentSpanId = '' ORDER BY Timestamp DESC LIMIT 100"
+        }
+      ]
+    }
+  ]
+}

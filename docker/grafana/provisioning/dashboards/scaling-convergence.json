@@ -2,7 +2,7 @@
   "annotations": { "list": [] },
   "editable": true,
   "schemaVersion": 39,
-  "title": "WAF — Horizontal Scaling Convergence",
+  "title": "WAF — Сходимость горизонтального масштабирования",
   "uid": "waf-scaling-converge",
   "tags": ["waf", "scaling"],
   "time": { "from": "now-1h", "to": "now" },
@@ -21,7 +21,7 @@
   "panels": [
     {
       "id": 1,
-      "title": "Applied vs published generation",
+      "title": "Применённое vs опубликованное поколение",
       "type": "timeseries",
       "datasource": { "type": "prometheus", "uid": "${DS_PROM}" },
       "gridPos": { "h": 9, "w": 24, "x": 0, "y": 0 },
@@ -31,19 +31,19 @@
           "refId": "A",
           "datasource": { "type": "prometheus", "uid": "${DS_PROM}" },
           "expr": "max(state_published_generation)",
-          "legendFormat": "published"
+          "legendFormat": "опубликовано"
         },
         {
           "refId": "B",
           "datasource": { "type": "prometheus", "uid": "${DS_PROM}" },
           "expr": "edge_sync_applied_generation",
-          "legendFormat": "applied {{instance}}"
+          "legendFormat": "применено {{instance}}"
         }
       ]
     },
     {
       "id": 2,
-      "title": "Convergence lag (generations behind)",
+      "title": "Отставание сходимости (поколений позади)",
       "type": "timeseries",
       "datasource": { "type": "prometheus", "uid": "${DS_PROM}" },
       "gridPos": { "h": 8, "w": 12, "x": 0, "y": 9 },
@@ -59,7 +59,7 @@
     },
     {
       "id": 3,
-      "title": "Edge-sync errors (rate)",
+      "title": "Ошибки edge-sync (частота)",
       "type": "timeseries",
       "datasource": { "type": "prometheus", "uid": "${DS_PROM}" },
       "gridPos": { "h": 8, "w": 12, "x": 12, "y": 9 },
