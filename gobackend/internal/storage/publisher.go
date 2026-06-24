@@ -18,6 +18,16 @@ type Publisher struct {
 	// publish — wired to the state_published_generation gauge (SC-007). Optional
 	// so storage stays free of a metrics dependency.
 	OnPublish func(generation int64)
+	// Lock, if set, serialises the read-modify-publish section cluster-wide
+	// (Postgres advisory lock, T025). Optional: nil in single-node local mode
+	// (one writer); set in s3 mode so backend replicas rarely race on the CAS.
+	// It only reduces contention — the CAS in PublishManifest is the floor (R6).
+	Lock Locker
+}
+
+// Locker serialises a critical section across processes (advisory lock).
+type Locker interface {
+	WithLock(ctx context.Context, fn func() error) error
 }
 
 func NewPublisher(s Store) *Publisher { return &Publisher{store: s} }
@@ -35,8 +45,16 @@ const publishMaxAttempts = 8
 
 // Publish bumps the generation, recording cs, and stores the new manifest with
 // optimistic concurrency. On ErrConflict it rebuilds on the winner's manifest
-// and retries.
+// and retries. When a Locker is set, the whole read-modify-publish runs under a
+// cluster-wide advisory lock so replicas rarely reach the CAS conflict path.
 func (p *Publisher) Publish(ctx context.Context, cs ChangeSet) error {
+	if p.Lock != nil {
+		return p.Lock.WithLock(ctx, func() error { return p.publish(ctx, cs) })
+	}
+	return p.publish(ctx, cs)
+}
+
+func (p *Publisher) publish(ctx context.Context, cs ChangeSet) error {
 	for attempt := 0; attempt < publishMaxAttempts; attempt++ {
 		m, etag, err := p.store.ReadManifest(ctx)
 		if err != nil {

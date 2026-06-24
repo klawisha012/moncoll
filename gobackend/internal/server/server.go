@@ -148,12 +148,15 @@ func (s *Server) Start(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("storage backend init failed: %w", err)
 	}
+	s3Mode := s.cfg.Storage.Backend == "s3"
 	statePublisher := storage.NewPublisher(storageStore)
 	statePublisher.OnPublish = s.metrics.SetPublishedGeneration // SC-007 convergence gauge
+	if s3Mode {
+		statePublisher.Lock = st // T025: serialise replicas' manifest publishes (advisory lock)
+	}
 	s.log.Info("storage backend selected", "mode", s.cfg.Storage.Backend)
 
 	// Local tenants base for filesystem-coupled guards/renames (empty in s3 mode).
-	s3Mode := s.cfg.Storage.Backend == "s3"
 	localTenantsBase := ""
 	if !s3Mode {
 		localTenantsBase = getenvOr("WAF_TENANTS_DIR", "/var/lib/waf/tenants")
