@@ -1237,7 +1237,7 @@ function NativePanels(props: {
           <Show when={props.visiblePanels.has("metricBlockedThreats")}>
             <div
               class="metric-card"
-              title="Сколько запросов ModSecurity заблокировал по правилам CRS. Под значением — число событий high+critical severity."
+              title="Сколько запросов движок правил заблокировал. Под значением — число событий high+critical severity."
             >
               <div class="metric-icon rose">
                 <ShieldOff size={18} />
@@ -1250,7 +1250,7 @@ function NativePanels(props: {
           <Show when={props.visiblePanels.has("metricAvgLatency")}>
             <div
               class="metric-card"
-              title="Средняя задержка ответа upstream (request_time) за период. Health % — обобщённый показатель состояния стека (Angie+ModSec+CrowdSec)."
+              title="Средняя задержка ответа upstream (request_time) за период. Health % — обобщённый показатель состояния WAF."
             >
               <div class="metric-icon violet">
                 <Clock size={18} />
@@ -1263,7 +1263,7 @@ function NativePanels(props: {
           <Show when={props.visiblePanels.has("metricActiveRules")}>
             <div
               class="metric-card"
-              title="Количество загруженных правил OWASP CRS в ModSecurity, готовых отрабатывать на трафике."
+              title="Количество загруженных правил движка, готовых отрабатывать на трафике."
             >
               <div class="metric-icon emerald">
                 <ScrollText size={18} />

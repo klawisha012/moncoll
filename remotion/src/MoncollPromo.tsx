@@ -25,7 +25,7 @@ export const MoncollPromo = () => {
 
       {scenes.map((s, i) => (
         <Sequence key={s.id} from={introFrames + featureFrames * i} durationInFrames={featureFrames} layout="none">
-          <FeatureScene index={i} keyword={s.keyword} label={s.label} asset={s.asset} route={s.route} />
+          <FeatureScene index={i} keyword={s.keyword} label={s.label} route={s.route} />
         </Sequence>
       ))}
 

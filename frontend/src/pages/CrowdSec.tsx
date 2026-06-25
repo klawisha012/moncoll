@@ -265,7 +265,7 @@ export default function CrowdSec() {
         {/* Header */}
         <div class="page-header">
           <div>
-            <h1>CrowdSec</h1>
+            <h1>{settings.t("crowdsec.title")}</h1>
             <p>{settings.t("crowdsec.subtitle")}</p>
           </div>
         </div>

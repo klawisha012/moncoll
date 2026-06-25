@@ -3,31 +3,27 @@
   "scenes": [
     {
       "id": "geoip",
-      "keyword": "GeoIP",
-      "label": "Live attack map",
-      "route": "/home",
-      "asset": "assets/shot-geoip.png"
+      "keyword": "Threat Map",
+      "label": "Live attack origins",
+      "route": "/home"
     },
     {
       "id": "modsec",
-      "keyword": "ModSecurity",
-      "label": "OWASP CRS rules",
-      "route": "/config",
-      "asset": "assets/shot-modsec.png"
+      "keyword": "Rule Engine",
+      "label": "Managed rule sets",
+      "route": "/config"
     },
     {
       "id": "crowdsec",
-      "keyword": "CrowdSec",
-      "label": "Crowd-sourced bans",
-      "route": "/crowdsec",
-      "asset": "assets/shot-crowdsec.png"
+      "keyword": "Behavior Analyzer",
+      "label": "Adaptive IP bans",
+      "route": "/security"
     },
     {
       "id": "realtime",
       "keyword": "Real-time",
       "label": "Live dashboards",
-      "route": "/dashboard",
-      "asset": "assets/shot-realtime.png"
+      "route": "/dashboard"
     }
   ]
 }

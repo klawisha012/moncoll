@@ -500,7 +500,7 @@ export default function Tests() {
               onClick={() => setDebugTab("decisions")}
               style={tabStyle(debugTab() === "decisions")}
             >
-              CrowdSec Decisions Diff
+              Analyzer Decisions Diff
             </button>
             <button
               class={`btn btn-sm ${debugTab() === "timeline" ? "active" : ""}`}
@@ -632,7 +632,7 @@ export default function Tests() {
                   }>
                     <div>
                       <div style={{ "margin-bottom": "8px", "font-weight": 700, "font-family": "var(--font-cond)", "text-transform": "uppercase", "color": "var(--text-secondary)" }}>
-                        CrowdSec Active Decisions snapshot (Before vs After):
+                        Analyzer Active Decisions snapshot (Before vs After):
                       </div>
                       {renderDecisionsDiff(data, settings.t)}
                     </div>
@@ -1483,9 +1483,9 @@ function formatHttpResponse(raw: string) {
 
 function renderTimeline(data: CrowdsecRunResult, t: (key: string) => string) {
   const steps = [
-    { time: "0.0s", text: `[1/5] Snapshotting CrowdSec decisions before test (found ${data.decisions_before.length} active bans).`, color: "var(--text-secondary)" },
+    { time: "0.0s", text: `[1/5] Snapshotting analyzer decisions before test (found ${data.decisions_before.length} active bans).`, color: "var(--text-secondary)" },
     { time: "0.2s", text: `[2/5] Firing burst of ${data.bursts_sent} attack requests to internal target: ${data.target_url}`, color: "var(--text-primary)" },
-    { time: "1.2s", text: `[3/5] Requests finished. Sleeping for 4.0s to allow CrowdSec to parse logs and register decisions...`, color: "var(--text-muted)" },
+    { time: "1.2s", text: `[3/5] Requests finished. Sleeping for 4.0s to allow the analyzer to parse logs and register decisions...`, color: "var(--text-muted)" },
     { time: "5.2s", text: `[4/5] Snapshotting decisions after test (found ${data.decisions_after.length} active bans).`, color: "var(--text-secondary)" },
   ];
 
@@ -1495,13 +1495,13 @@ function renderTimeline(data: CrowdsecRunResult, t: (key: string) => string) {
   if (newDecisions.length > 0) {
     steps.push({
       time: "5.3s",
-      text: `[5/5] SUCCESS! CrowdSec successfully blocked ${newDecisions.length} IP address(es): ${newDecisions.map(d => `${d.value} via scenario ${d.reason}`).join(", ")}`,
+      text: `[5/5] SUCCESS! The analyzer successfully blocked ${newDecisions.length} IP address(es): ${newDecisions.map(d => `${d.value} via scenario ${d.reason}`).join(", ")}`,
       color: "var(--ok)",
     });
   } else {
     steps.push({
       time: "5.3s",
-      text: `[5/5] WARNING: No new IP bans registered. Verify that the connection has 'crowdsec_active: true' or that the CrowdSec service parser is configured correctly.`,
+      text: `[5/5] WARNING: No new IP bans registered. Verify that the analyzer is enabled for this connection and that its log parser is configured correctly.`,
       color: "var(--amber)",
     });
   }

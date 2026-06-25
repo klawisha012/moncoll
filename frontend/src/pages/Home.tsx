@@ -31,7 +31,7 @@ function classifyUnresolvedIp(ip: string): { kind: string; reason: string } {
   if (a === 100 && b >= 64 && b <= 127) return { kind: "CGNAT", reason: "RFC 6598." };
   if (a >= 224 && a <= 239) return { kind: "Multicast", reason: "224.0.0.0/4." };
   if (a >= 240) return { kind: "Reserved", reason: "240.0.0.0/4." };
-  return { kind: "Public", reason: "Missing from MaxMind GeoLite2." };
+  return { kind: "Public", reason: "Not found in the geolocation database." };
 }
 
 const cityCoordinatesCache = new Map<string, { latitude: number; longitude: number }>();
