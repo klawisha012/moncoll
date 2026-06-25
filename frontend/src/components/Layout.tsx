@@ -5,7 +5,6 @@ import {
   Link2,
   Activity,
   Settings,
-  Shield,
   Ban,
   Cog,
   Users as UsersIcon,
@@ -182,27 +181,15 @@ export default function Layout(props: { children?: JSX.Element }) {
         </nav>
 
         <div class="sidebar-footer">
-          <Show when={auth.user}>
-            <AccountSwitcher />
-          </Show>
-          <div
-            style={{
-              padding: "14px 18px",
-              "border-top": "3px solid var(--ink)",
-              display: "flex",
-              "align-items": "center",
-              gap: "10px",
-              "font-family": "var(--font-cond)",
-              "font-size": "11px",
-              "font-weight": 700,
-              "letter-spacing": "0.18em",
-              "text-transform": "uppercase",
-              color: "var(--ink)",
-            }}
-          >
-            <Shield size={15} />
-            <span>{settings.t("status.engine")}</span>
-            <span class="status-dot active" style={{ "margin-left": "auto" }} />
+          <div class="sidebar-footer-row">
+            <Show when={auth.user}>
+              <AccountSwitcher />
+            </Show>
+            <span
+              class="status-dot active"
+              style={{ "margin-left": "auto" }}
+              title={settings.t("status.engine")}
+            />
             <button
               class="settings-gear-btn"
               onClick={() => setPopoverOpen(!popoverOpen())}

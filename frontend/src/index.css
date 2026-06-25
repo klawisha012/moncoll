@@ -1494,6 +1494,14 @@ label.label,
    ═══════════════════════════════════════════════════════════════════════════ */
 .sidebar-footer { position: relative; }
 
+.sidebar-footer-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 14px 18px;
+  border-top: 3px solid var(--ink);
+}
+
 .settings-gear-btn {
   display: inline-flex;
   align-items: center;
@@ -1884,10 +1892,10 @@ input[type="number"] { -moz-appearance: textfield; }
 }
 
 /* ── Account switcher ─────────────────────────────────────── */
-.acct-switcher { position: relative; }
+.acct-switcher { position: relative; flex: 1; min-width: 0; }
 /* Account switcher lives in the sidebar footer: the user card is the trigger,
    the menu opens upward above it. */
-.acct-card { display: flex; align-items: center; gap: 10px; padding: 14px 18px; border-top: 3px solid var(--ink); }
+.acct-card { display: flex; align-items: center; gap: 10px; }
 .acct-card-main { flex: 1; min-width: 0; display: flex; align-items: center; gap: 12px; padding: 0; border: 0; background: transparent; color: var(--ink); cursor: pointer; text-align: left; }
 .acct-card-main:hover .acct-name { color: var(--red); }
 .acct-avatar { width: 36px; height: 36px; flex-shrink: 0; display: flex; align-items: center; justify-content: center; background: var(--red); color: var(--cream); border: 2px solid var(--ink); font-family: var(--font-display); font-weight: 900; font-size: 16px; letter-spacing: -0.02em; }
@@ -1895,15 +1903,13 @@ input[type="number"] { -moz-appearance: textfield; }
 .acct-name { font-family: var(--font-cond); font-weight: 700; font-size: 13px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; transition: color 120ms ease; }
 .acct-role { font-family: var(--font-mono); font-size: 10.5px; letter-spacing: 0.04em; color: var(--ink-soft); }
 .acct-caret { flex: none; font-size: 11px; color: var(--ink-soft); }
-.acct-logout-btn { flex-shrink: 0; display: flex; align-items: center; justify-content: center; padding: 6px 8px; border: 2px solid var(--ink); background: var(--cream); color: var(--ink); cursor: pointer; }
-.acct-logout-btn:hover { background: var(--red); color: var(--cream); }
 .acct-menu { position: absolute; left: 0; right: 0; bottom: calc(100% + 4px); top: auto; z-index: 50; border: 3px solid var(--ink); background: var(--cream); box-shadow: var(--shadow-offset-sm); display: flex; flex-direction: column; max-height: 60vh; overflow-y: auto; }
 .acct-item { display: flex; align-items: center; gap: 8px; padding: 10px 12px; border: 0; border-bottom: 1.5px solid var(--line); background: var(--cream); color: var(--ink); cursor: pointer; text-align: left; font-family: var(--font-body); font-size: 13px; }
 .acct-item:hover { background: var(--cream-3); }
 .acct-item.is-active { background: var(--cream-2); }
 .acct-item-email { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .acct-check { color: var(--ok); font-weight: 700; }
-.acct-add, .acct-logout-all { padding: 9px 12px; border: 0; background: var(--cream); color: var(--ink); font-family: var(--font-cond); font-size: 11px; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase; cursor: pointer; text-align: left; text-decoration: none; }
-.acct-add { border-bottom: 1.5px solid var(--line); }
-.acct-add:hover, .acct-logout-all:hover { background: var(--ink); color: var(--cream); }
+.acct-add, .acct-logout-one, .acct-logout-all { padding: 9px 12px; border: 0; background: var(--cream); color: var(--ink); font-family: var(--font-cond); font-size: 11px; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase; cursor: pointer; text-align: left; text-decoration: none; }
+.acct-add, .acct-logout-one { border-bottom: 1.5px solid var(--line); }
+.acct-add:hover, .acct-logout-one:hover, .acct-logout-all:hover { background: var(--ink); color: var(--cream); }
 

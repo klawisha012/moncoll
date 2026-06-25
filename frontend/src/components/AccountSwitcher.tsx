@@ -1,6 +1,5 @@
 import { createSignal, For, Show, onMount, onCleanup } from "solid-js";
 import { useNavigate } from "@solidjs/router";
-import { LogOut } from "lucide-solid";
 import { api, type Account } from "../api/client";
 import { useAuth } from "../context/AuthContext";
 import { useSettings } from "../context/SettingsContext";
@@ -60,6 +59,7 @@ export default function AccountSwitcher() {
             )}
           </For>
           <a class="acct-add" href="/login?add=1">{t("account.add")}</a>
+          <button type="button" class="acct-logout-one" onClick={onLogout}>{t("auth.logout")}</button>
           <button type="button" class="acct-logout-all" onClick={onLogoutAll}>{t("account.logoutAll")}</button>
         </div>
       </Show>
@@ -78,15 +78,6 @@ export default function AccountSwitcher() {
             <span class="acct-role">{auth.user?.platform_role}</span>
           </span>
           <span class="acct-caret">▾</span>
-        </button>
-        <button
-          type="button"
-          class="acct-logout-btn"
-          onClick={onLogout}
-          title={t("auth.logout")}
-          aria-label={t("auth.logout")}
-        >
-          <LogOut size={14} />
         </button>
       </div>
     </div>
