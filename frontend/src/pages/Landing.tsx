@@ -71,13 +71,6 @@ export default function Landing() {
             <span class="lp-stack lp-tilt">{settings.t("landing.hero.title3")}</span>
           </h1>
           <p class="lp-deck">{settings.t("landing.hero.deck")}</p>
-          <div class="lp-cta-row">
-            <A href={ctaHref()} class="lp-cta-primary">
-              <span>{ctaLabel()}</span>
-              <span class="lp-ar">→</span>
-            </A>
-            <A href="/signup" class="lp-cta-secondary">{settings.t("landing.nav.signup")}</A>
-          </div>
         </div>
 
         <div class="lp-media">
@@ -204,24 +197,6 @@ const styles = `
   max-width: 42ch; border-left: 4px solid var(--red); padding-left: 16px; margin: 0 0 32px;
   color: var(--ink-soft);
 }
-.lp-cta-row { display: flex; gap: 16px; align-items: center; flex-wrap: wrap; }
-.lp-cta-primary {
-  display: inline-flex; align-items: center; justify-content: space-between; gap: 16px;
-  background: var(--red); color: var(--cream); border: 3px solid var(--line);
-  padding: 16px 24px; min-width: 220px;
-  font-family: var(--font-display); font-weight: 900; font-size: 20px;
-  letter-spacing: 0.02em; text-transform: uppercase; text-decoration: none;
-  box-shadow: 6px 6px 0 var(--line); transition: transform 90ms, box-shadow 90ms;
-}
-.lp-cta-primary:hover { transform: translate(-3px,-3px); box-shadow: 9px 9px 0 var(--line); }
-.lp-ar { font-family: var(--font-mono); font-size: 20px; }
-.lp-cta-secondary {
-  font-family: var(--font-cond); font-weight: 700; font-size: 13px;
-  letter-spacing: 0.18em; text-transform: uppercase; color: var(--ink);
-  text-decoration: none; border-bottom: 3px solid var(--red); padding-bottom: 2px;
-}
-.lp-cta-secondary:hover { color: var(--red); }
-
 .lp-media {
   position: relative; width: 100%; aspect-ratio: 16 / 9; max-height: 78vh;
   border: 3px solid var(--line); box-shadow: 9px 9px 0 var(--line);
