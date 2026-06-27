@@ -11,6 +11,7 @@ import (
 	"google.golang.org/protobuf/types/known/emptypb"
 
 	modsecurityv1 "github.com/zwarder/waf/gobackend/gen/modsecurity/v1"
+	"github.com/zwarder/waf/gobackend/internal/auth"
 	"github.com/zwarder/waf/gobackend/internal/modsec"
 	"github.com/zwarder/waf/gobackend/internal/storage"
 )
@@ -58,6 +59,24 @@ func TestGetConfig_NotFound(t *testing.T) {
 	st, ok := status.FromError(err)
 	require.True(t, ok)
 	assert.Equal(t, codes.NotFound, st.Code())
+}
+
+func TestAuthLevels_WriteOperationsRequireAdmin(t *testing.T) {
+	levels := newSvc(t, nil).AuthLevels()
+
+	assert.Equal(t, auth.LevelVerified, levels[modsecurityv1.ModSecurityService_GetConfig_FullMethodName])
+	assert.Equal(t, auth.LevelVerified, levels[modsecurityv1.ModSecurityService_GetRules_FullMethodName])
+	assert.Equal(t, auth.LevelVerified, levels[modsecurityv1.ModSecurityService_ListRules_FullMethodName])
+
+	for _, method := range []string{
+		modsecurityv1.ModSecurityService_UpdateConfig_FullMethodName,
+		modsecurityv1.ModSecurityService_UpdateRules_FullMethodName,
+		modsecurityv1.ModSecurityService_AddRule_FullMethodName,
+		modsecurityv1.ModSecurityService_DeleteRule_FullMethodName,
+		modsecurityv1.ModSecurityService_Reload_FullMethodName,
+	} {
+		assert.Equal(t, auth.LevelAdmin, levels[method], method)
+	}
 }
 
 func TestGetRules_NotFound(t *testing.T) {

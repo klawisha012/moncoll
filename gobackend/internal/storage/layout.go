@@ -1,7 +1,9 @@
 package storage
 
 import (
+	"fmt"
 	"path"
+	"regexp"
 	"strings"
 )
 
@@ -24,6 +26,11 @@ type LocalLayout struct {
 	Modsec  string // default /app/etc/angie/modsecurity (WAF_MODSEC_DIR)
 }
 
+var (
+	decimalSegmentRe = regexp.MustCompile(`^[0-9]+$`)
+	connSegmentRe    = regexp.MustCompile(`^conn_[0-9]+$`)
+)
+
 // DefaultLayout returns the production container paths.
 func DefaultLayout() LocalLayout {
 	return LocalLayout{
@@ -35,25 +42,62 @@ func DefaultLayout() LocalLayout {
 }
 
 // Path resolves a canonical key to its live local path.
-func (l LocalLayout) Path(key string) string {
-	cls, rest, ok := strings.Cut(key, "/")
-	if !ok {
-		return path.Join(l.State, key) // bare top-level key (defensive)
+func (l LocalLayout) Path(key string) (string, error) {
+	key = strings.TrimSuffix(key, "/")
+	parts, err := canonicalKeyParts(key)
+	if err != nil {
+		return "", err
 	}
+	cls := parts[0]
+	rest := strings.Join(parts[1:], "/")
 	switch cls {
 	case "tenants":
 		// <tid>/conn_<id>/<rest> → <tid>/compose/conn_<id>/<rest>
-		if tid, sub, ok := strings.Cut(rest, "/"); ok {
-			return path.Join(l.Tenants, tid, "compose", sub)
+		if len(parts) < 3 || !decimalSegmentRe.MatchString(parts[1]) || !connSegmentRe.MatchString(parts[2]) {
+			return "", fmt.Errorf("storage: invalid tenant object key %q", key)
 		}
-		return path.Join(l.Tenants, rest)
+		return containedJoin(l.Tenants, append([]string{parts[1], "compose"}, parts[2:]...)...)
 	case "certs":
-		return path.Join(l.HTTPD, rest)
+		if len(parts) < 2 || !connSegmentRe.MatchString(parts[1]) {
+			return "", fmt.Errorf("storage: invalid cert object key %q", key)
+		}
+		return containedJoin(l.HTTPD, rest)
 	case "modsec":
-		return path.Join(l.Modsec, rest)
+		if len(parts) < 2 {
+			return "", fmt.Errorf("storage: invalid modsec object key %q", key)
+		}
+		return containedJoin(l.Modsec, rest)
 	case "state":
-		return path.Join(l.State, rest)
+		if len(parts) < 2 {
+			return "", fmt.Errorf("storage: invalid state object key %q", key)
+		}
+		return containedJoin(l.State, rest)
 	default:
-		return path.Join(l.State, key)
+		return "", fmt.Errorf("storage: unknown object key class %q", cls)
 	}
+}
+
+func canonicalKeyParts(key string) ([]string, error) {
+	if key == "" || strings.Contains(key, "\\") || strings.Contains(key, "\x00") || path.IsAbs(key) {
+		return nil, fmt.Errorf("storage: invalid object key %q", key)
+	}
+	if path.Clean(key) != key {
+		return nil, fmt.Errorf("storage: non-canonical object key %q", key)
+	}
+	parts := strings.Split(key, "/")
+	for _, part := range parts {
+		if part == "" || part == "." || part == ".." {
+			return nil, fmt.Errorf("storage: invalid object key %q", key)
+		}
+	}
+	return parts, nil
+}
+
+func containedJoin(root string, elems ...string) (string, error) {
+	cleanRoot := path.Clean(root)
+	target := path.Join(append([]string{cleanRoot}, elems...)...)
+	if target != cleanRoot && !strings.HasPrefix(target, strings.TrimRight(cleanRoot, "/")+"/") {
+		return "", fmt.Errorf("storage: resolved path escapes root")
+	}
+	return target, nil
 }

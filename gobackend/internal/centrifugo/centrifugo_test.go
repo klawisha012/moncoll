@@ -49,6 +49,12 @@ func TestMintConnectionToken_ValidHS256JWT(t *testing.T) {
 
 	// Algorithm header must be HS256.
 	assert.Equal(t, "HS256", token.Method.Alg())
+
+	subs, ok := claims["subs"].(map[string]any)
+	require.True(t, ok)
+	dashboardSub, ok := subs["dashboard:map"].(map[string]any)
+	require.True(t, ok)
+	assert.Empty(t, dashboardSub)
 }
 
 func TestMintConnectionToken_EmptySecret(t *testing.T) {

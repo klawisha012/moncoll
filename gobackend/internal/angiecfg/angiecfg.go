@@ -14,6 +14,8 @@ package angiecfg
 import (
 	"context"
 	"fmt"
+	"net/netip"
+	"regexp"
 	"sort"
 	"strings"
 	"time"
@@ -40,6 +42,7 @@ const (
 // validHTTPVersions and validCompression mirror the Python constants.
 var validHTTPVersions = map[string]bool{"h1": true, "h2": true, "h3": true}
 var validCompression = map[string]bool{"auto": true, "gzip": true, "brotli": true, "zstd": true, "none": true}
+var validOriginHostnameRe = regexp.MustCompile(`^[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(?:\.[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*\.?$`)
 
 // ConnConfig carries all the per-connection fields needed to generate the
 // Angie server-block configuration. It mirrors the columns that
@@ -162,7 +165,10 @@ func renderConf(cfg ConnConfig) (string, error) {
 	tenantID := cfg.TenantID
 	domain := cfg.Domain
 
-	originHosts := cfg.OriginHosts
+	originHosts, err := NormalizeOriginHosts(cfg.OriginHosts)
+	if err != nil {
+		return "", err
+	}
 	originPort := cfg.OriginPort
 	if originPort == 0 {
 		originPort = 443
@@ -392,6 +398,71 @@ func renderConf(cfg ConnConfig) (string, error) {
 	}
 
 	return b.String(), nil
+}
+
+// NormalizeOriginHosts validates and normalizes upstream host values before
+// they are written into Angie config. The origin port is a separate field, so
+// host:port input is rejected here.
+func NormalizeOriginHosts(hosts []string) ([]string, error) {
+	if len(hosts) == 0 {
+		return hosts, nil
+	}
+	seen := make(map[string]struct{}, len(hosts))
+	out := make([]string, 0, len(hosts))
+	for _, raw := range hosts {
+		host, err := NormalizeOriginHost(raw)
+		if err != nil {
+			return nil, err
+		}
+		if host == "" {
+			continue
+		}
+		if _, ok := seen[host]; ok {
+			continue
+		}
+		seen[host] = struct{}{}
+		out = append(out, host)
+	}
+	if out == nil {
+		return []string{}, nil
+	}
+	return out, nil
+}
+
+// NormalizeOriginHost accepts IPv4, IPv6, or DNS hostname input and returns the
+// exact value safe to interpolate into an Angie upstream `server <host>:<port>`
+// directive. IPv6 literals are bracketed for nginx-compatible syntax.
+func NormalizeOriginHost(raw string) (string, error) {
+	h := strings.TrimSpace(raw)
+	if h == "" {
+		return "", nil
+	}
+	if strings.ContainsAny(h, "\x00\r\n\t /\\;{}\"'`$") {
+		return "", fmt.Errorf("invalid origin host %q", raw)
+	}
+	if strings.HasPrefix(h, "[") || strings.HasSuffix(h, "]") {
+		if !strings.HasPrefix(h, "[") || !strings.HasSuffix(h, "]") {
+			return "", fmt.Errorf("invalid origin host %q", raw)
+		}
+		addr, err := netip.ParseAddr(strings.TrimPrefix(strings.TrimSuffix(h, "]"), "["))
+		if err != nil || !addr.Is6() {
+			return "", fmt.Errorf("invalid origin host %q", raw)
+		}
+		return "[" + addr.String() + "]", nil
+	}
+	if addr, err := netip.ParseAddr(h); err == nil {
+		if addr.Is6() {
+			return "[" + addr.String() + "]", nil
+		}
+		return addr.String(), nil
+	}
+	if strings.Contains(h, ":") {
+		return "", fmt.Errorf("origin host must not include a port: %q", raw)
+	}
+	if len(h) > 253 || !validOriginHostnameRe.MatchString(h) {
+		return "", fmt.Errorf("invalid origin host %q", raw)
+	}
+	return strings.ToLower(strings.TrimSuffix(h, ".")), nil
 }
 
 // writeln appends line + "\n" to b.

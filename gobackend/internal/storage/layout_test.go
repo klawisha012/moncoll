@@ -13,8 +13,29 @@ func TestLocalLayoutPath(t *testing.T) {
 		"modsec/rules.conf":                 "/m/rules.conf",
 	}
 	for key, want := range cases {
-		if got := l.Path(key); got != want {
+		got, err := l.Path(key)
+		if err != nil {
+			t.Fatalf("Path(%q) unexpected error: %v", key, err)
+		}
+		if got != want {
 			t.Errorf("Path(%q) = %q, want %q", key, got, want)
+		}
+	}
+}
+
+func TestLocalLayoutPathRejectsTraversal(t *testing.T) {
+	l := LocalLayout{Tenants: "/t", HTTPD: "/h", State: "/s", Modsec: "/m"}
+	for _, key := range []string{
+		"state/../../etc/passwd",
+		"tenants/7/conn_3/../../evil.conf",
+		"/state/manifest.json",
+		`state\manifest.json`,
+		"unknown/file",
+		"tenants/notnum/conn_3/3.conf",
+		"tenants/7/notconn/3.conf",
+	} {
+		if got, err := l.Path(key); err == nil {
+			t.Fatalf("Path(%q) = %q, want error", key, got)
 		}
 	}
 }

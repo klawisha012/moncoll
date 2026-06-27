@@ -12,7 +12,6 @@ import (
 	"strings"
 
 	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
 
 	authv1 "github.com/zwarder/waf/gobackend/gen/auth/v1"
@@ -24,46 +23,17 @@ import (
 // nowUTC is a thin wrapper so OAuth timestamps are consistent + testable.
 func nowUTC() time.Time { return time.Now().UTC() }
 
-// forwardedHost extracts the incoming Host (x-forwarded-host wins over host),
-// mirroring the header reads in oauth.py. grpc-gateway forwards permanent
-// headers prefixed with "grpcgateway-"; the gateway also explicitly forwards
-// the Host as "grpcgateway-host" via a custom matcher (see gateway.go).
-func forwardedHost(ctx context.Context) string {
-	md, ok := metadata.FromIncomingContext(ctx)
-	if !ok {
-		return ""
-	}
-	get := func(k string) string {
-		if v := md.Get(k); len(v) > 0 {
-			return v[0]
-		}
-		return ""
-	}
-	if h := get("grpcgateway-x-forwarded-host"); h != "" {
-		return h
-	}
-	if h := get("x-forwarded-host"); h != "" {
-		return h
-	}
-	if h := get("grpcgateway-host"); h != "" {
-		return h
-	}
-	return get("host")
+func configuredPublicBaseURL(cfg Config) string {
+	return strings.TrimRight(strings.TrimSpace(cfg.PublicBaseURL), "/")
 }
 
-// isPublicHost reports whether host is a real public host (not localhost),
-// matching the "localhost"/"127.0.0.1" checks in oauth.py.
-func isPublicHost(host string) bool {
-	return host != "" && !strings.Contains(host, "localhost") && !strings.Contains(host, "127.0.0.1")
-}
-
-// providerRedirectURI computes the OAuth callback redirect URI, mirroring
-// oauth.py redirect_uri: force https://<incoming-host>/api/auth/oauth/<p>/callback
-// for public hosts, else fall back to the configured static URI.
+// providerRedirectURI computes the OAuth callback redirect URI from trusted
+// configuration only. Client-supplied Host/X-Forwarded-Host metadata must not
+// influence OAuth provider callbacks.
 func (s *Service) providerRedirectURI(ctx context.Context, provider string) string {
-	host := forwardedHost(ctx)
-	if isPublicHost(host) {
-		return "https://" + host + "/api/auth/oauth/" + provider + "/callback"
+	_ = ctx
+	if base := configuredPublicBaseURL(s.cfg); base != "" {
+		return base + "/api/auth/oauth/" + provider + "/callback"
 	}
 	switch provider {
 	case "google":
@@ -74,15 +44,11 @@ func (s *Service) providerRedirectURI(ctx context.Context, provider string) stri
 	return ""
 }
 
-// frontendBase returns the scheme://host prefix for redirecting back to the SPA,
-// or "" when the host is local (relative redirect). Mirrors the
-// _redirect_with_error / callback host-rewriting.
-func frontendBase(ctx context.Context) string {
-	host := forwardedHost(ctx)
-	if isPublicHost(host) {
-		return "https://" + host
-	}
-	return ""
+// frontendBase returns the trusted scheme://host prefix for redirects back to
+// the SPA. With no configured public URL, handlers return relative redirects.
+func (s *Service) frontendBase(ctx context.Context) string {
+	_ = ctx
+	return configuredPublicBaseURL(s.cfg)
 }
 
 // redirectWithError sends the user back to /signup or /login with ?oauth_error=,
@@ -92,7 +58,7 @@ func (s *Service) redirectWithError(ctx context.Context, intent, code string) (*
 	if intent == "signup" {
 		target = "/signup"
 	}
-	loc := frontendBase(ctx) + target + "?oauth_error=" + url.QueryEscape(code)
+	loc := s.frontendBase(ctx) + target + "?oauth_error=" + url.QueryEscape(code)
 	emitSetCookie(ctx, clearCookie(oauthStateCookie, s.cfg.CookieSecure))
 	emitRedirect(ctx, loc)
 	return &authv1.OauthRedirect{Location: loc}, nil
@@ -260,7 +226,7 @@ func (s *Service) OauthCallback(ctx context.Context, req *authv1.OauthCallbackRe
 	}
 	emitSetCookie(ctx, clearCookie(oauthStateCookie, s.cfg.CookieSecure))
 
-	redirectURL := frontendBase(ctx) + "/home"
+	redirectURL := s.frontendBase(ctx) + "/home"
 	emitRedirect(ctx, redirectURL)
 	return &authv1.OauthRedirect{Location: redirectURL}, nil
 }

@@ -47,11 +47,6 @@ func NewGatewayMux(ctx context.Context, grpcAddr string) (*runtime.ServeMux, err
 			MarshalOptions: protoJSONMarshal(),
 		}),
 		runtime.WithErrorHandler(detailErrorHandler),
-		// Forward the Host / X-Forwarded-Host headers to gRPC metadata so the
-		// auth OAuth handlers can rewrite the redirect URI for public hosts
-		// (mirrors oauth.py's request.headers["host"] reads). The default
-		// matcher drops Host; this explicit matcher re-adds it.
-		runtime.WithIncomingHeaderMatcher(authHeaderMatcher),
 		runtime.WithForwardResponseOption(cookieRedirectForwarder),
 		runtime.WithForwardResponseOption(func(_ context.Context, w http.ResponseWriter, resp proto.Message) error {
 			// Authenticated, dynamic API: never let a browser/proxy cache it.
@@ -102,20 +97,6 @@ func NewGatewayMux(ctx context.Context, grpcAddr string) (*runtime.ServeMux, err
 		return nil, err
 	}
 	return mux, nil
-}
-
-// authHeaderMatcher extends the default incoming-header matcher to ALSO forward
-// the Host and X-Forwarded-Host headers (the default matcher prefixes them with
-// "grpcgateway-"). The auth OAuth handlers read these to rewrite the OAuth
-// redirect URI + the /home redirect target for public hosts.
-func authHeaderMatcher(key string) (string, bool) {
-	switch http.CanonicalHeaderKey(key) {
-	case "Host":
-		return "grpcgateway-host", true
-	case "X-Forwarded-Host":
-		return "grpcgateway-x-forwarded-host", true
-	}
-	return runtime.DefaultHeaderMatcher(key)
 }
 
 // cookieRedirectForwarder translates the auth service's response metadata into

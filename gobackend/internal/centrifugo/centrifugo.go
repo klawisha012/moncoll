@@ -7,7 +7,7 @@
 //
 // Token: MintConnectionToken mints a standard HS256 JWT with claims
 //
-//	sub = userID, exp = now+ttl
+//	sub = userID, exp = now+ttl, subs = server-side dashboard subscriptions
 //
 // using CENTRIFUGO_TOKEN_HMAC_SECRET. Centrifugo v6 verifies this with
 // client_token_hmac_secret_key from its config.json (or the env override
@@ -149,6 +149,9 @@ func MintConnectionToken(userID string, ttl time.Duration) (string, error) {
 	claims := jwt.MapClaims{
 		"sub": userID,
 		"exp": now.Add(ttl).Unix(),
+		"subs": map[string]map[string]any{
+			"dashboard:map": map[string]any{},
+		},
 	}
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
 	signed, err := token.SignedString([]byte(secret))

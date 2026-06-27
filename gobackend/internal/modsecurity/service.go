@@ -34,11 +34,11 @@ func (s *Service) AuthLevels() map[string]auth.Level {
 		modsecurityv1.ModSecurityService_GetConfig_FullMethodName:    auth.LevelVerified,
 		modsecurityv1.ModSecurityService_GetRules_FullMethodName:     auth.LevelVerified,
 		modsecurityv1.ModSecurityService_ListRules_FullMethodName:    auth.LevelVerified,
-		modsecurityv1.ModSecurityService_UpdateConfig_FullMethodName: auth.LevelVerified,
-		modsecurityv1.ModSecurityService_UpdateRules_FullMethodName:  auth.LevelVerified,
-		modsecurityv1.ModSecurityService_AddRule_FullMethodName:      auth.LevelVerified,
-		modsecurityv1.ModSecurityService_DeleteRule_FullMethodName:   auth.LevelVerified,
-		modsecurityv1.ModSecurityService_Reload_FullMethodName:       auth.LevelVerified,
+		modsecurityv1.ModSecurityService_UpdateConfig_FullMethodName: auth.LevelAdmin,
+		modsecurityv1.ModSecurityService_UpdateRules_FullMethodName:  auth.LevelAdmin,
+		modsecurityv1.ModSecurityService_AddRule_FullMethodName:      auth.LevelAdmin,
+		modsecurityv1.ModSecurityService_DeleteRule_FullMethodName:   auth.LevelAdmin,
+		modsecurityv1.ModSecurityService_Reload_FullMethodName:       auth.LevelAdmin,
 	}
 }
 

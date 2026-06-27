@@ -40,6 +40,20 @@ const getCentrifugoWsUrl = (): string => {
 const CENTRIFUGO_WS_URL = getCentrifugoWsUrl();
 
 let _client: Centrifuge | null = null;
+const SERVER_SIDE_CHANNELS = new Set(["dashboard:map"]);
+const serverSideHandlers = new Map<string, Set<(data: unknown) => void>>();
+
+function isServerSideChannel(channel: string): boolean {
+  return SERVER_SIDE_CHANNELS.has(channel);
+}
+
+function dispatchServerSidePublication(ctx: { channel: string; data: unknown }) {
+  const handlers = serverSideHandlers.get(ctx.channel);
+  if (!handlers) return;
+  for (const handler of handlers) {
+    handler(ctx.data);
+  }
+}
 
 function getClient(): Centrifuge {
   if (_client) return _client;
@@ -58,6 +72,7 @@ function getClient(): Centrifuge {
   _client.on("connected", (ctx) => console.debug("[centrifuge] connected", ctx));
   _client.on("disconnected", (ctx) => console.debug("[centrifuge] disconnected", ctx));
   _client.on("error", (ctx) => console.warn("[centrifuge] error", ctx));
+  _client.on("publication", dispatchServerSidePublication);
 
   _client.connect();
   return _client;
@@ -84,6 +99,22 @@ export function subscribe<T>(
   onPublication: (data: T) => void,
 ): () => void {
   const client = getClient();
+  if (isServerSideChannel(channel)) {
+    const handler = (data: unknown) => onPublication(data as T);
+    let handlers = serverSideHandlers.get(channel);
+    if (!handlers) {
+      handlers = new Set();
+      serverSideHandlers.set(channel, handlers);
+    }
+    handlers.add(handler);
+    return () => {
+      handlers?.delete(handler);
+      if (handlers?.size === 0) {
+        serverSideHandlers.delete(channel);
+      }
+    };
+  }
+
   let sub: Subscription | null = client.getSubscription(channel);
   if (!sub) {
     sub = client.newSubscription(channel);

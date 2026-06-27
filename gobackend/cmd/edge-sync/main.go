@@ -158,7 +158,11 @@ func (s *syncer) apply(ctx context.Context, m storage.Manifest) error {
 		}
 	}
 	for k, e := range desired {
-		final := s.layout.Path(k)
+		final, err := s.layout.Path(k)
+		if err != nil {
+			cleanup()
+			return err
+		}
 		if prev, ok := s.applied.Entries[k]; ok && prev.ETag == e.ETag && fileExists(final) {
 			continue
 		}
@@ -183,7 +187,10 @@ func (s *syncer) apply(ctx context.Context, m storage.Manifest) error {
 		if _, keep := desired[k]; keep {
 			continue
 		}
-		path := s.layout.Path(k)
+		path, err := s.layout.Path(k)
+		if err != nil {
+			return err
+		}
 		if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
 			s.log.Warn("remove stale object failed", "key", k, "err", err)
 			continue

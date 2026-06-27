@@ -12,6 +12,9 @@ package sslapi
 import (
 	"context"
 	"errors"
+	"fmt"
+	"regexp"
+	"strings"
 
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -21,6 +24,8 @@ import (
 	"github.com/zwarder/waf/gobackend/internal/certs"
 	"github.com/zwarder/waf/gobackend/internal/store"
 )
+
+var validCertDomainRe = regexp.MustCompile(`^(?:[a-zA-Z0-9](?:[a-zA-Z0-9\-]{0,61}[a-zA-Z0-9])?\.)+[a-zA-Z]{2,}$`)
 
 // ConnectionResolver resolves a connection scoped to a tenant. Satisfied by
 // *store.Store (via StoreResolver) and by fakes in tests.
@@ -109,10 +114,9 @@ func (s *Service) RequestCertificate(ctx context.Context, req *sslv1.RequestCert
 		return nil, status.Error(codes.Internal, err.Error())
 	}
 
-	// Mirrors Python: domains = request.domains or [conn.domain]
-	domains := req.Domains
-	if len(domains) == 0 {
-		domains = []string{conn.Domain}
+	domains, err := certificateDomainsForConnection(req.Domains, conn.Domain)
+	if err != nil {
+		return nil, status.Error(codes.InvalidArgument, err.Error())
 	}
 
 	tid := tenantID
@@ -176,4 +180,32 @@ func statusResultToProto(sr certs.StatusResult) *sslv1.StatusResponse {
 func isNotFound(err error) bool {
 	var nf *store.NotFoundError
 	return errors.As(err, &nf)
+}
+
+func certificateDomainsForConnection(requested []string, connDomain string) ([]string, error) {
+	owned, err := normalizeCertDomain(connDomain)
+	if err != nil {
+		return nil, fmt.Errorf("connection has invalid domain %q", connDomain)
+	}
+	if len(requested) == 0 {
+		return []string{owned}, nil
+	}
+	for _, raw := range requested {
+		d, err := normalizeCertDomain(raw)
+		if err != nil {
+			return nil, err
+		}
+		if d != owned {
+			return nil, fmt.Errorf("certificate domain %q is not owned by this connection", d)
+		}
+	}
+	return []string{owned}, nil
+}
+
+func normalizeCertDomain(raw string) (string, error) {
+	d := strings.ToLower(strings.TrimSuffix(strings.TrimSpace(raw), "."))
+	if !validCertDomainRe.MatchString(d) {
+		return "", fmt.Errorf("invalid certificate domain %q", raw)
+	}
+	return d, nil
 }

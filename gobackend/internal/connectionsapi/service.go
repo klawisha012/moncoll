@@ -462,15 +462,17 @@ func (s *Service) CreateConnection(ctx context.Context, req *connectionsv1.Creat
 
 	// Build origin hosts (resolve via DNS if empty/absent)
 	var originHosts []string
-	for _, h := range req.OriginHosts {
-		h = strings.TrimSpace(h)
-		if h != "" {
-			originHosts = append(originHosts, h)
+	if len(req.OriginHosts) > 0 {
+		originHosts, err = angiecfg.NormalizeOriginHosts(req.OriginHosts)
+		if err != nil {
+			return nil, status.Error(codes.InvalidArgument, err.Error())
 		}
 	}
 	if len(originHosts) == 0 {
 		if ips, err := s.dns.LookupOriginHosts(ctx, domain); err == nil && len(ips) > 0 {
-			originHosts = ips
+			if normalized, nErr := angiecfg.NormalizeOriginHosts(ips); nErr == nil {
+				originHosts = normalized
+			}
 		}
 	}
 	originHosts = dedupeHosts(originHosts)
@@ -668,11 +670,15 @@ func (s *Service) ProbeConnection(ctx context.Context, req *connectionsv1.ProbeC
 
 			if len(conn.OriginHosts) == 0 {
 				if ips, err := s.dns.LookupOriginHosts(ctx, conn.Domain); err == nil && len(ips) > 0 {
+					originHosts, nErr := angiecfg.NormalizeOriginHosts(ips)
+					if nErr != nil {
+						originHosts = []string{}
+					}
 					_, updateErr := s.store.UpdateConnection(ctx, tenantID, conn.ID, store.ConnectionUpdate{
-						OriginHosts: ips,
+						OriginHosts: originHosts,
 					})
 					if updateErr == nil {
-						conn.OriginHosts = ips
+						conn.OriginHosts = originHosts
 					}
 				}
 			}

@@ -150,8 +150,7 @@ func TestRequestCertificate_EmptyDomains_UsesConnDomain(t *testing.T) {
 	}
 }
 
-// RequestCertificate with explicit domains uses them, not conn.Domain.
-func TestRequestCertificate_ExplicitDomains_UsesThem(t *testing.T) {
+func TestRequestCertificate_ExplicitConnDomainAccepted(t *testing.T) {
 	conn := &store.Connection{ID: 5, Domain: "example.com", TenantID: 42}
 	manager := &fakeCertManager{acmeResult: certs.Result{Success: true, Message: "ok"}}
 	svc := New(&fakeResolver{conn: conn}, manager)
@@ -159,7 +158,7 @@ func TestRequestCertificate_ExplicitDomains_UsesThem(t *testing.T) {
 
 	resp, err := svc.RequestCertificate(ctx, &sslv1.RequestCertRequest{
 		ConnectionId: 5,
-		Domains:      []string{"a.example.com", "b.example.com"},
+		Domains:      []string{"EXAMPLE.com."},
 	})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -167,10 +166,24 @@ func TestRequestCertificate_ExplicitDomains_UsesThem(t *testing.T) {
 	if !resp.Success {
 		t.Errorf("expected success")
 	}
-	if len(manager.gotACMEDomains) != 2 ||
-		manager.gotACMEDomains[0] != "a.example.com" ||
-		manager.gotACMEDomains[1] != "b.example.com" {
-		t.Errorf("expected explicit domains, got %v", manager.gotACMEDomains)
+	if len(manager.gotACMEDomains) != 1 || manager.gotACMEDomains[0] != "example.com" {
+		t.Errorf("expected owned connection domain, got %v", manager.gotACMEDomains)
+	}
+}
+
+func TestRequestCertificate_RejectsUnownedExplicitDomain(t *testing.T) {
+	conn := &store.Connection{ID: 5, Domain: "example.com", TenantID: 42}
+	manager := &fakeCertManager{acmeResult: certs.Result{Success: true, Message: "ok"}}
+	svc := New(&fakeResolver{conn: conn}, manager)
+	ctx := ctxWithTenant(42)
+
+	_, err := svc.RequestCertificate(ctx, &sslv1.RequestCertRequest{
+		ConnectionId: 5,
+		Domains:      []string{"admin.example.net"},
+	})
+	assertCode(t, "RequestCertificate", err, codes.InvalidArgument)
+	if len(manager.gotACMEDomains) != 0 {
+		t.Fatalf("ACME manager should not be called for unowned domains, got %v", manager.gotACMEDomains)
 	}
 }
 

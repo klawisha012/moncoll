@@ -87,6 +87,29 @@ func TestSyncerApply(t *testing.T) {
 	require.Equal(t, int64(3), s2.loadApplied().Generation)
 }
 
+func TestSyncerApplyRejectsUnsafeManifestKey(t *testing.T) {
+	edge := t.TempDir()
+	s := &syncer{
+		layout: storage.LocalLayout{
+			Tenants: filepath.Join(edge, "tenants"),
+			HTTPD:   filepath.Join(edge, "httpd"),
+			State:   filepath.Join(edge, "state"),
+			Modsec:  filepath.Join(edge, "modsec"),
+		},
+		log: slog.New(slog.NewTextHandler(io.Discard, nil)),
+	}
+
+	m := storage.NewManifest("default")
+	m.Generation = 1
+	m.Entries = map[string]storage.Entry{
+		"state/../../outside": {ETag: "x"},
+	}
+
+	err := s.apply(context.Background(), m)
+	require.Error(t, err)
+	require.NoFileExists(t, filepath.Join(edge, "outside"))
+}
+
 func requireContent(t *testing.T, path, want string) {
 	t.Helper()
 	got, err := os.ReadFile(path)

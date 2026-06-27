@@ -177,6 +177,34 @@ func TestRender_PreActive_Strict_DetectionOnly(t *testing.T) {
 	assert.True(t, strings.HasSuffix(conf, "\n"))
 }
 
+func TestRender_RejectsUnsafeOriginHost(t *testing.T) {
+	_, err := angiecfg.Render(angiecfg.ConnConfig{
+		ID:            42,
+		TenantID:      7,
+		Domain:        "example.com",
+		OriginHosts:   []string{"127.0.0.1;\nserver attacker:443;"},
+		OriginPort:    443,
+		Status:        "pending_verification",
+		OriginTLSMode: "strict",
+	})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "invalid origin host")
+}
+
+func TestRender_NormalizesIPv6OriginHost(t *testing.T) {
+	conf := confContent(t, requireRender(t, angiecfg.ConnConfig{
+		ID:            43,
+		TenantID:      7,
+		Domain:        "example.com",
+		OriginHosts:   []string{"2001:db8::1"},
+		OriginPort:    443,
+		Status:        "pending_verification",
+		OriginTLSMode: "strict",
+	}), 43)
+
+	assert.Contains(t, conf, "    server [2001:db8::1]:443 max_fails=3 fail_timeout=30s;")
+}
+
 // ── Test 2: active, TLS strict, h2+h3, modsec=blocking, geoip, crowdsec on ─
 
 func TestRender_Active_H2H3_Blocking_Geoip(t *testing.T) {

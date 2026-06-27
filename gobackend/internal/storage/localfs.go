@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 )
@@ -34,11 +35,14 @@ func NewLocalFSMapped(layout LocalLayout, scope string) Store {
 	return &localStore{layout: &layout, scope: scope}
 }
 
-func (l *localStore) path(key string) string {
+func (l *localStore) path(key string) (string, error) {
 	if l.layout != nil {
 		return l.layout.Path(key)
 	}
-	return filepath.Join(l.root, filepath.FromSlash(key))
+	if _, err := canonicalKeyParts(strings.TrimSuffix(key, "/")); err != nil {
+		return "", err
+	}
+	return filepath.Join(l.root, filepath.FromSlash(key)), nil
 }
 
 func (l *localStore) Put(_ context.Context, key string, r io.Reader, opts PutOptions) (ObjectInfo, error) {
@@ -50,7 +54,10 @@ func (l *localStore) Put(_ context.Context, key string, r io.Reader, opts PutOpt
 	if mode == 0 {
 		mode = defaultMode(opts.Sensitive)
 	}
-	p := l.path(key)
+	p, err := l.path(key)
+	if err != nil {
+		return ObjectInfo{}, err
+	}
 	if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
 		return ObjectInfo{}, err
 	}
@@ -61,7 +68,10 @@ func (l *localStore) Put(_ context.Context, key string, r io.Reader, opts PutOpt
 }
 
 func (l *localStore) Get(_ context.Context, key string) (io.ReadCloser, ObjectInfo, error) {
-	p := l.path(key)
+	p, err := l.path(key)
+	if err != nil {
+		return nil, ObjectInfo{}, err
+	}
 	data, err := os.ReadFile(p)
 	if errors.Is(err, os.ErrNotExist) {
 		return nil, ObjectInfo{}, ErrNotFound
@@ -78,7 +88,11 @@ func (l *localStore) Get(_ context.Context, key string) (io.ReadCloser, ObjectIn
 }
 
 func (l *localStore) Delete(_ context.Context, key string) error {
-	err := os.Remove(l.path(key))
+	p, pathErr := l.path(key)
+	if pathErr != nil {
+		return pathErr
+	}
+	err := os.Remove(p)
 	if errors.Is(err, os.ErrNotExist) {
 		return nil
 	}
@@ -86,7 +100,11 @@ func (l *localStore) Delete(_ context.Context, key string) error {
 }
 
 func (l *localStore) DeletePrefix(_ context.Context, prefix string) error {
-	err := os.RemoveAll(l.path(prefix))
+	p, pathErr := l.path(prefix)
+	if pathErr != nil {
+		return pathErr
+	}
+	err := os.RemoveAll(p)
 	if errors.Is(err, os.ErrNotExist) {
 		return nil
 	}
@@ -99,9 +117,12 @@ func (l *localStore) List(_ context.Context, prefix string) ([]ObjectInfo, error
 		// enumerates; the sidecar (s3 mode) is the only List caller.
 		return nil, errors.New("storage: List unsupported on mapped localFS")
 	}
-	base := l.path(prefix)
+	base, err := l.path(prefix)
+	if err != nil {
+		return nil, err
+	}
 	var out []ObjectInfo
-	err := filepath.WalkDir(base, func(p string, d os.DirEntry, err error) error {
+	err = filepath.WalkDir(base, func(p string, d os.DirEntry, err error) error {
 		if err != nil {
 			if errors.Is(err, os.ErrNotExist) {
 				return nil // empty prefix → empty result
@@ -130,7 +151,10 @@ func (l *localStore) List(_ context.Context, prefix string) ([]ObjectInfo, error
 }
 
 func (l *localStore) Stat(_ context.Context, key string) (ObjectInfo, error) {
-	p := l.path(key)
+	p, err := l.path(key)
+	if err != nil {
+		return ObjectInfo{}, err
+	}
 	fi, err := os.Stat(p)
 	if errors.Is(err, os.ErrNotExist) {
 		return ObjectInfo{}, ErrNotFound
@@ -146,7 +170,11 @@ func (l *localStore) ReadManifest(_ context.Context) (Manifest, string, error) {
 }
 
 func (l *localStore) readManifestLocked() (Manifest, string, error) {
-	data, err := os.ReadFile(l.path(ManifestKey))
+	p, pathErr := l.path(ManifestKey)
+	if pathErr != nil {
+		return Manifest{}, "", pathErr
+	}
+	data, err := os.ReadFile(p)
 	if errors.Is(err, os.ErrNotExist) {
 		return NewManifest(l.scope), "", nil
 	}
@@ -174,7 +202,10 @@ func (l *localStore) PublishManifest(_ context.Context, m Manifest, ifMatchETag 
 	if err != nil {
 		return "", err
 	}
-	p := l.path(ManifestKey)
+	p, err := l.path(ManifestKey)
+	if err != nil {
+		return "", err
+	}
 	if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
 		return "", err
 	}

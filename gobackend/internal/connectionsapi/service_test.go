@@ -382,6 +382,43 @@ func TestCreateConnection_Success(t *testing.T) {
 	assert.Equal(t, int64(10), resp.Connection.TenantId)
 }
 
+func TestCreateConnection_RejectsOriginHostConfigInjection(t *testing.T) {
+	st := newFakeStore()
+	res := newFakeResolver()
+	cfg := &fakeCfgWriter{}
+	rel := &fakeReloader{}
+	svc := buildService(st, res, cfg, &fakeCertManager{}, rel)
+
+	_, err := svc.CreateConnection(tenantCtx(10), &connectionsv1.CreateConnectionRequest{
+		Name:        "bad-origin",
+		Domain:      "test.example.com",
+		OriginHosts: []string{"127.0.0.1;\nserver attacker:443;"},
+	})
+	require.Error(t, err)
+	assert.Equal(t, codes.InvalidArgument, status.Code(err))
+	assert.Empty(t, st.conns)
+	assert.Empty(t, cfg.written)
+	assert.Equal(t, 0, rel.reloadCount)
+}
+
+func TestCreateConnection_NormalizesOriginHosts(t *testing.T) {
+	st := newFakeStore()
+	res := newFakeResolver()
+	cfg := &fakeCfgWriter{}
+	svc := buildService(st, res, cfg, &fakeCertManager{}, &fakeReloader{})
+
+	resp, err := svc.CreateConnection(tenantCtx(10), &connectionsv1.CreateConnectionRequest{
+		Name:        "origin",
+		Domain:      "test.example.com",
+		OriginHosts: []string{"ORIGIN.EXAMPLE.COM.", "2001:db8::1", "origin.example.com"},
+	})
+	require.NoError(t, err)
+	require.NotNil(t, resp.Connection)
+	assert.Equal(t, []string{"origin.example.com", "[2001:db8::1]"}, resp.Connection.OriginHosts)
+	require.Len(t, cfg.written, 1)
+	assert.Equal(t, []string{"origin.example.com", "[2001:db8::1]"}, cfg.written[0].OriginHosts)
+}
+
 // TestGetConnection_CrossTenant verifies that fetching a connection with a
 // wrong tenant → codes.NotFound (no existence leak).
 func TestGetConnection_CrossTenant(t *testing.T) {

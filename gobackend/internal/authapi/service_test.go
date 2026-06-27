@@ -243,15 +243,19 @@ func (f *fakeOAuthFactory) Provider(string) (OAuthProvider, bool) {
 }
 
 type fakeOAuthProvider struct {
-	authURL string
-	info    *oauth.UserInfo
-	exchErr error
+	authURL             string
+	info                *oauth.UserInfo
+	exchErr             error
+	gotAuthRedirectURI  string
+	gotExchangeRedirect string
 }
 
-func (p *fakeOAuthProvider) AuthCodeURL(state, _ string) string {
+func (p *fakeOAuthProvider) AuthCodeURL(state, redirectURI string) string {
+	p.gotAuthRedirectURI = redirectURI
 	return p.authURL + "?state=" + state
 }
-func (p *fakeOAuthProvider) Exchange(_ context.Context, _, _ string) (*oauth.UserInfo, error) {
+func (p *fakeOAuthProvider) Exchange(_ context.Context, _, redirectURI string) (*oauth.UserInfo, error) {
+	p.gotExchangeRedirect = redirectURI
 	return p.info, p.exchErr
 }
 
@@ -334,6 +338,19 @@ func indexOf(s, sub string) int {
 // ctxWithCookie attaches a Cookie header to the incoming metadata.
 func ctxWithCookie(cookie string) context.Context {
 	md := metadata.New(map[string]string{"grpcgateway-cookie": cookie})
+	return metadata.NewIncomingContext(context.Background(), md)
+}
+
+func ctxWithForwardedHost(host string) context.Context {
+	md := metadata.New(map[string]string{"grpcgateway-x-forwarded-host": host})
+	return metadata.NewIncomingContext(context.Background(), md)
+}
+
+func ctxWithCookieAndForwardedHost(cookie, host string) context.Context {
+	md := metadata.New(map[string]string{
+		"grpcgateway-cookie":           cookie,
+		"grpcgateway-x-forwarded-host": host,
+	})
 	return metadata.NewIncomingContext(context.Background(), md)
 }
 
@@ -724,6 +741,23 @@ func TestOauthStartRedirectsWithState(t *testing.T) {
 	require.NotEmpty(t, md.Get(mdRedirect))
 }
 
+func TestOauthStartIgnoresForwardedHostForProviderRedirect(t *testing.T) {
+	h := newHarness(t, Config{PublicBaseURL: "https://waf.example.com/"})
+	h.oauth.ok = true
+	prov := &fakeOAuthProvider{authURL: "https://accounts.google.com/o/oauth2/auth"}
+	h.oauth.prov = prov
+	h.svc.cfg.GoogleRedirect = "https://static.example.com/api/auth/oauth/google/callback"
+
+	md, err := runWithMD(ctxWithForwardedHost("evil.example.net"), func(ctx context.Context) error {
+		_, e := h.svc.OauthStart(ctx, &authv1.OauthStartRequest{Provider: "google", Intent: "login"})
+		return e
+	})
+	require.NoError(t, err)
+	require.NotEmpty(t, md.Get(mdRedirect))
+	require.Equal(t, "https://waf.example.com/api/auth/oauth/google/callback", prov.gotAuthRedirectURI)
+	require.NotContains(t, prov.gotAuthRedirectURI, "evil.example.net")
+}
+
 func TestOauthStartUnconfiguredRedirectsError(t *testing.T) {
 	h := newHarness(t, Config{})
 	h.oauth.ok = false
@@ -735,6 +769,19 @@ func TestOauthStartUnconfiguredRedirectsError(t *testing.T) {
 	loc := md.Get(mdRedirect)
 	require.NotEmpty(t, loc)
 	require.Contains(t, loc[0], "provider_unavailable")
+}
+
+func TestOauthErrorRedirectIgnoresForwardedHost(t *testing.T) {
+	h := newHarness(t, Config{PublicBaseURL: "https://waf.example.com"})
+	h.oauth.ok = false
+	md, err := runWithMD(ctxWithForwardedHost("evil.example.net"), func(ctx context.Context) error {
+		_, e := h.svc.OauthStart(ctx, &authv1.OauthStartRequest{Provider: "google", Intent: "login"})
+		return e
+	})
+	require.NoError(t, err)
+	loc := md.Get(mdRedirect)
+	require.NotEmpty(t, loc)
+	require.Equal(t, "https://waf.example.com/login?oauth_error=provider_unavailable", loc[0])
 }
 
 func TestOauthCallbackStateMismatchRejected(t *testing.T) {
@@ -777,6 +824,26 @@ func TestOauthCallbackSuccessCreatesUserAndCookie(t *testing.T) {
 	require.NotNil(t, u.EmailVerifiedAt)
 	_, ok = h.st.oauthAccts["google|sub-123"]
 	require.True(t, ok)
+}
+
+func TestOauthCallbackIgnoresForwardedHostForSuccessRedirect(t *testing.T) {
+	h := newHarness(t, Config{PublicBaseURL: "https://waf.example.com"})
+	h.oauth.ok = true
+	prov := &fakeOAuthProvider{info: &oauth.UserInfo{
+		ProviderAccountID: "sub-789", Email: "publicbase@user.com", EmailVerified: true, DisplayName: "Public Base",
+	}}
+	h.oauth.prov = prov
+	state, err := h.svc.issuer.SignShortLived(map[string]any{"intent": "signup", "provider": "google"}, shortLivedTTL, "oauth_state")
+	require.NoError(t, err)
+	ctx := ctxWithCookieAndForwardedHost(oauthStateCookie+"="+state, "evil.example.net")
+
+	md, err := runWithMD(ctx, func(c context.Context) error {
+		_, e := h.svc.OauthCallback(c, &authv1.OauthCallbackRequest{Provider: "google", Code: "code", State: state})
+		return e
+	})
+	require.NoError(t, err)
+	require.Equal(t, "https://waf.example.com/api/auth/oauth/google/callback", prov.gotExchangeRedirect)
+	require.Equal(t, "https://waf.example.com/home", md.Get(mdRedirect)[0])
 }
 
 func TestOauthCallbackUnverifiedEmailRejected(t *testing.T) {
